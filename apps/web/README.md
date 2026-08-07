@@ -71,3 +71,5 @@ index.html                  the matching restore-path script (see the two togeth
 The checkered `repeating-conic-gradient` backdrop behind previews and
 `image-rendering: pixelated`. Layouts are transparent outside the floor, so without the
 backdrop they dissolve into the card.
+
+<!-- trigger a real Vercel preview build for #12 -->
