@@ -21,7 +21,10 @@
     "site": "node tools/build-site.mjs",
     "build": "npm run validate && npm run index && npm run previews && npm run site",
     "serve": "node tools/serve.mjs",
+    "//deps": "layout-core is a source dependency of the other workspaces, so its dist has to exist before anything typechecks or tests against it.",
+    "pretest": "npm run build:core",
     "test": "npm run test --workspaces --if-present",
+    "pretypecheck": "npm run build:core",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
