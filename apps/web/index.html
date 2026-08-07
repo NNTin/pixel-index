@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixel Index</title>
+    <script>
+      // Restores the real path after 404.html's redirect (see public/404.html
+      // for why this exists: GitHub Pages has no server-side rewrite rules,
+      // so a hard refresh on a deep link 404s before this script ever runs
+      // unless 404.html first bounces the request back here with the
+      // original path encoded in the query string). Runs before the app
+      // bundle so React Router sees the restored path on first render, not
+      // the redirected one.
+      (function () {
+        var redirect = sessionStorage.redirect;
+        delete sessionStorage.redirect;
+        if (redirect && redirect !== location.href) {
+          history.replaceState(null, '', redirect);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

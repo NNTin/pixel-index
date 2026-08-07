@@ -5,8 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Previews are generated, never committed, so the deployed site is built from
-# scratch on every push. A layout and its preview can never disagree.
+# The SPA is built from scratch on every push to main — there is no
+# previous-build cache to go stale, and the point of #12 is exactly that
+# this workflow no longer needs a real browser (Playwright/Chromium) at all:
+# it now builds apps/web, not the old Playwright-rendered static gallery.
 permissions:
   contents: read
   pages: write
@@ -21,30 +23,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Install index tooling
         run: npm ci
 
-      - name: Install upstream webview dependencies
-        run: npm ci
-        working-directory: vendor/pixel-agents
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Build gallery
+      - name: Build the SPA
+        working-directory: apps/web
+        env:
+          # A GitHub Pages PROJECT site is served from /<repo-name>/, which
+          # has to be baked into every asset path at build time — see
+          # vite.config.ts. Update if this repository is ever renamed or
+          # moved to a custom domain (in which case, unset this entirely).
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          # No default is safe to bake into a production build (unlike the
+          # localhost default client.ts falls back to for local dev) — set
+          # this in the repo's Settings > Secrets and variables > Actions >
+          # Variables once the API has a real production URL. Unset, the
+          # deployed site's API calls degrade to a clear "unreachable"
+          # message rather than a blank page (see #12's acceptance criteria)
+          # instead of silently trying someone's localhost.
+          VITE_API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
         run: npm run build
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: apps/web/dist
 
   deploy:
     needs: build

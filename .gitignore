@@ -7,3 +7,5 @@ node_modules/
 
 # Local deployment config
 .env
+.env.local
+.env.*.local
