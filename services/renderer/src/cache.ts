@@ -1,0 +1,84 @@
+/**
+ * Content-addressed PNG cache.
+ *
+ * Keyed on the layout bytes *and* the upstream pin, because bumping
+ * `vendor/pixel-agents` can change what a layout looks like — a cache that
+ * ignored the pin would serve a preview from the previous renderer forever.
+ *
+ * On disk rather than in memory so a redeploy is not a render stampede, and
+ * because a submission that duplicates an existing layout (#8 dedupes on the
+ * same hash) should cost nothing at all.
+ */
+
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+
+import { sha256 } from '@pixel-index/layout-core';
+
+export interface CacheKeyParts {
+  layoutBytes: string;
+  upstreamCommit: string | null;
+  upstreamVersion: string | null;
+  scale: number;
+}
+
+export function cacheKey(parts: CacheKeyParts): string {
+  return sha256(
+    [
+      parts.layoutBytes,
+      parts.upstreamCommit ?? 'no-commit',
+      parts.upstreamVersion ?? 'no-version',
+      `scale=${parts.scale}`,
+    // Joined with NUL, which cannot occur in any of the parts, so no
+    // combination of fields can collide with a different combination.
+    ].join('\u0000'),
+  );
+}
+
+export class PreviewCache {
+  private entries = 0;
+
+  constructor(
+    private readonly dir: string,
+    private readonly maxEntries: number,
+  ) {}
+
+  get enabled(): boolean {
+    return this.maxEntries > 0;
+  }
+
+  async init(): Promise<void> {
+    if (!this.enabled) return;
+    await fs.mkdir(this.dir, { recursive: true });
+    this.entries = (await fs.readdir(this.dir)).length;
+  }
+
+  private file(key: string): string {
+    return path.join(this.dir, `${key}.png`);
+  }
+
+  async get(key: string): Promise<Buffer | null> {
+    if (!this.enabled) return null;
+    try {
+      return await fs.readFile(this.file(key));
+    } catch {
+      return null;
+    }
+  }
+
+  async set(key: string, png: Buffer): Promise<void> {
+    if (!this.enabled) return;
+    // Over the ceiling, stop writing rather than evicting: previews are tiny and
+    // deterministic, so a cold entry costs one render, while an eviction policy
+    // costs correctness bugs. #17 sizes the volume.
+    if (this.entries >= this.maxEntries) return;
+
+    // Write-then-rename, so a crash mid-write cannot leave a truncated PNG that
+    // would then be served forever as a cache hit.
+    const target = this.file(key);
+    const temporary = `${target}.${process.pid}.tmp`;
+    await fs.writeFile(temporary, png);
+    await fs.rename(temporary, target);
+    this.entries += 1;
+  }
+}

@@ -50,6 +50,39 @@ jobs:
       - name: Test
         run: npm test
 
+  renderer:
+    name: Renderer parity
+    runs-on: ubuntu-latest
+    # Proves the renderer still draws exactly what the v1 build script drew.
+    # If this fails, previews changed for users — look at the images before
+    # touching the assertion.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install index tooling
+        run: npm ci
+
+      - name: Install upstream webview dependencies
+        run: npm ci
+        working-directory: vendor/pixel-agents
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # The reference the parity test compares against.
+      - name: Render the v1 previews
+        run: npm run previews
+
+      - name: Renderer integration tests
+        run: npm run test:integration --workspace @pixel-index/renderer
+
   previews:
     name: Render previews
     runs-on: ubuntu-latest

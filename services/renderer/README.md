@@ -1,6 +1,6 @@
 # @pixel-index/renderer
 
-`POST /render` with a layout JSON body, get a PNG back.
+`POST /render` with a layout, get a PNG back.
 
 Previews are the most valuable thing this index shows, and their credibility comes
 entirely from how they are made: **Pixel Agents' own renderer draws them**. Wall
@@ -8,34 +8,194 @@ autotiling, carpet marching-squares, per-tile colorize and z-sorting therefore m
 what a user will actually see, and a preview can never drift from its layout or from the
 pinned upstream.
 
-## Status
+Ported from v1's `tools/render-previews.mjs`
+([#4](https://github.com/NNTin/pixel-index/issues/4)). The port is verified
+**byte-identical**: an integration test renders every layout in the index and compares
+sha256 against what the v1 build script produced.
 
-Skeleton. **Delivered by [#4](https://github.com/NNTin/pixel-index/issues/4)**, porting
-`tools/render-previews.mjs` from a build script over files on disk to an HTTP service.
+## How it works
+
+The upstream webview has a dev-mode "browser mock" that decodes the bundled assets
+in-page and feeds them to the app over the same message path the real server uses. The
+service runs upstream's Vite dev server once at boot, then for each render opens a page
+and **intercepts the fetch for the bundled default layout**, answering with the layout
+being rendered. Everything on screen is then drawn by upstream's code.
 
 ## Why it is a separate service
 
-It needs Chromium and the pinned upstream checkout, which rules out the API container
-(small, stateless, horizontally scalable) and every static or serverless host. It is
-also the only component that takes attacker-controlled JSON and runs a browser on it, so
-it gets its own blast radius, concurrency limit and resource ceiling.
+It needs Chromium *and* the pinned upstream checkout, which rules out the API container
+(small, stateless, horizontally scalable) and every static or serverless host. It is also
+the only component that takes attacker-controlled JSON and runs a browser on it, so it
+gets its own blast radius, concurrency limit and resource ceiling.
 
-## Four fixes not to lose in the port
+## API
 
-Each of these was found the hard way in v1:
+### `POST /render`
 
-- **The layout must be injected by intercepting the default-layout fetch**
-  (`page.route`). Dispatching `layoutLoaded` after page load races the browser mock's own
-  late dispatch, and the loser silently renders the *default* office — every preview
-  looks plausible and every preview is wrong.
-- **`npx vite` orphans the real Vite process** (reparented to PID 1), so `SIGTERM` reaches
-  only the wrapper and the render hangs forever. Spawn the binary directly with
-  `detached: true` and kill the process group.
-- **Vite's `--port 0` hangs.** Allocate a free port yourself and pass `--strictPort`.
-- **`ZOOM = 2`** matches upstream's `Math.round(2 * devicePixelRatio)`. Crop to the canvas
-  pixel bounding box, and hide DOM chrome first.
+```jsonc
+{ "layout": { "version": 1, "cols": 21, /* … */ }, "scale": 1 }
+```
+
+`scale` is `1` (default), `0.5` or `0.25`. Responds `image/png`, with:
+
+| Header | Meaning |
+|---|---|
+| `etag` | the cache key — content-addressed, so it is stable forever |
+| `cache-control` | `immutable`; the same bytes can never mean something else |
+| `x-render-cache` | `hit` or `miss` |
+| `x-content-sha256` | hash of the returned PNG |
+
+| Status | When |
+|---|---|
+| `400` | unsupported `scale` |
+| `413` | body over `RENDERER_MAX_LAYOUT_BYTES` |
+| `422` | layout fails `@pixel-index/layout-core`, with structured `issues` |
+| `500` | render failed |
+| `504` | render exceeded `RENDERER_TIMEOUT_MS` |
+
+Validation happens **before** a browser is involved, so a layout the index would reject
+can never occupy a render slot.
+
+### `GET /health` and `GET /ready`
+
+`/health` is liveness. `/ready` asserts the browser is actually connected and reports the
+upstream pin, in-flight count and concurrency — because a health check that always
+returns 200 is how a container stays in a load balancer while broken.
+
+## Configuration
+
+Environment only. No hostname or path is compiled in.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RENDERER_HOST` | `::` | Dual-stack by default; see the note below |
+| `RENDERER_PORT` | `3000` | |
+| `RENDERER_CONCURRENCY` | `2` | Pages rendering at once. Never less than 1 |
+| `RENDERER_TIMEOUT_MS` | `60000` | Per render |
+| `RENDERER_MAX_LAYOUT_BYTES` | `2000000` | Refused at the socket |
+| `RENDERER_CACHE_DIR` | tmpdir | Content-addressed PNGs |
+| `RENDERER_CACHE_MAX_ENTRIES` | `2000` | `0` disables the cache |
+| `PIXEL_AGENTS_DIR` | auto-discovered | The pinned upstream |
+| `PIXEL_AGENTS_COMMIT` | read from git | Required in a container — see below |
+
+A bad value fails at boot with a message naming the variable, rather than silently
+falling back to a default.
 
 ## Caching
 
-Key on `sha256(layout) + upstream pin`. Re-rendering an unchanged layout should never
-launch a browser, and a submission duplicating an existing layout should cost nothing.
+Keyed on the layout bytes **and** the upstream pin, because bumping
+`vendor/pixel-agents` can change what a layout looks like — a key that ignored the pin
+would serve the previous renderer's preview forever. On disk, so a redeploy is not a
+render stampede and a submission that duplicates an existing layout
+([#8](https://github.com/NNTin/pixel-index/issues/8) dedupes on the same hash) costs
+nothing.
+
+At the ceiling it stops writing rather than evicting: previews are small and
+deterministic, so a cold entry costs one render, while an eviction policy costs
+correctness bugs. Writes go through a temp file and a rename, so a crash mid-write cannot
+leave a truncated PNG to be served forever as a cache hit.
+
+## Thumbnails scale dimensions, not bytes
+
+Measured across every layout in the index:
+
+| layout | full | `scale: 0.5` | `scale: 0.25` |
+|---|---|---|---|
+| blue-office | 800×416, 15.0 kB | 400×208, 15.3 kB | 200×104, 6.3 kB |
+| default | 640×384, 11.6 kB | 320×192, 12.7 kB | 160×96, 5.1 kB |
+| four-rooms | 640×704, 24.6 kB | 320×352, 24.9 kB | 160×176, 10.2 kB |
+| severance-office | 640×416, 4.6 kB | 320×208, 4.9 kB | 160×104, 2.1 kB |
+
+**`scale: 0.5` is larger on disk than the full image, every time.** Halving pixel art
+destroys the long runs of identical pixels that PNG's filters exploit, and the in-page
+encoder is less aggressive than Playwright's. Only `0.25` actually saves bytes (~57%).
+[#13](https://github.com/NNTin/pixel-index/issues/13) should pick `0.25` knowingly, or
+scale the full image with CSS `image-rendering: pixelated` and send nothing extra.
+
+Downscaling happens on the canvas already open, with `imageSmoothingEnabled = false`.
+Pixel art must never be resampled, and doing it in the page avoids adding a native image
+library to an image that is already 400 MB of browser.
+
+## Five fixes not to lose
+
+Every one of these was diagnosed the hard way in v1, and each is invisible until it bites:
+
+- **The layout must be injected by intercepting the default-layout fetch** (`page.route`).
+  Dispatching `layoutLoaded` after page load races the browser mock's own late dispatch,
+  and the loser silently renders the *default* office — every preview looks entirely
+  plausible and every preview is wrong. There is a test that renders two different
+  layouts and asserts they differ.
+- **`npx vite` orphans the real Vite process** (reparented to PID 1), so `SIGTERM`
+  reaches only the wrapper and the process never exits. The binary is spawned directly
+  with `detached: true` and killed as a process group.
+- **Vite's `--port 0` hangs.** A free port is allocated first and passed with
+  `--strictPort`.
+- **`ZOOM = 2`** matches upstream's `Math.round(2 * devicePixelRatio)`. The screenshot is
+  clipped to the canvas pixel bounding box, after hiding DOM chrome — an element
+  screenshot captures the page region, so toolbars and toasts drawn over the canvas would
+  otherwise land in the preview.
+- **`NODE_ENV=production` silently disables everything.** Vite derives
+  `import.meta.env.DEV` from `NODE_ENV` *even when running the dev server*, and upstream
+  gates its entire browser mock on `DEV` (`webview-ui/src/main.tsx`). In production mode
+  the mock is skipped, the app falls back to a WebSocket transport pointed at a server
+  that does not exist, and the office is never built — so every render times out waiting
+  for furniture that will never arrive, with **no error logged anywhere**. Setting
+  `NODE_ENV=production` is otherwise exactly the right thing to do for a Node service,
+  which is what makes this a trap. `devServer.ts` forces `development` for the Vite child
+  so the service cannot be misconfigured into it, and a unit test pins that.
+
+## Shutdown
+
+`SIGTERM`/`SIGINT` close the HTTP server, then the browser, then the Vite process group.
+Verified by starting the service, rendering, sending `SIGTERM`, and confirming the
+Chromium and Vite process counts return to baseline.
+
+## Local development
+
+```bash
+npm ci
+(cd vendor/pixel-agents && npm ci)     # the renderer runs upstream's webview
+npx playwright install chromium
+
+npm run dev --workspace @pixel-index/renderer
+npm test --workspace @pixel-index/renderer              # fast; no browser
+npm run test:integration --workspace @pixel-index/renderer   # real browser + Vite
+```
+
+The integration suite is opt-in because it boots Vite and Chromium. It is also the only
+place that can prove the renderer still draws what v1 drew, so CI runs it on every pull
+request. If the parity test fails, **look at the images before touching the assertion** —
+it means the port changed what users see.
+
+## Container
+
+```bash
+# Context is the repo root, and the upstream commit must be passed in.
+docker build -f services/renderer/Dockerfile \
+  --build-arg PIXEL_AGENTS_COMMIT=$(git -C vendor/pixel-agents rev-parse HEAD) \
+  -t pixel-index-renderer .
+```
+
+The build context is the repository root, because the image needs the workspace root, the
+`layout-core` package and `vendor/pixel-agents`. Upstream's webview dev dependencies are
+installed in the **runtime** stage with `--include=dev`, not just the builder: Vite is one
+of them, and the service boots its dev server at run time. That is what makes previews
+upstream's own work rather than a reimplementation.
+
+Three container-specific things, each of which broke the image once:
+
+- **`PIXEL_AGENTS_COMMIT` must be passed at build time.** A copied `vendor/` tree has no
+  git linkage, so the commit cannot be read at runtime and the cache key would fall back
+  to the upstream *version* alone. The pin is routinely several commits past a tag
+  (`v1.4.0-14-g9794e07`), so two different builds would share cached previews. The
+  service logs a warning at boot if it is missing.
+- **Ownership is set with `COPY --chown` and the vendor install runs as `pwuser`.** Vite
+  bundles `vite.config.ts` to a `.timestamp-*.mjs` file *beside itself* at startup, and
+  caches optimised deps under `node_modules/.vite`. A root-owned tree gives `EACCES` and
+  the dev server never starts. Doing it at copy time rather than with a later `chown -R`
+  avoids duplicating the whole tree into another layer.
+- **`NODE_ENV` is deliberately unset.** See the fifth trap above.
+
+Verified end to end: the image renders all four layouts byte-identically to the v1
+script, serves a cache hit on repeat, reports `healthy`, and stops in under half a second
+on `SIGTERM` with exit 0.
