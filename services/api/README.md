@@ -476,6 +476,10 @@ Three of this route's own guards are mutation-tested — dedupe (both the public
 non-public case), the blocked-user check, and the daily cap — deleted and confirmed to
 fail the specific test built to catch it, then restored.
 
+That #8 check, and the #9/#10 one below, started as one-off manual sessions run by
+hand. `services/api/e2e/` turns the same check into something CI runs on every push —
+see "Automated end-to-end suite" further down.
+
 ## Editing, replacing, deleting and moderating a layout
 
 ```
@@ -603,6 +607,16 @@ guard, the self-role-change guard, the dedupe-excludes-`deleted` fix (both `POST
 /layouts` and `PUT .../layout`), and the admin-required-to-block-a-privileged-account
 guard.
 
+One of those mutation passes caught a real bug, not just proved a test's anchoring: the
+first version of the dedupe-excludes-`deleted` fix excluded a `deleted` match
+unconditionally, so a stranger with a copy of the exact bytes of *anyone's* withdrawn
+layout could republish it as their own. Only "the SAME owner republishing their own
+withdrawn content" is what schema.ts documents. Caught during the live end-to-end pass
+below — not by the unit suite, which had only ever exercised the same-owner case — the
+fix now checks `duplicate.authorUserId === ` the submitting user, and a cross-owner
+regression test (`submit.test.ts`, "still rejects a STRANGER…") was added and
+mutation-tested alongside it.
+
 ## Docker
 
 ```bash
@@ -637,6 +651,35 @@ round-trip correctly, `/download` is **byte-identical** to the source file on di
 renderer (`RENDERER_URL` pointed at nothing) produces a real `502` rather than a hang or
 a crash, and `/openapi.json` names its schemas `LayoutSummary`/`LayoutDetail` rather than
 the default `def-0`/`def-1` — see "two subtleties" above.
+
+### Automated end-to-end suite
+
+```
+services/api/e2e/docker-compose.yml   Postgres + the real renderer + API images
+services/api/e2e/run.ts               the assertions — one full owner+moderator session
+services/api/e2e/e2e.sh               build, bring the stack up, run run.ts, always tear down
+```
+
+```bash
+npm run test:e2e --workspace @pixel-index/api        # needs Docker
+npm run typecheck:e2e --workspace @pixel-index/api    # e2e/run.ts on its own tsconfig
+```
+
+Everything above this point — #6 through #10's checks against real containers — started
+as one-off manual sessions: build the images, wire up a throwaway network by hand, sign
+a JWT via `docker exec`, curl through the flow, tear it down. `services/api/e2e/`
+repeats exactly that shape (the real, built Docker images; a real Postgres; no stubbed
+renderer) as something that runs unattended, on every push and PR (`api-e2e` job,
+`.github/workflows/ci.yml`), instead of only when someone remembers to run it. `run.ts`
+inserts test users directly via `pg` (no Discord OAuth needed — access tokens are just
+HS256 JWTs, signed with the same `signAccessToken` the API itself uses) and drives the
+full #9/#10 flow over real HTTP: submit, edit, moderate, replace, delete, the
+cross-owner dedupe fix from the section above, and the block-cascade. It is deliberately
+a plain top-to-bottom script rather than vitest — nothing in it is an independent unit,
+it all shares one running stack, and unit coverage of the same individual guards already
+lives in `manage.test.ts` and `users/routes.test.ts`; this suite exists to prove the
+real images actually boot, migrate, and talk to each other, which no amount of
+PGlite-and-a-stub coverage can.
 
 ## The database
 

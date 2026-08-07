@@ -16,7 +16,10 @@
     "db:migrate:dev": "tsx src/db/migrate.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "//test:e2e": "Real Postgres + renderer + API in Docker — see e2e/e2e.sh and e2e/run.ts.",
+    "test:e2e": "bash e2e/e2e.sh",
+    "typecheck": "tsc --noEmit",
+    "typecheck:e2e": "tsc --noEmit -p e2e/tsconfig.json"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

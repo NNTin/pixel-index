@@ -54,6 +54,34 @@ jobs:
       - name: Test
         run: npm test
 
+  api-e2e:
+    name: API end-to-end (real Postgres + renderer + API)
+    runs-on: ubuntu-latest
+    # Everything in `test` above runs against a fake pool / PGlite / a
+    # stubbed renderer — fast, but it never proves the actual Docker images
+    # boot, migrate, and talk to each other. This does: builds the real
+    # services/api and services/renderer images, brings up a real Postgres
+    # alongside them, and drives the whole owner+moderator flow over real
+    # HTTP. See services/api/e2e/.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install index tooling
+        run: npm ci
+
+      - name: Typecheck the e2e script itself
+        run: npm run typecheck:e2e --workspace @pixel-index/api
+
+      - name: Run the e2e suite
+        run: npm run test:e2e --workspace @pixel-index/api
+
   renderer:
     name: Renderer parity
     runs-on: ubuntu-latest

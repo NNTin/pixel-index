@@ -1,0 +1,63 @@
+# Spins up the real, built images — Postgres, the renderer microservice, the
+# API — for e2e/run.ts to hit over real HTTP. This is a TEST fixture, not the
+# self-hostable production compose (#17, not yet built): it exposes Postgres
+# on the host (run.ts inserts test users directly) and uses throwaway
+# credentials that must never be reused anywhere real.
+#
+# Usage: services/api/e2e/e2e.sh, which sets PIXEL_AGENTS_COMMIT and
+# SESSION_SECRET and runs `docker compose up --wait` before executing run.ts.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pixel
+      POSTGRES_PASSWORD: pixel
+      POSTGRES_DB: pixel_index
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pixel"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  renderer:
+    build:
+      context: ../../..
+      dockerfile: services/renderer/Dockerfile
+      args:
+        PIXEL_AGENTS_COMMIT: ${PIXEL_AGENTS_COMMIT:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: ../../..
+      dockerfile: services/api/Dockerfile
+      args:
+        PIXEL_AGENTS_COMMIT: ${PIXEL_AGENTS_COMMIT:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      renderer:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://pixel:pixel@postgres:5432/pixel_index
+      RENDERER_URL: http://renderer:3000
+      PUBLIC_WEB_ORIGIN: http://localhost:5173
+      PUBLIC_API_ORIGIN: http://localhost:18080
+      DISCORD_CLIENT_ID: e2e-dummy
+      DISCORD_CLIENT_SECRET: e2e-dummy
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required — see e2e.sh}
+      API_TRUST_PROXY: "false"
+    ports:
+      - "18080:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
