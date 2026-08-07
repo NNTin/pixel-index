@@ -62,8 +62,8 @@ Disagreements are worked out by talking to the people who made the call.
 
 ## A note on what exists today
 
-This policy describes the model the index is built around, not only what the current
-software can already do end-to-end. Moderators can hide, remove and block through the
-API right now (see `services/api/README.md`). A dedicated in-app report button and a
-moderation console are planned (tracked as later work on the same project) but do not
-exist yet — reporting today is the manual, contact-a-person path above.
+Moderators hide, remove and block through a real moderation console in the app now
+(`apps/web`'s Moderation and Admin pages, see `services/api/README.md` for the endpoints
+behind them). There is deliberately still no in-app **report button** — this index has
+no report-intake queue at all (see MODERATORS.md and the #10 issue thread for why) —
+so reporting stays the manual, contact-a-person path above.

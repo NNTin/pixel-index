@@ -54,6 +54,14 @@ async function waitForAuthReady() {
 const VALID_LAYOUT = JSON.stringify({ version: 1, layoutRevision: 1, cols: 2, rows: 2, tiles: [0, 0, 0, 0], furniture: [] });
 
 describe('SubmitPage', () => {
+  it('links the content policy before publishing (#11)', async () => {
+    stubFetch(() => new Response('{}', { status: 200 }));
+    renderSubmit();
+    await waitForAuthReady();
+    const link = screen.getByRole('link', { name: 'content policy' });
+    expect(link).toHaveAttribute('href', 'https://github.com/NNTin/pixel-index/blob/main/CONTENT_POLICY.md');
+  });
+
   it('shows the actionable validation issues the API returns, not a generic message', async () => {
     stubFetch(() =>
       new Response(

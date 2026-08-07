@@ -77,6 +77,18 @@ export function SubmitPage() {
         Export from Pixel Agents with <strong>Layout → Export</strong>, then paste or upload the
         resulting <code>layout.json</code> below.
       </p>
+      <p className="mt-2 text-sm text-slate-400">
+        This index is <strong>public on publish</strong>, not reviewed first — read the{' '}
+        <a
+          href="https://github.com/NNTin/pixel-index/blob/main/CONTENT_POLICY.md"
+          className="underline"
+          target="_blank"
+          rel="noreferrer"
+        >
+          content policy
+        </a>{' '}
+        before you publish.
+      </p>
 
       <div className="mt-6 flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm">
