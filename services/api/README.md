@@ -6,7 +6,8 @@ secret, the database connection, and every authorization decision.
 ## Status
 
 The **database layer** (#3), the **service skeleton** (#5), **Discord auth** (#7), the
-**public layout API** (#6) and **submission** (#8) exist. Publishing a layout no longer
+**public layout API** (#6), **submission** (#8), **owner self-service** (#9) and
+**moderation** (#10) exist. Publishing, editing and moderating a layout no longer
 requires a pull request.
 
 | Issue | Scope | State |
@@ -16,8 +17,8 @@ requires a pull request.
 | [#6](https://github.com/NNTin/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | done |
 | [#7](https://github.com/NNTin/pixel-index/issues/7) | Discord OAuth, sessions, roles | done |
 | [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | done |
-| [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service | next |
-| [#10](https://github.com/NNTin/pixel-index/issues/10) | reports, moderation, audit log | |
+| [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service: edit, replace, delete | done |
+| [#10](https://github.com/NNTin/pixel-index/issues/10) | moderation: visibility, roles, blocking, audit log | done |
 
 ## The HTTP surface today
 
@@ -45,11 +46,17 @@ src/renderer/client.ts   thin client for the renderer service (#4), used by prev
 
 src/layouts/submit.ts    POST /layouts — the whole submission pipeline
 src/layouts/slug.ts      title -> collision-safe, stable-once-assigned slug
+src/layouts/metadata.ts  tag validation, length limits, shared by submit.ts and manage.ts
+src/layouts/upstreamValidator.ts  the layout-core validator, built once, shared by submit.ts and manage.ts
+src/layouts/manage.ts    PATCH/PUT/DELETE /layouts/:slug, GET /me/layouts — #9's edits, #10's moderation, same routes
+src/moderation/audit.ts  recordModerationAction() — the one insert path into the append-only audit log
+
+src/users/routes.ts      PATCH /users/:id/role, /block — admin/moderator account actions (#10)
 ```
 
 ```bash
 npm run dev --workspace @pixel-index/api    # tsx watch
-npm test --workspace @pixel-index/api        # 258 tests, no real Postgres or renderer needed
+npm test --workspace @pixel-index/api        # 301 tests, no real Postgres or renderer needed
 ```
 
 `GET /health` is liveness — always 200 once the process is up. `GET /ready` actually
@@ -469,6 +476,133 @@ Three of this route's own guards are mutation-tested — dedupe (both the public
 non-public case), the blocked-user check, and the daily cap — deleted and confirmed to
 fail the specific test built to catch it, then restored.
 
+## Editing, replacing, deleting and moderating a layout
+
+```
+PATCH  /api/v1/layouts/:slug            edit title/description/tags, or (moderator) visibility
+PUT    /api/v1/layouts/:slug/layout     replace the layout.json content — owner-only
+DELETE /api/v1/layouts/:slug            withdraw — owner-only, idempotent
+GET    /api/v1/me/layouts               the caller's own layouts, every visibility
+```
+
+### One `PATCH`, not a separate moderator endpoint
+
+#10 originally scoped a report-intake and moderation API of its own — `POST
+.../report`, a queue of open reports, dedicated hide/remove/restore routes. Before
+building that, the plan was adjusted (see the comment thread on
+[#10](https://github.com/NNTin/pixel-index/issues/10)): there is no report queue, and a
+moderator hides, removes or restores a layout through the **same** `PATCH
+/api/v1/layouts/:slug` an owner uses to fix a typo, not a parallel `/moderate` surface.
+The difference between an owner's edit and a moderator's action is which fields the
+request is allowed to touch, checked once per request:
+
+- `visibility` is moderator-only, full stop — an owner can never set it (they get `DELETE`
+  instead, a one-way trip to `deleted`).
+- A `reason` is required whenever the change is **not** the owner editing their own
+  metadata — a visibility change, or anyone editing someone else's layout. Nobody has to
+  justify a change to their own title to themselves; every other write is moderation and
+  "no silent moderation" (#10's own acceptance criterion) means it is always attributed
+  and always explained.
+- Every visibility transition maps onto one of `layout.hide` / `unhide` / `remove` /
+  `restore` in the audit log (`visibilityAuditAction()`, `manage.ts`) purely from
+  `(from, to)`, so the log reads as an actual moderation history, not four undifferentiated
+  "visibility changed" rows.
+
+`hidden` and `removed` are both reversible by a moderator through the same route;
+`deleted` (owner-only, via `DELETE`) is not reachable from `PATCH` at all — see
+schema.ts's visibility-state table for why hidden/removed and deleted are different
+things with different owners.
+
+### `PUT .../layout` stays owner-only, even for a moderator
+
+Replacing the *content* of a layout is never something #10 does on someone else's
+behalf — a moderator who objects to the design hides or removes it; they do not rewrite
+someone else's submission. It shares the raw-body content-type parser trick and the
+`layoutStats`/dedupe/render pipeline with `POST /layouts` (#8), via the same
+`upstreamValidator.ts` instance built once at boot. The dedupe check carries #9's own fix
+forward: replacing with content that byte-matches one of the *same owner's* previously
+`deleted` layouts is allowed — only a match against someone else's layout, or a
+`removed` one, is a `409`.
+
+### `DELETE` is owner-only and idempotent
+
+A moderator never `DELETE`s — that would conflate "the owner withdrew this" with "a
+moderator acted on this" in the audit trail, which is exactly the distinction #10 keeps.
+Re-deleting an already-`deleted` layout is a silent `204`, matching `/auth/logout`'s
+existing idempotent-DELETE precedent (#7) rather than a `404` for a state the caller
+already achieved.
+
+### `GET /me/layouts`
+
+The owner's own list, reusing #6's exact sort/cursor pagination machinery
+(`ListLayoutsScope`, `query.ts`) with a different base filter — `authorUserId = caller`,
+no visibility filter — instead of a second, parallel pagination implementation. Returns
+`OwnerLayoutView`: the public shape plus `visibility`, `visibilityReason` and
+`visibilityChangedAt`, so an owner can see *why* something of theirs is hidden.
+
+## Account moderation: roles and blocking
+
+```
+PATCH /api/v1/users/:id/role     admin-only: promote/demote user|moderator|admin
+PATCH /api/v1/users/:id/block    moderator+: block/unblock an account
+```
+
+Deliberately narrow — there is no general `PATCH /users/:id`. Role and block are two
+specific, heavily-audited powers, not an account-edit surface.
+
+Both routes fetch a **fresh** actor row from the database rather than trusting the
+access token's `{id, role}` claim (`requireFreshRole`, `users/routes.ts`). ADR 0001's
+stateless-access-token trade-off is explicit that this is acceptable because nothing
+critical depends on the claim staying fresh — role changes and blocking are exactly the
+"path that matters most" that framing names, so these two routes close that gap rather
+than living with it: a moderator demoted a second ago cannot use their old token to keep
+demoting, promoting, or blocking for the rest of its TTL.
+
+- **Role changes are admin-only.** Nobody can change their own role. The system user
+  (#3's seed-layout owner) cannot be modified at all.
+- **Blocking is moderator-minimum**, but blocking a moderator or admin account —
+  de-privileging a privileged one — requires admin, the same boundary role changes
+  already draw. Nobody can block themselves. A `reason` is required to block (not to
+  unblock).
+- **Blocking hides every currently-public layout the account owns**, in the same
+  transaction as the block itself (`hideAllPublicLayoutsForUser`), each with its own
+  `layout.hide` audit entry alongside the `user.block` one — a blocked account's content
+  disappears from every public read path (#6 has no cache layer, so this is true by
+  construction, not by invalidation) at the same moment the block takes effect, not just
+  going forward. This was a direct decision, not the default: **unblocking does not
+  restore them.** An account back in good standing does not retroactively re-validate
+  everything it published while blocked — restoring individual layouts, if warranted, is
+  a separate `PATCH .../visibility` call.
+- Blocking also revokes every active session (`revokeAllSessionsForUser`, #7) so a
+  blocked user cannot refresh their way back in; existing access tokens still expire
+  naturally rather than being invalidated mid-flight, the same TTL trade-off as everywhere
+  else, but every *write* route re-checks `blockedAt` against a fresh row
+  (`requireUnblockedUser`, `manage.ts`) so a still-valid token cannot be used to publish or
+  edit while blocked.
+
+### What #10 dropped, and why
+
+The original plan had a `POST /layouts/:slug/report` intake, a moderator queue of open
+reports, and (tentatively) an outbound webhook on new reports. All of it was cut before
+implementation, in favor of moderators acting directly through `PATCH` above:
+
+- **No report intake, no queue, no `reports` table writer.** The `reports` schema and
+  `report.create`/`resolve`/`dismiss` audit actions (#3) stay in the schema, unused —
+  cheap to keep, and not worth a migration to remove for a table nothing writes to yet.
+- **The webhook idea had no trigger left without report intake**, so it was dropped for
+  this pass rather than built against a queue that does not exist.
+
+See the [#10 comment thread](https://github.com/NNTin/pixel-index/issues/10) for the full
+before/after and the four decisions that replaced the original scope.
+
+### Mutation-tested
+
+Five of #9/#10's guards were deleted and confirmed to fail the specific test built to
+catch each one, then restored: the owner-or-moderator gate on `PATCH`, the self-block
+guard, the self-role-change guard, the dedupe-excludes-`deleted` fix (both `POST
+/layouts` and `PUT .../layout`), and the admin-required-to-block-a-privileged-account
+guard.
+
 ## Docker
 
 ```bash
@@ -665,6 +799,14 @@ the **actual, built renderer image** rendered a real submission end-to-end (a ge
 "Submitting a layout" above for what that checked. Dedupe (both the public and the
 non-public/laundering case), the blocked-user check and the daily cap are
 mutation-tested.
+
+`layouts/manage.test.ts` and `users/routes.test.ts` cover #9/#10 the same way — real
+HTTP handlers, PGlite, a stubbed renderer for `PUT .../layout` — plus
+`layouts/query.test.ts` gained direct coverage of the owner-scope list and
+`hideAllPublicLayoutsForUser`. Five guards are mutation-tested: the owner-or-moderator
+gate on `PATCH`, the self-block guard, the self-role-change guard, the
+dedupe-excludes-`deleted` fix, and the admin-required-to-block-a-privileged-account
+guard.
 
 ## A note on `drizzle-kit`
 

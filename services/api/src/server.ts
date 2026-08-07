@@ -22,8 +22,11 @@ import type { ApiConfig } from './config.js';
 import type { AnyDatabase } from './db/client.js';
 import type { Queryable } from './db/pool.js';
 import { registerErrorHandling } from './errors.js';
+import { registerManageRoutes } from './layouts/manage.js';
 import { registerLayoutRoutes } from './layouts/routes.js';
 import { registerSubmitRoutes } from './layouts/submit.js';
+import { buildUpstreamValidator } from './layouts/upstreamValidator.js';
+import { registerUserAdminRoutes } from './users/routes.js';
 import { sharedSchemas } from './layouts/schemas.js';
 import { registerMetaRoutes } from './meta.js';
 
@@ -119,10 +122,17 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
 
   for (const schema of sharedSchemas) app.addSchema(schema);
 
+  // Built once, shared by every route that needs to validate a layout against
+  // the pinned upstream (submit's POST, manage's PUT .../layout) — see
+  // upstreamValidator.ts for why this never throws.
+  const upstream = buildUpstreamValidator(config, app.log, 'layout submission and editing');
+
   registerAuthRoutes(app, { config, db });
   registerMetaRoutes(app, config, db);
   registerLayoutRoutes(app, { config, db });
-  registerSubmitRoutes(app, { config, db });
+  registerSubmitRoutes(app, { config, db, upstream });
+  registerManageRoutes(app, { config, db, upstream });
+  registerUserAdminRoutes(app, { db });
 
   app.get('/health', { schema: { hide: true } }, async () => ({ status: 'ok' }));
 

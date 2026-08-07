@@ -64,12 +64,22 @@ export function requireAuth(request: FastifyRequest): AuthUser {
 const ROLE_RANK: Record<Role, number> = { user: 0, moderator: 1, admin: 2 };
 
 /**
+ * Roles are a ladder, not a set of exclusive labels — `admin` satisfies a
+ * `moderator` check. Exported for routes that need "is at least X" as a
+ * plain boolean rather than a throw (manage.ts: owner-or-moderator, where
+ * ownership alone is also sufficient and `requireRole` has no way to say that).
+ */
+export function hasAtLeastRole(role: Role, atLeast: Role): boolean {
+  return ROLE_RANK[role] >= ROLE_RANK[atLeast];
+}
+
+/**
  * A logged-in user with at least `role`. `admin` satisfies a `moderator`
  * check — roles are a ladder, not a set of exclusive labels.
  */
 export function requireRole(request: FastifyRequest, role: Role): AuthUser {
   const user = requireAuth(request);
-  if (ROLE_RANK[user.role] < ROLE_RANK[role]) {
+  if (!hasAtLeastRole(user.role, role)) {
     throw ApiError.forbidden(`This action requires the ${role} role.`);
   }
   return user;

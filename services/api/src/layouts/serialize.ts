@@ -97,3 +97,35 @@ export function toDetail(
 ): PublicLayoutDetail {
   return { ...toSummary(layout, author, tags), layout: layout.layout };
 }
+
+export interface OwnerLayoutView extends PublicLayoutDetail {
+  /** Absent from the public shape — a hidden/removed slug is a 404 there. */
+  visibility: schema.Layout['visibility'];
+  /**
+   * Why it is not public, if it is not — surfaced to the owner (#9) so a
+   * layout that disappeared is never a silent mystery to the person who
+   * made it. `null` for a public layout, or for the owner's own `deleted`
+   * (they know why; nothing to explain back to them).
+   */
+  visibilityReason: string | null;
+  visibilityChangedAt: string | null;
+}
+
+/**
+ * The owner's (or a moderator's) own view of one of their layouts —
+ * `GET /me/layouts` and the response from `PATCH`/`PUT .../layout`. Same
+ * shape as the public detail plus the fields the public API deliberately
+ * omits.
+ */
+export function toOwnerView(
+  layout: schema.Layout,
+  author: schema.User | null,
+  tags: string[],
+): OwnerLayoutView {
+  return {
+    ...toDetail(layout, author, tags),
+    visibility: layout.visibility,
+    visibilityReason: layout.visibilityReason,
+    visibilityChangedAt: layout.visibilityChangedAt?.toISOString() ?? null,
+  };
+}

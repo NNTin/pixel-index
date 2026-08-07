@@ -12,15 +12,7 @@
  * dedupe -> daily cap -> insert.
  */
 
-import {
-  createValidator,
-  layoutStats,
-  SLUG_RE,
-  sha256,
-  upstreamPin,
-  type Layout,
-  type Validator,
-} from '@pixel-index/layout-core';
+import { layoutStats, sha256, type Layout } from '@pixel-index/layout-core';
 import type { FastifyInstance } from 'fastify';
 
 import { requireAuth } from '../auth/context.js';
@@ -31,13 +23,14 @@ import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { requestPreview } from '../renderer/client.js';
 import { writeRateLimitConfig } from '../rateLimit.js';
+import { isUniqueViolation, parseAndValidateTags } from './metadata.js';
+import { recordModerationAction } from '../moderation/audit.js';
 import { attachTags, countUserSubmissionsSince, findLayoutBySha256 } from './query.js';
-import { generateUniqueSlug } from './slug.js';
 import { toDetail } from './serialize.js';
+import { generateUniqueSlug } from './slug.js';
+import type { UpstreamValidator } from './upstreamValidator.js';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const MAX_TAGS = 8;
-const MAX_TAG_LENGTH = 24; // matches meta.schema.json's tag maxLength
 
 const submitQuerySchema = {
   type: 'object',
@@ -59,70 +52,14 @@ interface SubmitQuery {
   tags?: string;
 }
 
-function parseAndValidateTags(raw: string | undefined): string[] {
-  if (!raw) return [];
-  const names = [...new Set(raw.split(',').map((t) => t.trim()).filter((t) => t.length > 0))];
-
-  if (names.length > MAX_TAGS) {
-    throw ApiError.validation(
-      [{ code: 'meta.schema', path: '/tags', message: `at most ${MAX_TAGS} tags, got ${names.length}` }],
-      'Too many tags.',
-    );
-  }
-  const issues = names
-    .filter((name) => !SLUG_RE.test(name) || name.length > MAX_TAG_LENGTH)
-    .map((name) => ({
-      code: 'meta.schema' as const,
-      path: '/tags',
-      message: `tag "${name}" must be lowercase kebab-case (a-z, 0-9, hyphen), max ${MAX_TAG_LENGTH} characters`,
-    }));
-  if (issues.length > 0) throw ApiError.validation(issues, 'One or more tags are invalid.');
-
-  return names;
-}
-
-/** Postgres/PGlite unique-violation, optionally narrowed to one constraint. */
-function isUniqueViolation(error: unknown, constraint?: string): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const err = error as { code?: unknown; constraint?: unknown; cause?: unknown };
-  const code = err.code ?? (err.cause as { code?: unknown } | undefined)?.code;
-  if (code !== '23505') return false;
-  if (!constraint) return true;
-  const actualConstraint = err.constraint ?? (err.cause as { constraint?: unknown } | undefined)?.constraint;
-  return actualConstraint === constraint;
-}
-
 export interface SubmitRoutesDeps {
   config: ApiConfig;
   db: AnyDatabase;
+  /** Built once in server.ts and shared with `manage.ts`'s `PUT .../layout`. */
+  upstream: UpstreamValidator | null;
 }
 
-export function registerSubmitRoutes(app: FastifyInstance, { config, db }: SubmitRoutesDeps): void {
-  // Built once at boot, not per request: furnitureCatalog() walks the whole
-  // asset tree, and the pin cannot change for the lifetime of one process.
-  //
-  // This does NOT throw on failure, even though a missing upstream makes
-  // every single submission impossible — the same tension /meta already
-  // resolved (meta.ts) applies here too, and for the same reason: this
-  // process serves reads as well as this one write route, and a self-hoster
-  // who forgot `git submodule update --init` should get a broken submission
-  // endpoint, not a service that will not start at all. The route below
-  // fails every request with a clear 503 instead.
-  let upstream: { pin: ReturnType<typeof upstreamPin>; validator: Validator } | null = null;
-  try {
-    const pin = upstreamPin(config.upstreamDir);
-    const validator = createValidator({
-      ...(config.upstreamDir ? { upstreamDir: config.upstreamDir } : {}),
-      upstreamVersion: pin.version,
-    });
-    upstream = { pin, validator };
-  } catch (error) {
-    app.log.error(
-      { err: error },
-      'Pinned Pixel Agents not found — POST /api/v1/layouts will refuse every submission until this is fixed.',
-    );
-  }
-
+export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstream }: SubmitRoutesDeps): void {
   app.register(async (instance) => {
     // Scoped to this plugin only — every other application/json route (list,
     // detail, auth) keeps Fastify's normal parsed-object behaviour. Overriding
@@ -190,7 +127,11 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db }: Submi
 
         const hash = sha256(raw);
         const duplicate = await findLayoutBySha256(db, hash);
-        if (duplicate) {
+        // `deleted` is excluded deliberately: an owner may re-publish content
+        // they withdrew themselves (schema.ts's own visibility table says so),
+        // and only a moderator-removed/hidden or still-public duplicate should
+        // block a resubmission — see #9's fix note.
+        if (duplicate && duplicate.visibility !== 'deleted') {
           throw ApiError.conflict(
             duplicate.visibility === 'public'
               ? `This exact layout is already published at "${duplicate.slug}".`
@@ -242,6 +183,14 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db }: Submi
                 })
                 .returning();
               await attachTags(tx, row!.id, tagNames);
+              await recordModerationAction(tx, {
+                actorUserId: user.id,
+                actorLabel: user.username,
+                action: 'layout.create',
+                targetType: 'layout',
+                targetId: row!.id,
+                after: { slug, title: query.title, visibility: 'public' },
+              });
               return row!;
             });
           } catch (error) {

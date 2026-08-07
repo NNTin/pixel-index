@@ -249,6 +249,33 @@ describe('POST /api/v1/layouts — dedupe', () => {
     expect(response.statusCode).toBe(409);
     expect(response.json().message).not.toContain('previously-removed'); // does not confirm the slug
   });
+
+  it('allows resubmitting content matching a layout the owner previously deleted', async () => {
+    // schema.ts's own documented intent: deleted (owner-withdrawn) is not
+    // the same as removed (moderator-withdrawn) — only the latter must
+    // resist being laundered back via resubmission.
+    const raw = JSON.stringify({
+      version: 1,
+      layoutRevision: BUNDLED_REVISION,
+      cols: 13,
+      rows: 13,
+      tiles: Array(169).fill(0),
+      furniture: [],
+    });
+    await insertLayout(harness.db, {
+      slug: 'previously-deleted',
+      raw,
+      layout: JSON.parse(raw),
+      sha256: sha256(raw),
+      visibility: 'deleted',
+    });
+
+    const { accessToken } = await tokenFor();
+    const response = await submit('title=Republish+Attempt', raw, {
+      authorization: `Bearer ${accessToken}`,
+    });
+    expect(response.statusCode).toBe(201);
+  });
 });
 
 describe('POST /api/v1/layouts — slugs', () => {

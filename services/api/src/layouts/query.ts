@@ -31,12 +31,22 @@ export interface ListLayoutsFilters {
   pets?: NumericRange;
 }
 
+/**
+ * `public` is #6's whole world: every result filtered to `visibility =
+ * 'public'`. `owner` is #9's `/me/layouts` — everything a user owns,
+ * regardless of visibility, so a hidden layout does not just disappear on
+ * its owner too.
+ */
+export type ListLayoutsScope = { type: 'public' } | { type: 'owner'; userId: string };
+
 export interface ListLayoutsOptions {
   filters: ListLayoutsFilters;
   sort: SortKey;
   limit: number;
   /** An opaque cursor from a previous page's `nextCursor`. */
   cursor?: string;
+  /** Defaults to `{ type: 'public' }` — every existing call site's behaviour. */
+  scope?: ListLayoutsScope;
 }
 
 export interface ListLayoutsResult {
@@ -67,8 +77,11 @@ function isDescending(sort: SortKey): boolean {
   return sort !== 'title';
 }
 
-function buildFilterConditions(filters: ListLayoutsFilters) {
-  const conditions = [eq(schema.layouts.visibility, 'public')];
+function buildFilterConditions(filters: ListLayoutsFilters, scope: ListLayoutsScope) {
+  const conditions =
+    scope.type === 'public'
+      ? [eq(schema.layouts.visibility, 'public')]
+      : [eq(schema.layouts.authorUserId, scope.userId)];
 
   if (filters.author) conditions.push(eq(schema.layouts.authorUserId, filters.author));
 
@@ -123,9 +136,9 @@ function cursorCondition(sort: SortKey, cursor: Cursor) {
 
 export async function listLayouts(
   db: AnyDatabase,
-  { filters, sort, limit, cursor: cursorParam }: ListLayoutsOptions,
+  { filters, sort, limit, cursor: cursorParam, scope = { type: 'public' } }: ListLayoutsOptions,
 ): Promise<ListLayoutsResult> {
-  const conditions = buildFilterConditions(filters);
+  const conditions = buildFilterConditions(filters, scope);
 
   const [totalRow] = await db
     .select({ total: sql<number>`count(*)::int` })
@@ -190,6 +203,20 @@ export async function getLayoutBySlug(db: AnyDatabase, slug: string): Promise<sc
     .select()
     .from(schema.layouts)
     .where(and(eq(schema.layouts.slug, slug), eq(schema.layouts.visibility, 'public')));
+  return row ?? null;
+}
+
+/**
+ * Same lookup, no visibility filter — for the owner/moderator write routes
+ * (manage.ts), which have to be able to find and act on a layout that is
+ * already hidden or removed (to edit it, or to restore it). #6's public read
+ * paths must never use this one.
+ */
+export async function getLayoutBySlugAnyVisibility(
+  db: AnyDatabase,
+  slug: string,
+): Promise<schema.Layout | null> {
+  const [row] = await db.select().from(schema.layouts).where(eq(schema.layouts.slug, slug));
   return row ?? null;
 }
 
@@ -285,4 +312,43 @@ export async function attachTags(
 
   const allTags = [...existing, ...created];
   await db.insert(schema.layoutTags).values(allTags.map((tag) => ({ layoutId, tagId: tag.id })));
+}
+
+/**
+ * Sets a layout's tags to exactly `tagNames` — clears every existing
+ * association first. `attachTags` only adds; an edit (`PATCH`, #9/#10) needs
+ * to be able to remove a tag too, not just append new ones.
+ */
+export async function replaceTags(
+  db: AnyDatabase,
+  layoutId: string,
+  tagNames: string[],
+): Promise<void> {
+  await db.delete(schema.layoutTags).where(eq(schema.layoutTags.layoutId, layoutId));
+  await attachTags(db, layoutId, tagNames);
+}
+
+/**
+ * Hides every currently-public layout a user owns, in one statement —
+ * blocking a user (#10) hides their existing content in the same action,
+ * not just future submissions. Returns the affected rows (before they were
+ * hidden isn't needed; the caller needs each id to write one audit entry
+ * per layout, alongside the single `user.block` entry for the block itself).
+ */
+export async function hideAllPublicLayoutsForUser(
+  db: AnyDatabase,
+  userId: string,
+  reason: string,
+  changedBy: string,
+): Promise<schema.Layout[]> {
+  return db
+    .update(schema.layouts)
+    .set({
+      visibility: 'hidden',
+      visibilityReason: reason,
+      visibilityChangedAt: new Date(),
+      visibilityChangedBy: changedBy,
+    })
+    .where(and(eq(schema.layouts.authorUserId, userId), eq(schema.layouts.visibility, 'public')))
+    .returning();
 }

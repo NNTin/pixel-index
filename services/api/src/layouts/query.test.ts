@@ -4,7 +4,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { insertLayout, insertUser, tagLayout } from '../test-support/layouts.js';
-import { countPublicLayouts, getLayoutBySlug, listLayouts, tagsForLayouts } from './query.js';
+import {
+  countPublicLayouts,
+  getLayoutBySlug,
+  getLayoutBySlugAnyVisibility,
+  hideAllPublicLayoutsForUser,
+  listLayouts,
+  tagsForLayouts,
+} from './query.js';
 
 let harness: Harness;
 beforeAll(async () => {
@@ -49,6 +56,70 @@ describe('listLayouts — visibility', () => {
       limit: 100,
     });
     expect(rows.some((row) => row.id === hidden.id)).toBe(false);
+  });
+});
+
+describe('listLayouts — owner scope', () => {
+  it('returns every visibility for the owner, and excludes other authors entirely', async () => {
+    const owner = await insertUser(harness.db);
+    const other = await insertUser(harness.db);
+    const mine1 = await insertLayout(harness.db, { authorUserId: owner.id, visibility: 'public' });
+    const mine2 = await insertLayout(harness.db, { authorUserId: owner.id, visibility: 'hidden' });
+    await insertLayout(harness.db, { authorUserId: other.id, visibility: 'public' });
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: {},
+      sort: 'newest',
+      limit: 100,
+      scope: { type: 'owner', userId: owner.id },
+    });
+    expect(rows.map((r) => r.id).sort()).toEqual([mine1.id, mine2.id].sort());
+  });
+});
+
+describe('getLayoutBySlugAnyVisibility', () => {
+  it('finds a non-public layout, unlike getLayoutBySlug', async () => {
+    const layout = await insertLayout(harness.db, { slug: 'any-visibility-hidden', visibility: 'hidden' });
+    expect((await getLayoutBySlugAnyVisibility(harness.db, layout.slug))?.id).toBe(layout.id);
+  });
+
+  it('returns null for an unknown slug', async () => {
+    expect(await getLayoutBySlugAnyVisibility(harness.db, 'does-not-exist-either')).toBeNull();
+  });
+});
+
+describe('hideAllPublicLayoutsForUser', () => {
+  it('hides only that user\'s public layouts, leaving others and non-public ones alone', async () => {
+    const target = await insertUser(harness.db);
+    const other = await insertUser(harness.db);
+    const targetPublic = await insertLayout(harness.db, { authorUserId: target.id, visibility: 'public' });
+    const targetAlreadyHidden = await insertLayout(harness.db, {
+      authorUserId: target.id,
+      visibility: 'hidden',
+    });
+    const otherPublic = await insertLayout(harness.db, { authorUserId: other.id, visibility: 'public' });
+
+    const hidden = await hideAllPublicLayoutsForUser(harness.db, target.id, 'account blocked', other.id);
+    expect(hidden.map((r) => r.id)).toEqual([targetPublic.id]);
+
+    const [refetchedTarget] = await harness.db
+      .select()
+      .from(schema.layouts)
+      .where(eq(schema.layouts.id, targetPublic.id));
+    expect(refetchedTarget!.visibility).toBe('hidden');
+    expect(refetchedTarget!.visibilityReason).toBe('account blocked');
+
+    const [refetchedAlreadyHidden] = await harness.db
+      .select()
+      .from(schema.layouts)
+      .where(eq(schema.layouts.id, targetAlreadyHidden.id));
+    expect(refetchedAlreadyHidden!.visibilityReason).toBeNull(); // untouched, not re-stamped
+
+    const [refetchedOther] = await harness.db
+      .select()
+      .from(schema.layouts)
+      .where(eq(schema.layouts.id, otherPublic.id));
+    expect(refetchedOther!.visibility).toBe('public');
   });
 });
 
