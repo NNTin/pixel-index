@@ -8,30 +8,40 @@ same output for per-pull-request previews.
 
 ## Status
 
-The SPA shell (#12) exists: routing, the API client, loading/error/empty states, and
-both deploy pipelines. There is no gallery content yet — `Home` and
-`LayoutDetailPage` are #12's proof that the pipeline works end to end, not #13's UI.
+The shell (#12) and the gallery/detail views (#13) exist: routing, the API client,
+loading/error/empty states, both deploy pipelines, the layout grid, and the detail page.
+No search/filtering yet, nothing authenticated, and the visual design is still
+placeholder Tailwind, not the office/docs-site look.
 
 | Issue | Scope | State |
 |---|---|---|
 | [#12](https://github.com/NNTin/pixel-index/issues/12) | SPA shell, API client, Pages deploy, Vercel PR previews | done |
-| [#13](https://github.com/NNTin/pixel-index/issues/13) | gallery, layout detail, preview, download | |
+| [#13](https://github.com/NNTin/pixel-index/issues/13) | gallery, layout detail, preview, download | done |
 | [#14](https://github.com/NNTin/pixel-index/issues/14) | search and filter | |
 | [#15](https://github.com/NNTin/pixel-index/issues/15) | login, submit, my layouts, moderation console, report | |
 | [#16](https://github.com/NNTin/pixel-index/issues/16) | visual alignment with the office and docs site | |
 
 ```
-src/main.tsx                mounts <App>, wraps it in BrowserRouter with a basename
-                             matching vite.config.ts's `base`
-src/App.tsx                 routes: /, /layouts/:slug, catch-all -> NotFound
-src/components/Layout.tsx   header + <Outlet/>
-src/api/client.ts           fetch wrapper for the #6 public API; VITE_API_BASE_URL,
-                             never a hardcoded hostname
-src/api/types.ts            hand-written against services/api/src/layouts/schemas.ts
-src/api/useApi.ts           loading/error/ready as data, for every screen that calls
-                             the API
-vite.config.ts              base path config + the GitHub Pages 404.html generator
-index.html                  the matching restore-path script (see the two together)
+src/main.tsx                     mounts <App>, wraps it in BrowserRouter with a basename
+                                  matching vite.config.ts's `base`
+src/App.tsx                      routes: /, /layouts/:slug, catch-all -> NotFound
+src/components/Layout.tsx        header + <Outlet/>
+src/components/LayoutCard.tsx    the gallery grid's card: preview, title, author, facts
+src/components/PreviewImage.tsx  checkered backdrop, image-rendering:pixelated,
+                                  missing-preview placeholder (carried over from v1)
+src/components/FactsRow.tsx      "25×22 · 59 furniture · 4 areas · 2 pets" — zero-valued
+                                  facts omitted, carried over from v1
+src/api/client.ts                fetch wrapper for the #6 public API; VITE_API_BASE_URL,
+                                  never a hardcoded hostname; apiUrl() resolves the
+                                  API-relative preview/thumbnail/download paths
+src/api/types.ts                 hand-written against services/api/src/layouts/schemas.ts
+src/api/useApi.ts                loading/error/ready as data, for every screen that calls
+                                  the API
+src/routes/Home.tsx              the gallery: keyset pagination via #6's cursor, "Load more"
+src/routes/LayoutDetailPage.tsx  full metadata, download, the layoutRevision-ahead-of-pin
+                                  warning
+vite.config.ts                   base path config + the GitHub Pages 404.html generator
+index.html                       the matching restore-path script (see the two together)
 ```
 
 ## Constraints that come with static hosting

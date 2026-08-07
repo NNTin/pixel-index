@@ -61,4 +61,14 @@ export function getMeta(): Promise<MetaResponse> {
   return request('/api/v1/meta');
 }
 
+/**
+ * `LayoutSummary.files` (preview/thumbnail/layout) are API-relative paths,
+ * not full URLs — the API doesn't know its own public origin at response
+ * time (self-hosters run it behind arbitrary hostnames). This is the one
+ * place that turns one into something an `<img src>` or `<a href>` can use.
+ */
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`;
+}
+
 export { API_BASE_URL };

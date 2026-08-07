@@ -14,8 +14,17 @@ describe('App routing', () => {
   it('resolves a deep link directly, without visiting / first', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        Response.json({
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/meta')) {
+          return Response.json({
+            schemaVersion: 1,
+            generatedAt: '2026-01-01T00:00:00.000Z',
+            pixelAgents: { version: '1.4.0', commit: null, layoutRevision: 1 },
+            count: 1,
+          });
+        }
+        return Response.json({
           slug: 'blue-office',
           title: 'Blue Office',
           author: { id: null, username: 'someone', avatarUrl: null },
@@ -35,8 +44,8 @@ describe('App routing', () => {
           updatedAt: '2026-01-01T00:00:00.000Z',
           files: { layout: '', preview: '', thumbnail: '' },
           layout: {},
-        }),
-      ),
+        });
+      }),
     );
     render(
       <MemoryRouter initialEntries={['/layouts/blue-office']}>
