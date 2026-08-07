@@ -1,0 +1,126 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { AuthProvider } from '../auth/AuthContext';
+import { MyLayoutsPage } from './MyLayoutsPage';
+
+beforeEach(() => {
+  location.hash = '#pixelIndexLoginCode=test-code';
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  localStorage.clear();
+  location.hash = '';
+});
+
+const AUTH_RESPONSE = {
+  accessToken: 'access-token',
+  refreshToken: 'refresh-token',
+  expiresInMs: 900_000,
+  user: { id: 'owner-1', username: 'someone', avatarUrl: null, role: 'user' },
+};
+
+function ownerView(overrides: Record<string, unknown> = {}) {
+  return {
+    slug: 'my-office',
+    title: 'My Office',
+    author: { id: 'owner-1', username: 'someone', avatarUrl: null },
+    description: '',
+    tags: [],
+    cols: 4,
+    rows: 4,
+    furniture: 0,
+    areas: 0,
+    pets: 0,
+    carpets: 0,
+    layoutRevision: 1,
+    pixelAgentsVersion: '1.4.0',
+    bytes: 10,
+    sha256: 'a'.repeat(64),
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    files: { layout: '', preview: '', thumbnail: '' },
+    layout: {},
+    visibility: 'public',
+    visibilityReason: null,
+    visibilityChangedAt: null,
+    ...overrides,
+  };
+}
+
+function stubFetch(handleOther: (url: string, init?: RequestInit) => Response) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/auth/token')) return Response.json(AUTH_RESPONSE);
+      return handleOther(url, init);
+    }),
+  );
+}
+
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <AuthProvider>
+        <MyLayoutsPage />
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe('MyLayoutsPage', () => {
+  it('lists the owner\'s layouts with their visibility', async () => {
+    stubFetch(() =>
+      Response.json({
+        schemaVersion: 1,
+        total: 1,
+        layouts: [ownerView({ visibility: 'hidden', visibilityReason: 'spam' })],
+        nextCursor: null,
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('My Office')).toBeInTheDocument();
+    expect(screen.getByText(/hidden/)).toBeInTheDocument();
+    expect(screen.getByText(/spam/)).toBeInTheDocument();
+  });
+
+  it('shows an empty state with no layouts', async () => {
+    stubFetch(() => Response.json({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null }));
+    renderPage();
+    expect(await screen.findByText("You haven't submitted any layouts yet.")).toBeInTheDocument();
+  });
+
+  it('deletes a layout after confirmation, and reflects it inline', async () => {
+    stubFetch((_url, init) => {
+      if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+      return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });
+    });
+    renderPage();
+    await screen.findByText('My Office');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(screen.getByText('Deleted.')).toBeInTheDocument());
+  });
+
+  it('edits title/description/tags via the inline form', async () => {
+    stubFetch((_url, init) => {
+      if (init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body));
+        return Response.json(ownerView({ title: body.title }));
+      }
+      return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });
+    });
+    renderPage();
+    await screen.findByText('My Office');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByPlaceholderText('Title'), { target: { value: 'Renamed Office' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.getByText('Renamed Office')).toBeInTheDocument());
+  });
+});

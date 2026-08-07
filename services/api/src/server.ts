@@ -72,6 +72,15 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
       callback(null, origin === undefined || config.webOrigins.includes(origin));
     },
     credentials: true,
+    // Without this, @fastify/cors derives the preflight's Allow-Methods
+    // header from whatever routes happen to be registered on the exact
+    // request path at the time the OPTIONS handler was created — found live
+    // (#15) as a real bug: `PATCH /api/v1/layouts/:slug` (manage.ts) was
+    // silently rejected by the browser's preflight because the derived list
+    // only ever included GET/HEAD/POST. Every method any route in this API
+    // actually uses, spelled out, so the preflight response never depends on
+    // registration order or which plugin happened to register first.
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
   });
 
   await app.register(rateLimit, {

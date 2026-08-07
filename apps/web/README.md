@@ -8,25 +8,26 @@ same output for per-pull-request previews.
 
 ## Status
 
-The shell (#12), the gallery/detail views (#13), and search/filter (#14) exist:
-routing, the API client, loading/error/empty states, both deploy pipelines, the layout
-grid and detail page, and a full filter bar with URL-shareable state. Nothing
-authenticated yet, and the visual design is still placeholder Tailwind, not the
-office/docs-site look.
+The shell (#12), gallery/detail (#13), search/filter (#14), and the authenticated flows
+(#15) all exist: login with Discord, submit with a real pre-publish preview, manage your
+own layouts, a moderation console, and an admin console. The visual design is still
+placeholder Tailwind, not the office/docs-site look — that's #16.
 
 | Issue | Scope | State |
 |---|---|---|
 | [#12](https://github.com/NNTin/pixel-index/issues/12) | SPA shell, API client, Pages deploy, Vercel PR previews | done |
 | [#13](https://github.com/NNTin/pixel-index/issues/13) | gallery, layout detail, preview, download | done |
 | [#14](https://github.com/NNTin/pixel-index/issues/14) | search and filter | done |
-| [#15](https://github.com/NNTin/pixel-index/issues/15) | login, submit, my layouts, moderation console, report | |
+| [#15](https://github.com/NNTin/pixel-index/issues/15) | login, submit, my layouts, moderation console, admin | done |
 | [#16](https://github.com/NNTin/pixel-index/issues/16) | visual alignment with the office and docs site | |
 
 ```
-src/main.tsx                     mounts <App>, wraps it in BrowserRouter with a basename
-                                  matching vite.config.ts's `base`
-src/App.tsx                      routes: /, /layouts/:slug, catch-all -> NotFound
-src/components/Layout.tsx        header + <Outlet/>
+src/main.tsx                     mounts <App>, wrapped in BrowserRouter + AuthProvider
+src/App.tsx                      routes, /submit /me/layouts /moderation /admin behind RequireAuth
+src/components/Layout.tsx        header, role-aware nav (login/logout, submit, my layouts,
+                                  moderation, admin — a convenience, never the real gate)
+src/components/RequireAuth.tsx   client-side route gate: "log in" / "moderators only" —
+                                  UX only, the API is what actually enforces a role
 src/components/LayoutCard.tsx    the gallery grid's card: preview, title, author, facts
 src/components/PreviewImage.tsx  checkered backdrop, image-rendering:pixelated,
                                   missing-preview placeholder (carried over from v1)
@@ -36,12 +37,17 @@ src/components/AuthorLink.tsx    "clicking an author name filters to their layou
 src/components/FilterBar.tsx     search, sort, size/pets/furniture filters, the tag
                                   multi-select (populated from GET /api/v1/tags),
                                   "N active, clear filters"
-src/api/client.ts                fetch wrapper for the #6 public API; VITE_API_BASE_URL,
-                                  never a hardcoded hostname; apiUrl() resolves the
-                                  API-relative preview/thumbnail/download paths
+src/api/client.ts                apiRequest() — the one fetch wrapper every other api/*
+                                  client builds on; VITE_API_BASE_URL, never a hardcoded
+                                  hostname; apiUrl() resolves API-relative asset paths
+src/api/authClient.ts            the OAuth code exchange, refresh, logout, /me
+src/api/manageClient.ts          submit, preview-check, my-layouts CRUD (#9/#15)
+src/api/moderationClient.ts      moderation browse + act, admin user search/role/block (#10/#15)
 src/api/types.ts                 hand-written against services/api/src/layouts/schemas.ts
 src/api/useApi.ts                loading/error/ready as data, for every screen that calls
                                   the API
+src/auth/AuthContext.tsx         the session state machine — see below
+src/auth/storage.ts              only the refresh token is persisted; see ADR 0001 decision 10
 src/routes/filters.ts            the URL <-> Filters <-> #6 API params translation — the
                                   URL is the shareable, human-readable form; #6's own
                                   min/max params are what's actually sent
@@ -50,9 +56,46 @@ src/routes/Home.tsx              the gallery: FilterBar wired to useSearchParams
                                   empty state
 src/routes/LayoutDetailPage.tsx  full metadata, download, the layoutRevision-ahead-of-pin
                                   warning, clickable tags/author (into #14's filters)
+src/routes/SubmitPage.tsx        paste/upload layout.json, "Check preview" before "Publish"
+src/routes/MyLayoutsPage.tsx     list/edit/replace/delete what you own, visibility + reason
+src/routes/ModerationPage.tsx    every layout, any visibility; hide/remove/restore with a reason
+src/routes/AdminPage.tsx         find a user, grant/revoke a role, block/unblock
 vite.config.ts                   base path config + the GitHub Pages 404.html generator
 index.html                       the matching restore-path script (see the two together)
 ```
+
+### The session: ADR 0001 decision 10, implemented
+
+`auth/AuthContext.tsx` is the state machine the ADR's bearer-token design turns into —
+worth reading alongside `docs/adr/0001-v2-architecture.md`'s decision 10, not instead of
+it. On mount: if the URL has a `#pixelIndexLoginCode=...` fragment (the redirect back
+from Discord landed here), it's exchanged immediately and cleared from the address bar
+before the app ever renders with it visible; otherwise a stored refresh token (if any)
+is used to restore a session via `/auth/refresh` then `/me`. The access token lives in
+React state only — memory, never `localStorage` — while the refresh token is persisted
+(`auth/storage.ts`) so a page reload doesn't force a full Discord round-trip. A timer
+proactively rotates the access token about a minute before it expires; any refresh
+failure (reuse detected, expired, or the account got blocked — `rotateRefreshToken`
+re-checks `blockedAt` on every call) clears the session rather than retrying, since none
+of those are transient.
+
+`RequireAuth` (and the nav links it mirrors) is UX, not authorization: every page it
+gates makes the exact same API calls a logged-out `curl` could make, and gets the exact
+same 401/403 back. Hiding a "Moderation" link from a normal user makes the product
+legible; it does nothing for security, which is the API's job alone.
+
+### A real preflight bug this found
+
+Adding `PATCH`/`PUT`/`DELETE` calls from the browser (edit, replace, delete, moderate,
+role/block) surfaced a live CORS bug in `services/api`: without an explicit `methods`
+list, `@fastify/cors` derived a preflight's `Access-Control-Allow-Methods` header from
+route introspection that only ever produced `GET, HEAD, POST` — every one of #15's write
+calls was silently blocked by the browser before it reached the server. Fixed in
+`services/api/src/server.ts` with an explicit, path-independent methods list; see that
+file's own comment and `server.test.ts`'s regression test for the full story. Caught by
+the live Playwright pass against the real Docker stack (see below), not by the unit
+suite — a route existing in Fastify and a route being *reachable from a browser* are
+different claims, and only the second one is what a real user experiences.
 
 ### Filters live in the URL, not component state
 
@@ -78,6 +121,17 @@ returns only tags actually used by a **public** layout, with a count, most-used 
 `FilterBar` hides the tag picker entirely when that list is empty — on a fresh install
 with no tags yet, rather than rendering a picker with nothing in it, which the issue's
 own notes flagged as a real risk ("tags is currently empty on all four seed layouts").
+
+### No "report" control
+
+#15's original scope included a report button on every layout. #10 (moderation) had
+already dropped report intake entirely before it was built — no `POST /report`, no
+queue, see [its comment thread](https://github.com/NNTin/pixel-index/issues/10) — so
+there is nothing for a report button to call. `CONTENT_POLICY.md` (#11) documents the
+actual path: contact a moderator directly. See the
+[#15 comment thread](https://github.com/NNTin/pixel-index/issues/15) for the two backend
+additions this did need (`GET /moderation/layouts`, `GET /users?q=`) that #10/#9
+deliberately deferred rather than built speculatively.
 
 ## Constraints that come with static hosting
 

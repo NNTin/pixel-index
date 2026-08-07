@@ -127,6 +127,30 @@ describe('CORS', () => {
     const response = await app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
   });
+
+  // Found live (#15): without an explicit `methods` list, @fastify/cors
+  // derived a preflight's Allow-Methods header from whatever it introspected
+  // off the request path rather than a fixed set — PATCH/PUT/DELETE came
+  // back missing even though the actual routes existed, so a real browser
+  // silently blocked every edit/moderate/delete/role/block call before it
+  // ever reached the server. `/health` has no PATCH route of its own, so
+  // this proves the allowlist is a fixed, path-independent set, not derived
+  // per-route — the exact thing that broke.
+  it.each(['PUT', 'PATCH', 'DELETE'] as const)(
+    'a preflight allows %s, not just GET/HEAD/POST',
+    async (method) => {
+      const app = await build();
+      const response = await app.inject({
+        method: 'OPTIONS',
+        url: '/health',
+        headers: {
+          origin: 'https://pixel-index.example',
+          'access-control-request-method': method,
+        },
+      });
+      expect(response.headers['access-control-allow-methods']).toContain(method);
+    },
+  );
 });
 
 describe('error envelope', () => {

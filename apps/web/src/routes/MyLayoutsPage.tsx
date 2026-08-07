@@ -1,0 +1,183 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+
+import { ApiError } from '../api/client';
+import { deleteLayout, getMyLayouts, patchLayout, replaceLayoutContent } from '../api/manageClient';
+import type { OwnerLayoutView } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
+import { ErrorNotice } from '../components/ErrorNotice';
+
+function VisibilityBadge({ layout }: { layout: OwnerLayoutView }) {
+  if (layout.visibility === 'public') return null;
+  return (
+    <p className="mt-1 text-sm text-amber-400">
+      {layout.visibility}
+      {layout.visibilityReason && <> — {layout.visibilityReason}</>}
+    </p>
+  );
+}
+
+function EditRow({ layout, accessToken, onSaved }: { layout: OwnerLayoutView; accessToken: string; onSaved: (updated: OwnerLayoutView) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(layout.title);
+  const [description, setDescription] = useState(layout.description);
+  const [tags, setTags] = useState(layout.tags.join(','));
+  const [saving, setSaving] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await patchLayout(
+        layout.slug,
+        {
+          title,
+          description,
+          tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+        },
+        accessToken,
+      );
+      onSaved(updated);
+      setEditing(false);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function replaceContent(file: File) {
+    setReplacing(true);
+    setError(null);
+    try {
+      const raw = await file.text();
+      const updated = await replaceLayoutContent(layout.slug, raw, accessToken);
+      onSaved(updated);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+    } finally {
+      setReplacing(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm(`Delete "${layout.title}"? This cannot be undone.`)) return;
+    setError(null);
+    try {
+      await deleteLayout(layout.slug, accessToken);
+      onSaved({ ...layout, visibility: 'deleted' });
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+    }
+  }
+
+  if (layout.visibility === 'deleted') {
+    return <p className="text-sm text-slate-500">Deleted.</p>;
+  }
+
+  if (!editing) {
+    return (
+      <div className="mt-2 flex gap-3 text-sm">
+        <button type="button" onClick={() => setEditing(true)} className="text-sky-400 hover:underline">
+          Edit
+        </button>
+        <label className="cursor-pointer text-sky-400 hover:underline">
+          {replacing ? 'Replacing…' : 'Replace content'}
+          <input
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void replaceContent(file);
+            }}
+          />
+        </label>
+        <button type="button" onClick={remove} className="text-red-400 hover:underline">
+          Delete
+        </button>
+        {error && <span className="text-red-400">{error.message}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex flex-col gap-2 border border-slate-800 p-3">
+      <input
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        className="border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+        placeholder="Title"
+      />
+      <textarea
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
+        className="border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+        placeholder="Description"
+        rows={2}
+      />
+      <input
+        value={tags}
+        onChange={(event) => setTags(event.target.value)}
+        className="border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+        placeholder="tags,comma,separated"
+      />
+      {error && <ErrorNotice error={error} />}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="border border-sky-500 px-3 py-1 text-sm text-sky-400 disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" onClick={() => setEditing(false)} className="border border-slate-700 px-3 py-1 text-sm">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function MyLayoutsPage() {
+  const { accessToken } = useAuth();
+  const [layouts, setLayouts] = useState<OwnerLayoutView[] | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    getMyLayouts({ limit: 100 }, accessToken)
+      .then((response) => setLayouts(response.layouts))
+      .catch((caught: unknown) =>
+        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.')),
+      );
+  }, [accessToken]);
+
+  function updateLayout(updated: OwnerLayoutView) {
+    setLayouts((existing) => existing?.map((l) => (l.slug === updated.slug ? updated : l)) ?? null);
+  }
+
+  if (error) return <ErrorNotice error={error} />;
+  if (layouts === null) return <p className="text-slate-400">Loading…</p>;
+  if (layouts.length === 0) return <p className="text-slate-400">You haven't submitted any layouts yet.</p>;
+
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold">My layouts</h1>
+      <ul className="mt-6 flex list-none flex-col gap-4 p-0">
+        {layouts.map((layout) => (
+          <li key={layout.slug} className="border-2 border-slate-800 p-4">
+            <Link to={`/layouts/${layout.slug}`} className="font-medium hover:underline">
+              {layout.title}
+            </Link>
+            <VisibilityBadge layout={layout} />
+            {accessToken && <EditRow layout={layout} accessToken={accessToken} onSaved={updateLayout} />}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

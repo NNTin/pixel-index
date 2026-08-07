@@ -1,0 +1,138 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { AuthProvider } from '../auth/AuthContext';
+import { SubmitPage } from './SubmitPage';
+
+beforeEach(() => {
+  location.hash = '#pixelIndexLoginCode=test-code';
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+  location.hash = '';
+});
+
+const AUTH_RESPONSE = {
+  accessToken: 'access-token',
+  refreshToken: 'refresh-token',
+  expiresInMs: 900_000,
+  user: { id: '1', username: 'someone', avatarUrl: null, role: 'user' },
+};
+
+function stubFetch(handleOther: (url: string, init?: RequestInit) => Response) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/auth/token')) return Response.json(AUTH_RESPONSE);
+      return handleOther(url, init);
+    }),
+  );
+}
+
+function renderSubmit() {
+  return render(
+    <MemoryRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/" element={<SubmitPage />} />
+          <Route path="/layouts/:slug" element={<p>landed on detail page</p>} />
+        </Routes>
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
+async function waitForAuthReady() {
+  // SubmitPage renders immediately; wait for the auth exchange (triggered
+  // by the login-code hash) to land before interacting with it.
+  await screen.findByRole('button', { name: 'Check preview' });
+}
+
+const VALID_LAYOUT = JSON.stringify({ version: 1, layoutRevision: 1, cols: 2, rows: 2, tiles: [0, 0, 0, 0], furniture: [] });
+
+describe('SubmitPage', () => {
+  it('shows the actionable validation issues the API returns, not a generic message', async () => {
+    stubFetch(() =>
+      new Response(
+        JSON.stringify({
+          error: 'validation_error',
+          message: 'The layout failed validation.',
+          issues: [{ code: 'layout.grid.tiles_mismatch', path: 'tiles', message: 'Expected 4 tiles, got 2.' }],
+        }),
+        { status: 422 },
+      ),
+    );
+    renderSubmit();
+    await waitForAuthReady();
+
+    fireEvent.change(screen.getByPlaceholderText(/version.*1/), { target: { value: VALID_LAYOUT } });
+    fireEvent.click(screen.getByRole('button', { name: 'Check preview' }));
+
+    // The message is a trailing text node beside a <code>path</code>
+    // sibling, not its own element — substring match against the <li>.
+    expect(await screen.findByText(/Expected 4 tiles, got 2\./, { exact: false })).toBeInTheDocument();
+  });
+
+  it('renders the returned preview image on a successful check', async () => {
+    stubFetch(
+      () => new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { 'content-type': 'image/png' } }),
+    );
+    renderSubmit();
+    await waitForAuthReady();
+
+    fireEvent.change(screen.getByPlaceholderText(/version.*1/), { target: { value: VALID_LAYOUT } });
+    fireEvent.click(screen.getByRole('button', { name: 'Check preview' }));
+
+    expect(await screen.findByAltText('Preview of your layout')).toBeInTheDocument();
+  });
+
+  it('publishes and navigates to the new layout on success', async () => {
+    stubFetch(() =>
+      Response.json({
+        slug: 'my-new-office',
+        title: 'My New Office',
+        author: { id: '1', username: 'someone', avatarUrl: null },
+        description: '',
+        tags: [],
+        cols: 2,
+        rows: 2,
+        furniture: 0,
+        areas: 0,
+        pets: 0,
+        carpets: 0,
+        layoutRevision: 1,
+        pixelAgentsVersion: '1.4.0',
+        bytes: 10,
+        sha256: 'a'.repeat(64),
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        files: { layout: '', preview: '', thumbnail: '' },
+        layout: {},
+        previewReady: true,
+      }),
+    );
+    renderSubmit();
+    await waitForAuthReady();
+
+    fireEvent.change(screen.getByPlaceholderText(/version.*1/), { target: { value: VALID_LAYOUT } });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'My New Office' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+
+    await waitFor(() => expect(screen.getByText('landed on detail page')).toBeInTheDocument());
+  });
+
+  it('disables Publish until both content and a title are present', async () => {
+    stubFetch(() => new Response('{}', { status: 200 }));
+    renderSubmit();
+    await waitForAuthReady();
+
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText(/version.*1/), { target: { value: VALID_LAYOUT } });
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled(); // still no title
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'x' } });
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled();
+  });
+});

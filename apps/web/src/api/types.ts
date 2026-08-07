@@ -90,3 +90,72 @@ export interface ListTagsResponse {
   schemaVersion: number;
   tags: TagUsage[];
 }
+
+// ─── Auth (#7, #15) ──────────────────────────────────────────────────────
+
+export type Role = 'user' | 'moderator' | 'admin';
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+  role: Role;
+}
+
+export interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+  expiresInMs: number;
+}
+
+export interface TokenExchangeResponse extends TokenPair {
+  user: AuthUser;
+}
+
+// ─── Owner self-service (#9, #15) ───────────────────────────────────────
+
+export interface OwnerLayoutView extends LayoutDetail {
+  visibility: 'public' | 'hidden' | 'removed' | 'deleted';
+  visibilityReason: string | null;
+  visibilityChangedAt: string | null;
+}
+
+export interface ListOwnerLayoutsResponse {
+  schemaVersion: number;
+  total: number;
+  layouts: OwnerLayoutView[];
+  nextCursor: string | null;
+}
+
+export interface SubmitLayoutParams {
+  title: string;
+  description?: string;
+  tags?: string;
+}
+
+export interface PatchLayoutBody {
+  title?: string;
+  description?: string;
+  tags?: string[];
+  visibility?: 'public' | 'hidden' | 'removed';
+  reason?: string;
+}
+
+// ─── Moderation & admin (#10, #15) ──────────────────────────────────────
+
+export interface ListModerationLayoutsParams {
+  limit?: number;
+  cursor?: string;
+  sort?: 'newest' | 'furniture' | 'largest' | 'title';
+  visibility?: 'public' | 'hidden' | 'removed' | 'deleted';
+  author?: string;
+  q?: string;
+}
+
+export interface PublicUserView {
+  id: string;
+  username: string;
+  role: Role;
+  blocked: boolean;
+  blockedReason: string | null;
+}

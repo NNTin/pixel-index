@@ -3,8 +3,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
+import { AuthProvider } from './auth/AuthContext';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+});
 
 // Not a test of the GitHub Pages 404.html trick itself (that's a build-time
 // file plus browser-only sessionStorage behavior, not unit-testable) — this
@@ -49,7 +53,9 @@ describe('App routing', () => {
     );
     render(
       <MemoryRouter initialEntries={['/layouts/blue-office']}>
-        <App />
+        <AuthProvider>
+          <App />
+        </AuthProvider>
       </MemoryRouter>,
     );
     expect(await screen.findByRole('heading', { name: 'Blue Office' })).toBeInTheDocument();
@@ -58,7 +64,9 @@ describe('App routing', () => {
   it('renders NotFound for an unmatched route', () => {
     render(
       <MemoryRouter initialEntries={['/does-not-exist']}>
-        <App />
+        <AuthProvider>
+          <App />
+        </AuthProvider>
       </MemoryRouter>,
     );
     expect(screen.getByRole('heading', { name: 'Not found' })).toBeInTheDocument();
