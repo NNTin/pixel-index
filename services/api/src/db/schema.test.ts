@@ -59,6 +59,7 @@ async function insertLayout(overrides: Partial<schema.NewLayout> = {}) {
       slug: `layout-${Math.random().toString(36).slice(2, 10)}`,
       title: 'A layout',
       authorUserId: SYSTEM_USER_ID,
+      raw: '{"version":1}',
       layout: { version: 1 },
       sha256: A_HASH,
       cols: 21,
@@ -329,6 +330,7 @@ describe('denormalised stats come from layout-core', () => {
 
     const stored = await insertLayout({
       slug: 'blue-office',
+      raw: raw.toString('utf-8'),
       layout: parsed,
       sha256: sha256(raw),
       cols: stats.cols,
@@ -360,6 +362,25 @@ describe('denormalised stats come from layout-core', () => {
     );
     const stored = await insertLayout({ layout: parsed });
     expect(stored.layout).toEqual(parsed);
+  });
+
+  it('`raw` round-trips byte-for-byte — jsonb alone cannot guarantee this', async () => {
+    // jsonb collapses whitespace and normalises number literals on write, so
+    // JSON.stringify(stored.layout) is NOT guaranteed to reproduce the exact
+    // bytes a contributor's own `sha256sum layout.json` was computed over.
+    // `raw` exists specifically to keep the "byte-for-byte" and "sha256 is
+    // public so a third party can dedupe" promises (#6) actually true.
+    const originalBytes = fs.readFileSync(
+      path.join(REPO_ROOT, 'layouts/four-rooms/layout.json'),
+      'utf-8',
+    );
+    const stored = await insertLayout({
+      raw: originalBytes,
+      layout: JSON.parse(originalBytes),
+      sha256: sha256(originalBytes),
+    });
+    expect(stored.raw).toBe(originalBytes);
+    expect(sha256(stored.raw)).toBe(stored.sha256);
   });
 });
 

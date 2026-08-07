@@ -29,6 +29,13 @@
       "when": 1786118113788,
       "tag": "0003_auth_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786122779754,
+      "tag": "0004_layout_raw_bytes_and_sort_indexes",
+      "breakpoints": true
     }
   ]
 }

@@ -31,10 +31,25 @@ export interface ApiConfig {
   trustProxy: boolean;
 
   databaseUrl: string;
-  /** The renderer service (#4). Not yet called by any route in #5. */
+  /** The renderer service (#4), proxied by GET /layouts/:slug/{preview,thumbnail}.png (#6). */
   rendererUrl: string;
   /** Exact origins allowed to call the API with credentials. No wildcards. */
   webOrigins: string[];
+
+  /**
+   * Where the pinned upstream lives, for `GET /api/v1/meta`'s `pixelAgents`
+   * field (layout-core's `upstreamPin()`). Optional: auto-discovered by
+   * walking up from this package in a normal checkout; a container needs it
+   * explicit because the copied `vendor/pixel-agents` sits at a fixed path
+   * with no ancestor relationship to worry about.
+   */
+  upstreamDir?: string;
+  /**
+   * A container's copy of `vendor/pixel-agents` has no `.git`, so
+   * `upstreamPin()` cannot read the commit itself — same trap as the
+   * renderer's `PIXEL_AGENTS_COMMIT` (services/renderer/src/config.ts), same fix.
+   */
+  upstreamCommit?: string;
 
   discordClientId: string;
   discordClientSecret: string;
@@ -210,6 +225,11 @@ export function loadConfig(): ApiConfig {
     databaseUrl: requireUrl('DATABASE_URL', problems, ['postgres', 'postgresql']),
     rendererUrl: requireUrl('RENDERER_URL', problems, ['http', 'https']),
     webOrigins: requireOriginList('PUBLIC_WEB_ORIGIN', problems),
+
+    ...(optionalEnv('PIXEL_AGENTS_DIR') ? { upstreamDir: optionalEnv('PIXEL_AGENTS_DIR') } : {}),
+    ...(optionalEnv('PIXEL_AGENTS_COMMIT')
+      ? { upstreamCommit: optionalEnv('PIXEL_AGENTS_COMMIT') }
+      : {}),
 
     discordClientId: requireEnv('DISCORD_CLIENT_ID', problems),
     discordClientSecret: requireEnv('DISCORD_CLIENT_SECRET', problems),

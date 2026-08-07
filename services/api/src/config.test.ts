@@ -27,6 +27,8 @@ const ENV_KEYS = [
   'ACCESS_TOKEN_TTL_MS',
   'REFRESH_TOKEN_TTL_MS',
   'LOGIN_CODE_TTL_MS',
+  'PIXEL_AGENTS_DIR',
+  'PIXEL_AGENTS_COMMIT',
 ] as const;
 
 function setRequired(overrides: Partial<Record<string, string>> = {}) {
@@ -182,6 +184,25 @@ describe('loadConfig — auth extras', () => {
     expect(config.accessTokenTtlMs).toBe(1000);
     expect(config.refreshTokenTtlMs).toBe(2000);
     expect(config.loginCodeTtlMs).toBe(3000);
+  });
+});
+
+describe('loadConfig — upstream pin overrides (#6 /meta)', () => {
+  it('are absent by default — auto-discovery is the normal path', () => {
+    setRequired();
+    const config = loadConfig();
+    expect('upstreamDir' in config).toBe(false);
+    expect('upstreamCommit' in config).toBe(false);
+  });
+
+  it('reads both when set — a container has no .git to discover a commit from', () => {
+    setRequired({
+      PIXEL_AGENTS_DIR: '/opt/pixel-agents',
+      PIXEL_AGENTS_COMMIT: 'a'.repeat(40),
+    });
+    const config = loadConfig();
+    expect(config.upstreamDir).toBe('/opt/pixel-agents');
+    expect(config.upstreamCommit).toBe('a'.repeat(40));
   });
 });
 

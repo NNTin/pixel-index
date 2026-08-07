@@ -167,9 +167,21 @@ export const layouts = pgTable(
       .references(() => users.id, { onDelete: 'restrict' }),
     authorDisplay: text('author_display'),
 
-    /** Byte-for-byte what Pixel Agents exported. Never reserialised. */
+    /**
+     * The exact bytes as uploaded or seeded, verbatim. This — not `layout` — is
+     * what `GET /layouts/:slug/download` serves and what `sha256` is computed
+     * over (#6). Postgres's `jsonb` type does not round-trip byte-identically:
+     * it can reorder nothing, but it does collapse whitespace and normalise
+     * number literals, so `JSON.stringify()` of the parsed column is not
+     * guaranteed to reproduce what a contributor's own `sha256sum layout.json`
+     * would produce. Keeping the raw text alongside the parsed column is what
+     * makes "byte-for-byte what Pixel Agents exported" true rather than
+     * aspirational.
+     */
+    raw: text('raw').notNull(),
+    /** Parsed, for queries and future server-side validation (#8). Not what /download serves. */
     layout: jsonb('layout').notNull(),
-    /** Hash of the stored bytes: submission dedupe (#8) and render cache (#4). */
+    /** sha256 of `raw`. Public, so a third party can dedupe without re-downloading (#6). */
     sha256: text('sha256').notNull(),
 
     // ── Denormalised from layoutStats(). See the file header. ──
@@ -215,8 +227,22 @@ export const layouts = pgTable(
     // Every public read path filters on visibility first, so the indexes that
     // matter for #6 and #14 are partial. A partial index also stays small as
     // removed and deleted rows accumulate.
+    //
+    // The "…_idx" sort indexes below all end in `id` as a tiebreaker. #6 uses
+    // keyset (cursor) pagination — WHERE (sortCol, id) < (cursorVal, cursorId)
+    // — rather than OFFSET, because OFFSET silently skips or repeats rows
+    // under concurrent inserts; a stable cursor needs a total order, and
+    // `sortCol` alone is not one (two layouts can share a createdAt or a
+    // furniture count). Appending `id` makes each of these a fully covered
+    // scan for its sort instead of a sort-then-filter.
     index('layouts_public_created_idx')
-      .on(table.createdAt.desc())
+      .on(table.createdAt.desc(), table.id.desc())
+      .where(sql`visibility = 'public'`),
+    index('layouts_public_furniture_idx')
+      .on(table.furnitureCount.desc(), table.id.desc())
+      .where(sql`visibility = 'public'`),
+    index('layouts_public_title_idx')
+      .on(table.title, table.id)
       .where(sql`visibility = 'public'`),
     index('layouts_public_author_idx')
       .on(table.authorUserId)

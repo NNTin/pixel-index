@@ -1,6 +1,6 @@
 /**
  * The API service skeleton: CORS, error envelope, rate limiting, health and
- * readiness. No business routes live here — see #6, #7, #8, #10.
+ * readiness — plus, as of #6/#7, the public layout API and Discord auth.
  *
  * The frontend is on GitHub Pages and this service is on another origin, so
  * every browser call is cross-origin. CORS is therefore a product surface,
@@ -12,6 +12,8 @@
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { registerAuthContext } from './auth/context.js';
@@ -20,6 +22,9 @@ import type { ApiConfig } from './config.js';
 import type { AnyDatabase } from './db/client.js';
 import type { Queryable } from './db/pool.js';
 import { registerErrorHandling } from './errors.js';
+import { registerLayoutRoutes } from './layouts/routes.js';
+import { sharedSchemas } from './layouts/schemas.js';
+import { registerMetaRoutes } from './meta.js';
 
 export interface BuildServerDeps {
   config: ApiConfig;
@@ -40,6 +45,14 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
     // Without this, every client shares the proxy's IP and one bucket.
     trustProxy: config.trustProxy,
     logger: { level: config.logLevel },
+    // Fastify's ajv default is removeAdditional: true, which SILENTLY STRIPS
+    // unrecognised query/body properties even when a schema declares
+    // additionalProperties: false — "no error" is the ajv default whenever
+    // both options are set. For a filtering API that is the worst failure
+    // mode: `?minCols=…` typo'd as `?mincols=…` would be dropped rather than
+    // rejected, and the caller gets a silently-unfiltered result they never
+    // asked for instead of a 400 telling them what they got wrong.
+    ajv: { customOptions: { removeAdditional: false } },
   });
 
   registerErrorHandling(app);
@@ -77,9 +90,39 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
     },
   });
 
-  registerAuthRoutes(app, { config, db });
+  // Registered before the routes it documents: @fastify/swagger captures
+  // schemas as routes register via an onRoute hook, and this way every route
+  // below is captured regardless of registration order mattering elsewhere.
+  await app.register(swagger, {
+    openapi: {
+      openapi: '3.1.0',
+      info: {
+        title: 'Pixel Index API',
+        version: '1',
+        description:
+          'The public read API for a Pixel Index instance. No authentication required — ' +
+          'reading is public. See /api/v1/meta for the pinned Pixel Agents version.',
+      },
+      servers: [{ url: config.publicApiOrigin }],
+    },
+    // Default naming for a $ref'd shared schema is the meaningless "def-0",
+    // "def-1", … — using the schema's own $id (PublicAuthor, LayoutSummary, …)
+    // is what makes `components.schemas.LayoutSummary` findable by name
+    // rather than by registration order.
+    refResolver: {
+      buildLocalReference: (json) => (json.$id as string | undefined) ?? 'def',
+    },
+  });
+  await app.register(swaggerUi, { routePrefix: '/docs' });
+  app.get('/openapi.json', { schema: { hide: true } }, async () => app.swagger());
 
-  app.get('/health', async () => ({ status: 'ok' }));
+  for (const schema of sharedSchemas) app.addSchema(schema);
+
+  registerAuthRoutes(app, { config, db });
+  registerMetaRoutes(app, config, db);
+  registerLayoutRoutes(app, { config, db });
+
+  app.get('/health', { schema: { hide: true } }, async () => ({ status: 'ok' }));
 
   /**
    * Readiness is not liveness. A health check that always returns 200 is how
@@ -87,7 +130,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
    * reaches Postgres. Bound to a short timeout so a hanging database makes
    * this fail fast rather than pile up requests.
    */
-  app.get('/ready', async (request, reply) => {
+  app.get('/ready', { schema: { hide: true } }, async (request, reply) => {
     try {
       await withTimeout(pool.query('SELECT 1'), 2000);
     } catch (error) {

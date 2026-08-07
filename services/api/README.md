@@ -5,18 +5,17 @@ secret, the database connection, and every authorization decision.
 
 ## Status
 
-The **database layer** (#3), the **service skeleton** (#5) and **Discord auth** (#7)
-exist: config, CORS, the error envelope, rate limiting, health/readiness, a Dockerfile,
-and the whole OAuth2 + session lifecycle. There are still **no layout routes** — that
-starts with #6.
+The **database layer** (#3), the **service skeleton** (#5), **Discord auth** (#7) and the
+**public layout API** (#6) exist. There is nothing here yet that *writes* a layout —
+that starts with #8.
 
 | Issue | Scope | State |
 |---|---|---|
 | [#3](https://github.com/NNTin/pixel-index/issues/3) | schema, migrations, migration entrypoint | done |
 | [#5](https://github.com/NNTin/pixel-index/issues/5) | service skeleton: config, CORS, health, error envelope, rate limits | done |
-| [#6](https://github.com/NNTin/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | next |
+| [#6](https://github.com/NNTin/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | done |
 | [#7](https://github.com/NNTin/pixel-index/issues/7) | Discord OAuth, sessions, roles | done |
-| [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | |
+| [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | next |
 | [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service | |
 | [#10](https://github.com/NNTin/pixel-index/issues/10) | reports, moderation, audit log | |
 
@@ -26,8 +25,9 @@ starts with #6.
 src/config.ts          env-only config, validated at boot, all problems reported at once
 src/errors.ts           ApiError + the one error envelope every response uses
 src/rateLimit.ts        writeRateLimitConfig() — the tighter per-route bucket
-src/server.ts            Fastify app: CORS, rate limits, error handling, /health, /ready
+src/server.ts            Fastify app: CORS, rate limits, error handling, docs, /health, /ready
 src/index.ts             entrypoint: open the pool, boot the server, shut down together
+src/meta.ts              GET /api/v1/meta
 
 src/auth/context.ts     request.user — wired up, verifies the bearer access token
 src/auth/tokens.ts       sign/verify the access JWT; generate/hash opaque tokens
@@ -35,11 +35,18 @@ src/auth/discord.ts      Discord's HTTP API: authorize URL, code exchange, profi
 src/auth/sessions.ts     issue/rotate/revoke refresh tokens; login codes
 src/auth/users.ts        upsert on login; the admin-bootstrap promotion
 src/auth/routes.ts       /auth/discord/login, /callback, /auth/token, /refresh, /logout, /me
+
+src/layouts/query.ts     SQL: filter, sort, keyset-paginate, tag/author lookups
+src/layouts/cursor.ts    opaque keyset pagination cursors — encode/decode/validate
+src/layouts/serialize.ts DB row -> public JSON shape, one place, for list and detail alike
+src/layouts/schemas.ts   the JSON Schemas that validate requests AND generate the OpenAPI doc
+src/layouts/routes.ts    GET /layouts, /layouts/:slug{,/download,/preview.png,/thumbnail.png}
+src/renderer/client.ts   thin client for the renderer service (#4), used by preview routes
 ```
 
 ```bash
 npm run dev --workspace @pixel-index/api    # tsx watch
-npm test --workspace @pixel-index/api        # 149 tests, no real Postgres needed
+npm test --workspace @pixel-index/api        # 217 tests, no real Postgres or renderer needed
 ```
 
 `GET /health` is liveness — always 200 once the process is up. `GET /ready` actually
@@ -57,7 +64,7 @@ is ever compiled in; see [ADR 0001, decision 8](../../docs/adr/0001-v2-architect
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `DATABASE_URL` | yes | — | `postgres://` or `postgresql://` |
-| `RENDERER_URL` | yes | — | The renderer (#4). Not called by any route yet |
+| `RENDERER_URL` | yes | — | The renderer (#4), proxied by `/layouts/:slug/{preview,thumbnail}.png` |
 | `PUBLIC_WEB_ORIGIN` | yes | — | Comma-separated **exact origins** allowed to call the API with credentials |
 | `DISCORD_CLIENT_ID` | yes | — | From the Discord Developer Portal |
 | `DISCORD_CLIENT_SECRET` | yes | — | Same |
@@ -73,7 +80,9 @@ is ever compiled in; see [ADR 0001, decision 8](../../docs/adr/0001-v2-architect
 | `API_BODY_LIMIT_BYTES` | | `5000000` | Refused at the socket, before parsing |
 | `LOG_LEVEL` | | `info` | Pino level |
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | | `300` / `60000` | General bucket |
-| `RATE_LIMIT_WRITE_MAX` / `RATE_LIMIT_WRITE_WINDOW_MS` | | `20` / `60000` | Tighter bucket for #8's submission, render-triggering paths, and the auth endpoints below |
+| `RATE_LIMIT_WRITE_MAX` / `RATE_LIMIT_WRITE_WINDOW_MS` | | `20` / `60000` | Tighter bucket for #8's submission, render-triggering paths, and the auth endpoints |
+| `PIXEL_AGENTS_DIR` | | auto-discovered | Where `vendor/pixel-agents` lives, for `GET /api/v1/meta`. Only needed in a container |
+| `PIXEL_AGENTS_COMMIT` | | — | A container's copy has no `.git` to read a commit from — same trap and fix as the renderer |
 
 `PUBLIC_WEB_ORIGIN` entries must be an **origin only** — `https://pixel-index.example`,
 never `https://pixel-index.example/` or `.../some/path`. `new URL(x).origin !== x` is
@@ -242,11 +251,118 @@ often because it was reset in the Developer Portal after being copied, or a diff
 field (e.g. the Public Key) was pasted by mistake — and the fix is to generate a fresh
 secret and update `.env`, before spending any time on the flow itself.
 
+## The public layout API
+
+No authentication anywhere in this section: reading is public, per the requirements.
+Every query filters to `visibility = 'public'` before anything else — a hidden or
+removed layout is a **404**, identical to a slug that never existed, never a 403 that
+would confirm something is there to hide.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/v1/meta` | The pinned Pixel Agents (version, commit, `layoutRevision`) and the public layout count — the live equivalent of v1's `dist/index.json` header |
+| `GET /api/v1/layouts` | List: filtered, sorted, keyset-paginated |
+| `GET /api/v1/layouts/:slug` | Full record, including the parsed layout |
+| `GET /api/v1/layouts/:slug/download` | The raw bytes, verbatim — `Content-Disposition: attachment` |
+| `GET /api/v1/layouts/:slug/preview.png` | Proxied from the renderer (#4), scale 1 |
+| `GET /api/v1/layouts/:slug/thumbnail.png` | Proxied from the renderer, scale **0.25** — see below |
+| `GET /openapi.json` | The OpenAPI 3.1 document, generated from the same schemas below |
+| `GET /docs` | Swagger UI over the same document |
+
+### List: filters, sorting, pagination
+
+```
+GET /api/v1/layouts?author=<uuid>&tags=cosy,small&q=office&minCols=15&maxFurniture=80&sort=furniture&limit=24&cursor=…
+```
+
+| Param | Notes |
+|---|---|
+| `author` | A `users.id`. Click-an-author-name filtering (#14) uses the `author.id` a list/detail response already returns |
+| `tags` | Comma-separated tag names. **ALL**, not any — each one narrows further, the same way the numeric ranges compose |
+| `q` | Free text over title and description (the generated `search_vector` column, #3) |
+| `min*` / `max*` | `Cols`, `Rows`, `Furniture`, `Areas`, `Pets` — each inclusive at both ends |
+| `sort` | `newest` (default), `furniture`, `largest` (`cols × rows`), `title` |
+| `limit` | 1–100, default 24 |
+| `cursor` | Opaque, from a previous page's `nextCursor` |
+
+Every filter composes with every other — `author` + `tags` + a size range in one request
+is exactly what #14's UI needs and is tested directly
+(`src/layouts/query.test.ts`, "filters compose").
+
+**Pagination is keyset (cursor-based), not `OFFSET`.** A layout published while someone
+is on page 2 would silently shift an `OFFSET` page's contents — skip a row, repeat one.
+A cursor pins to `(sortColumn, id)` on the last row of the page before it, so the next
+page is stable regardless of what gets inserted anywhere else in the meantime; `id` is
+there specifically because `sortColumn` alone is never a total order (two layouts can
+tie on furniture count, on `createdAt`, on title). `total` is the count of everything
+matching the filters, independent of the page size, for "N results" — see `src/layouts/query.ts`.
+
+An unrecognised query parameter is a **400**, not a silently-ignored no-op — see
+"a subtlety" below for why that took a deliberate Fastify override.
+
+### Caching
+
+`/layouts/:slug`, `/download`, `/preview.png` and `/thumbnail.png` are **slug**-addressed,
+and a slug's content can change under it once #9 (owner replace) exists — so none of them
+is `immutable`. Each sets `Cache-Control: public, max-age=60, must-revalidate` plus an
+`ETag` (the layout's `sha256`, or the renderer's own content-addressed etag for the image
+routes), and answers a matching `If-None-Match` with a bare `304`. This is different from,
+and deliberately weaker than, the renderer's own cache — that one *is* keyed on content
+and can be immutable forever, because a given (layout, upstream pin, scale) tuple can
+only ever render one way.
+
+### Why `thumbnail.png` asks the renderer for scale `0.25`, not `0.5`
+
+Measured in `services/renderer`: a `scale: 0.5` PNG is **larger** than the full image for
+every layout in the seed set, because halving pixel art destroys the long runs of
+identical pixels PNG's own filters exploit. `0.25` is the only scale that actually saves
+bytes. This route makes that choice on the caller's behalf rather than exposing `scale`
+as a parameter — see `services/renderer/README.md` for the numbers.
+
+### The OpenAPI document is generated, not maintained by hand
+
+`src/layouts/schemas.ts` is the **single** definition of every request and response
+shape. `@fastify/swagger` reads the same schema objects Fastify already uses to validate
+requests and serialize responses, so the document at `/openapi.json` cannot describe a
+shape the API doesn't actually produce — there is no second copy to let drift in. The
+test suite goes one step further and validates real HTTP responses against those same
+schema objects with `ajv` (`src/layouts/routes.test.ts`), which is what "the OpenAPI doc
+matches actual responses" means as a checked fact rather than a claim.
+
+### Versioning and deprecation
+
+`/api/v1` is additive-only: new optional query parameters, new response fields, new
+routes never remove or repurpose an existing one. A breaking change ships as `/api/v2`
+alongside it, never in place of it. When `/v2` exists, `/v1` starts sending
+`Deprecation: true` and `Sunset: <date>` headers with a documented removal date, giving
+third parties (and our own frontend, which is intentionally just another consumer of
+this same API) real notice rather than a surprise.
+
+### Two subtleties that cost real debugging time
+
+**Fastify silently *strips* unrecognised properties by default, even with
+`additionalProperties: false`.** Ajv's `removeAdditional: true` (Fastify's out-of-the-box
+setting) takes precedence over a schema's own `additionalProperties: false` — the
+combination means "delete these quietly", not "reject them". For a filtering API that is
+the worst possible failure mode: `?mincols=…` typo'd from `?minCols=…` would be dropped
+and the caller would get a silently-unfiltered result instead of an error telling them
+what they got wrong. `server.ts` sets `ajv: { customOptions: { removeAdditional: false } }`
+so `additionalProperties: false` means what it says.
+
+**`sql\`= ANY(${array})\`` is not the same as `IN (…)` when the array comes from a plain
+JS value via drizzle's `sql` template.** Drizzle expands a JS array into parenthesised
+scalars (`($1, $2)`), and Postgres's `ANY()` operator requires an actual bound array on
+its right-hand side — the combination throws `op ANY/ALL (array) requires array on right
+side` **at query time**, not at compile time. The tags ALL-match filter
+(`src/layouts/query.ts`) uses `sql.join(...)` to build a real `IN (…)` list instead.
+
 ## Docker
 
 ```bash
 # Context is the repo root.
-docker build -f services/api/Dockerfile -t pixel-index-api .
+docker build -f services/api/Dockerfile \
+  --build-arg PIXEL_AGENTS_COMMIT=$(git -C vendor/pixel-agents rev-parse HEAD) \
+  -t pixel-index-api .
 ```
 
 `docker-entrypoint.sh` runs `db/migrate.js` **before every start**, not just the first —
@@ -257,11 +373,23 @@ after a schema-bumping deploy just work.
 `drizzle-kit` and the rest of the dev toolchain are pruned from the runtime image
 (`npm prune --omit=dev`) — they never run in production.
 
+Since #6, the image also carries `vendor/pixel-agents/package.json` and its
+`webview-ui/public/assets` — nothing else, no `node_modules`, no webview source — so
+`GET /api/v1/meta` can report a real pinned version via `@pixel-index/layout-core`. This
+is a much smaller slice of upstream than the renderer needs, because the API only reads
+metadata; it never boots upstream's dev server the way the renderer does.
+
 Verified end-to-end against a real containerised Postgres 17: migrations apply on first
 boot, `/ready` succeeds, `/ready` fails within milliseconds when Postgres is stopped
 (fails fast — this does not wait for the 2s timeout, because `pg` rejects a refused
 connection immediately), a restart re-runs migrations idempotently, the image reports
-`healthy`, and `SIGTERM` stops the container with exit `0` in under 0.3s.
+`healthy`, and `SIGTERM` stops the container with exit `0` in under 0.3s. #6 re-verified
+the layout routes the same way, with a layout inserted directly by SQL (there is no
+writer yet): `/api/v1/meta` reports the real build-arg commit, list/detail/download all
+round-trip correctly, `/download` is **byte-identical** to the source file on disk, a 404
+renderer (`RENDERER_URL` pointed at nothing) produces a real `502` rather than a hang or
+a crash, and `/openapi.json` names its schemas `LayoutSummary`/`LayoutDetail` rather than
+the default `def-0`/`def-1` — see "two subtleties" above.
 
 ## The database
 
@@ -357,6 +485,22 @@ uses `layouts_sha256_idx`, and full-text search uses the partial GIN
 owner dashboards ([#9](https://github.com/NNTin/pixel-index/issues/9)) list hidden rows
 too.
 
+**#6 added `layouts_public_furniture_idx` and `layouts_public_title_idx`**, each ending
+in `id` as a tiebreaker, for the same reason `layouts_public_created_idx` already did —
+they make keyset pagination on those sort orders a fully covered index scan rather than
+a sort-then-filter. The `largest` sort (`cols × rows`) has no dedicated index yet; #14
+explicitly reserves the right to ask for one "once the UI is real", and at the dataset
+sizes this index is targeting, a plain `ORDER BY` is not a concern.
+
+**#6 also added `layouts.raw`.** Postgres's `jsonb` type does not round-trip
+byte-identically — it collapses whitespace and normalises number literals on write — so
+`JSON.stringify()` of the parsed `layout` column is not guaranteed to reproduce what a
+contributor's own `sha256sum layout.json` was computed over. `raw` holds the exact bytes
+as uploaded or seeded; `GET /layouts/:slug/download` serves `raw` verbatim, and `sha256`
+is computed over `raw`, not over a re-serialised `layout`. This is what makes "byte-for-byte
+what Pixel Agents exported" and "`sha256` is public so a third party can dedupe" (#6) true
+rather than aspirational — see `schema.test.ts`, "`raw` round-trips byte-for-byte".
+
 ## Tests
 
 `npm test` runs against **PGlite** — Postgres compiled to WASM, in-process. Triggers,
@@ -377,13 +521,29 @@ Discord's API — login → callback → code exchange → `/me` → refresh →
 own confidential-client details (Basic-auth header shape, token endpoint contract) are
 exercised separately in `auth/discord.test.ts`.
 
-The three properties that most matter for this issue's acceptance criteria are
+The three properties that most matter for #7's acceptance criteria are
 **mutation-tested**, not just covered — the guard was deleted and the relevant test
 confirmed to fail before being restored: refresh-token reuse detection, OAuth `state`
 comparison, and the `returnTo` origin allowlist. A green test suite proves the code
 runs; deleting the check and watching the right test go red is what proves the test is
 actually anchored to the security property it claims to guard, not merely exercising
-the code path around it.
+the code path around it. #6 applies the same discipline to its own three
+easiest-to-silently-break properties: the tags ALL-match filter, the visibility filter
+(never returning a hidden/removed layout), and the cursor's sort-mismatch rejection.
+
+`layouts/routes.test.ts` runs the **whole public layout API through real HTTP route
+handlers** against a migrated PGlite database, including the renderer proxy — with only
+the outbound call to the renderer stubbed (`vi.stubGlobal('fetch', …)`), the same pattern
+`auth/routes.test.ts` uses for Discord. `layouts/query.test.ts` covers filter composition,
+all four sort orders, and keyset pagination directly at the SQL layer — including a test
+that inserts a new highest-ranked row *between* two page requests and asserts page 2 is
+unaffected, which is the specific failure `OFFSET` pagination cannot avoid.
+
+#6 was additionally verified against a real containerised Postgres 17 with a real seed
+layout inserted by hand (there is no writer yet): `/api/v1/meta` reports the real
+build-arg-supplied commit, `/download` is **byte-identical** to the source file on disk,
+and a `RENDERER_URL` pointed at nothing produces a real `502` from the live container,
+not a hang.
 
 ## A note on `drizzle-kit`
 

@@ -1,8 +1,10 @@
-# The API: config, CORS, health, rate limits, and (in later issues) every
-# route. No browser here — that is the renderer's job (services/renderer).
+# The API: config, CORS, health, rate limits, Discord auth (#7) and the
+# public layout API (#6). No browser here — that is the renderer's job
+# (services/renderer).
 #
 # Build context is the REPO ROOT, not this directory:
-#   docker build -f services/api/Dockerfile .
+#   docker build -f services/api/Dockerfile \
+#     --build-arg PIXEL_AGENTS_COMMIT=$(git -C vendor/pixel-agents rev-parse HEAD) .
 
 FROM node:22-alpine AS builder
 
@@ -41,7 +43,21 @@ COPY --from=builder --chown=pixelindex:pixelindex /app/services/api/migrations .
 COPY --chown=pixelindex:pixelindex services/api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-ENV API_HOST=:: \
+# GET /api/v1/meta (#6) reads the pinned upstream's version, bundled
+# layoutRevision and (once #8 exists) furniture catalog via
+# @pixel-index/layout-core. Only package.json and the asset JSON are needed —
+# no node_modules, no webview source, unlike the renderer, which actually
+# boots this checkout's dev server. That keeps this image a fraction of the
+# renderer's size for the one piece of upstream metadata it actually reads.
+COPY --chown=pixelindex:pixelindex vendor/pixel-agents/package.json ./vendor/pixel-agents/package.json
+COPY --chown=pixelindex:pixelindex vendor/pixel-agents/webview-ui/public/assets ./vendor/pixel-agents/webview-ui/public/assets
+
+# The copied vendor/ tree above has no .git, so upstreamPin() cannot read a
+# commit itself — same trap as the renderer, same fix: pass it at build time.
+ARG PIXEL_AGENTS_COMMIT=""
+ENV PIXEL_AGENTS_COMMIT=${PIXEL_AGENTS_COMMIT} \
+    PIXEL_AGENTS_DIR=/app/vendor/pixel-agents \
+    API_HOST=:: \
     API_PORT=3000
 
 USER pixelindex
