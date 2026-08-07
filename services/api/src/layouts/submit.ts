@@ -221,5 +221,67 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
         return { ...toDetail(created, user, tagNames), previewReady: preview.ok };
       },
     );
+
+    // "Submitting shows a rendered preview before publishing" — #15's own
+    // acceptance criteria for the reason stated in its Notes: an author who
+    // has seen their own layout rendered is far less likely to submit
+    // something broken, which is what makes post-moderation tolerable at
+    // all. Nothing is persisted here — same validation as POST above (so
+    // the same actionable, field-naming errors), then a direct proxy to the
+    // renderer, exactly like #6's own preview.png route, just without a
+    // slug to address it by yet.
+    instance.post(
+      '/api/v1/layouts/preview-check',
+      writeRateLimitConfig(config),
+      async (request, reply) => {
+        if (!upstream) {
+          throw new ApiError(
+            503,
+            'validator_unavailable',
+            'Preview checking is temporarily unavailable — the pinned Pixel Agents ' +
+              'could not be found. This is a server misconfiguration, not something ' +
+              'wrong with your request.',
+          );
+        }
+        const { validator } = upstream;
+
+        const auth = requireAuth(request);
+        const user = await getUserById(db, auth.id);
+        if (!user) throw ApiError.unauthorized();
+        if (user.blockedAt !== null) {
+          throw ApiError.forbidden('This account is blocked from submitting layouts.');
+        }
+
+        const raw = request.body as string;
+        const byteLength = Buffer.byteLength(raw, 'utf-8');
+        if (byteLength > config.maxLayoutBytes) {
+          throw new ApiError(
+            413,
+            'payload_too_large',
+            `layout.json must be at most ${config.maxLayoutBytes} bytes (got ${byteLength}).`,
+          );
+        }
+
+        let parsedLayout: unknown;
+        try {
+          parsedLayout = JSON.parse(raw);
+        } catch {
+          throw ApiError.badRequest('Body is not valid JSON.');
+        }
+
+        const validation = validator.validateLayout(parsedLayout);
+        if (!validation.valid) throw ApiError.validation(validation.issues);
+
+        const preview = await requestPreview(config.rendererUrl, parsedLayout, 1);
+        if (!preview.ok) {
+          if (preview.error.kind === 'invalid_layout') {
+            throw new ApiError(500, 'internal_error', 'This layout could not be rendered.');
+          }
+          throw new ApiError(502, 'renderer_unavailable', preview.error.message);
+        }
+
+        return reply.header('content-type', preview.result.contentType).send(preview.result.body);
+      },
+    );
   });
 }

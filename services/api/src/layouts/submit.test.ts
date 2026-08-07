@@ -7,6 +7,7 @@ import { createTestDatabase, type Harness } from '../db/test-support/harness.js'
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
 import { insertLayout, insertUser } from '../test-support/layouts.js';
+import { countPublicLayouts } from './query.js';
 
 const config = testConfig({
   // Isolated from every other test file's write-bucket assumptions.
@@ -433,6 +434,65 @@ describe('POST /api/v1/layouts — size and rate limits', () => {
     } finally {
       await throttledApp.close();
     }
+  });
+});
+
+describe('POST /api/v1/layouts/preview-check', () => {
+  function previewCheck(body: string, headers: Record<string, string> = {}, fetchStub: 'ok' | 'down' = 'ok') {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        fetchStub === 'ok'
+          ? new Response(Buffer.from([137, 80, 78, 71]), {
+              status: 200,
+              headers: { 'content-type': 'image/png', etag: '"fake"' },
+            })
+          : Promise.reject(new Error('renderer unreachable')),
+      ),
+    );
+    return app.inject({
+      method: 'POST',
+      url: '/api/v1/layouts/preview-check',
+      payload: body,
+      headers: { 'content-type': 'application/json', ...headers },
+    });
+  }
+
+  it('is impossible anonymously', async () => {
+    const response = await previewCheck(validLayoutJson());
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('rejects a blocked user', async () => {
+    const { accessToken } = await tokenFor({ blockedAt: new Date(), blockedReason: 'testing' });
+    const response = await previewCheck(validLayoutJson(), { authorization: `Bearer ${accessToken}` });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('returns the same actionable validation errors as the real submission path', async () => {
+    const { accessToken } = await tokenFor();
+    const response = await previewCheck(validLayoutJson({ tiles: [0, 0] }), {
+      authorization: `Bearer ${accessToken}`,
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json().issues.some((i: { code: string }) => i.code === 'layout.grid.tiles_mismatch')).toBe(
+      true,
+    );
+  });
+
+  it('returns the rendered PNG bytes directly, without creating anything', async () => {
+    const { accessToken } = await tokenFor();
+    const before = await countPublicLayouts(harness.db);
+    const response = await previewCheck(validLayoutJson(), { authorization: `Bearer ${accessToken}` });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('image/png');
+    expect(await countPublicLayouts(harness.db)).toBe(before);
+  });
+
+  it('a renderer failure is a 502, not a silent success (there is no "publish anyway" fallback here)', async () => {
+    const { accessToken } = await tokenFor();
+    const response = await previewCheck(validLayoutJson(), { authorization: `Bearer ${accessToken}` }, 'down');
+    expect(response.statusCode).toBe(502);
   });
 });
 

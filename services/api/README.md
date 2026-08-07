@@ -58,7 +58,7 @@ src/auth/freshRole.ts    requireFreshRole() — shared by users/routes.ts and mo
 
 ```bash
 npm run dev --workspace @pixel-index/api    # tsx watch
-npm test --workspace @pixel-index/api        # 310 tests, no real Postgres or renderer needed
+npm test --workspace @pixel-index/api        # 315 tests, no real Postgres or renderer needed
 ```
 
 `GET /health` is liveness — always 200 once the process is up. `GET /ready` actually
@@ -464,6 +464,20 @@ route that actually needs it, so this degrades exactly like `/meta` does — log
 at boot and answering every submission with a clear `503 validator_unavailable` instead of
 either refusing to start or failing every request with a confusing, unrelated-looking
 stack trace.
+
+### Checking a layout before publishing: `POST /api/v1/layouts/preview-check`
+
+Added for #15's submit UI, which needs to show an author their layout rendered *before*
+they publish — "an author who can see their own layout rendered is far less likely to
+submit something broken" is the issue's own reasoning, and it is what makes
+post-moderation (no review queue) tolerable at all. This is not a new pipeline: same raw
+byte-body handling, same `upstream.validator` (so the same actionable, field/furniture-id
+-naming errors as the real `POST /api/v1/layouts`), then a direct proxy to the renderer —
+just with nothing persisted. The renderer isn't itself reachable from a browser (no CORS
+configured on it, deliberately — it is an internal service, not a public one), so this is
+the only path a dry-run preview can take. A renderer failure here is a `502`, not the
+publish-anyway fallback `POST /api/v1/layouts` uses — there is nothing to "publish
+anyway" when nothing was going to be saved either way.
 
 ### Verified against a real renderer, not just a stub
 
