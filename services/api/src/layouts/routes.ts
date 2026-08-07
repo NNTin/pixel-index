@@ -18,6 +18,7 @@ import {
   authorsForLayouts,
   getLayoutBySlug,
   listLayouts,
+  listPublicTags,
   tagsForLayouts,
   type NumericRange,
 } from './query.js';
@@ -25,6 +26,7 @@ import {
   layoutDetailResponseSchema,
   listLayoutsQuerySchema,
   listLayoutsResponseSchema,
+  listTagsResponseSchema,
   slugParamsSchema,
 } from './schemas.js';
 import { toDetail, toSummary } from './serialize.js';
@@ -115,6 +117,11 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
       };
     },
   );
+
+  app.get('/api/v1/tags', { schema: { response: listTagsResponseSchema } }, async () => {
+    const tags = await listPublicTags(db);
+    return { schemaVersion: SCHEMA_VERSION, tags };
+  });
 
   app.get(
     '/api/v1/layouts/:slug',

@@ -273,6 +273,7 @@ would confirm something is there to hide.
 | Route | Purpose |
 |---|---|
 | `GET /api/v1/meta` | The pinned Pixel Agents (version, commit, `layoutRevision`) and the public layout count — the live equivalent of v1's `dist/index.json` header |
+| `GET /api/v1/tags` | Every tag in use on a public layout, with its count, most-used first — what #14's tag filter is populated from |
 | `GET /api/v1/layouts` | List: filtered, sorted, keyset-paginated |
 | `GET /api/v1/layouts/:slug` | Full record, including the parsed layout |
 | `GET /api/v1/layouts/:slug/download` | The raw bytes, verbatim — `Content-Disposition: attachment` |

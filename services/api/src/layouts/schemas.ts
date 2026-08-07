@@ -141,3 +141,21 @@ export const metaResponseSchema = {
     required: ['schemaVersion', 'generatedAt', 'pixelAgents', 'count'],
   },
 } as const;
+
+export const listTagsResponseSchema = {
+  200: {
+    type: 'object',
+    properties: {
+      schemaVersion: { type: 'integer' },
+      tags: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { name: { type: 'string' }, count: { type: 'integer' } },
+          required: ['name', 'count'],
+        },
+      },
+    },
+    required: ['schemaVersion', 'tags'],
+  },
+} as const;

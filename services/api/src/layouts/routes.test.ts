@@ -311,6 +311,46 @@ describe('GET /api/v1/layouts/:slug/thumbnail.png', () => {
   });
 });
 
+describe('GET /api/v1/tags', () => {
+  it('returns only tags used by a public layout, most-used first', async () => {
+    const popular = await insertLayout(harness.db, { slug: 'tags-popular', visibility: 'public' });
+    const rare = await insertLayout(harness.db, { slug: 'tags-rare', visibility: 'public' });
+    const hidden = await insertLayout(harness.db, { slug: 'tags-hidden-owner', visibility: 'hidden' });
+    await tagLayout(harness.db, popular.id, 'cosy');
+    await tagLayout(harness.db, rare.id, 'cosy');
+    await tagLayout(harness.db, rare.id, 'minimal');
+    // A tag used only by a non-public layout must not appear at all — #14's
+    // multi-select would otherwise offer a filter guaranteed to return zero
+    // public results.
+    await tagLayout(harness.db, hidden.id, 'hidden-only');
+
+    const response = await app.inject({ method: 'GET', url: '/api/v1/tags' });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    // Shared harness across this file's tests, so other tests' tags may
+    // also be present — assert on the ones this test controls.
+    expect(body.tags).toEqual(expect.arrayContaining([{ name: 'cosy', count: 2 }, { name: 'minimal', count: 1 }]));
+    expect(body.tags.find((t: { name: string }) => t.name === 'hidden-only')).toBeUndefined();
+    // Popularity order holds even amid other tests' tags: cosy (2) sorts
+    // ahead of minimal (1).
+    const names = body.tags.map((t: { name: string; count: number }) => `${t.name}:${t.count}`);
+    expect(names.indexOf('cosy:2')).toBeLessThan(names.indexOf('minimal:1'));
+  });
+
+  it('returns an empty list cleanly when nothing is tagged', async () => {
+    const emptyHarness = await createTestDatabase();
+    const emptyApp = await buildServer({ config, pool: fakePool, db: emptyHarness.db });
+    try {
+      const response = await emptyApp.inject({ method: 'GET', url: '/api/v1/tags' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().tags).toEqual([]);
+    } finally {
+      await emptyApp.close();
+      await emptyHarness.close();
+    }
+  });
+});
+
 describe('OpenAPI document', () => {
   it('is served and describes the layout routes', async () => {
     const response = await app.inject({ method: 'GET', url: '/openapi.json' });

@@ -198,6 +198,30 @@ export async function countPublicLayouts(db: AnyDatabase): Promise<number> {
   return row?.total ?? 0;
 }
 
+export interface TagUsage {
+  name: string;
+  count: number;
+}
+
+/**
+ * Every tag used by at least one public layout, with how many — #14's tag
+ * multi-select is populated from this rather than hardcoded, so it never
+ * shows a tag with zero results and never needs updating by hand as the
+ * vocabulary grows. Ordered by popularity: the tags worth showing first are
+ * the ones actually narrowing something.
+ */
+export async function listPublicTags(db: AnyDatabase): Promise<TagUsage[]> {
+  const rows = await db
+    .select({ name: schema.tags.name, count: sql<number>`count(*)::int` })
+    .from(schema.layoutTags)
+    .innerJoin(schema.tags, eq(schema.tags.id, schema.layoutTags.tagId))
+    .innerJoin(schema.layouts, eq(schema.layouts.id, schema.layoutTags.layoutId))
+    .where(eq(schema.layouts.visibility, 'public'))
+    .groupBy(schema.tags.name)
+    .orderBy(sql`count(*) DESC`, schema.tags.name);
+  return rows;
+}
+
 export async function getLayoutBySlug(db: AnyDatabase, slug: string): Promise<schema.Layout | null> {
   const [row] = await db
     .select()
