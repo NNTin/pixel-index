@@ -250,10 +250,11 @@ describe('POST /api/v1/layouts — dedupe', () => {
     expect(response.json().message).not.toContain('previously-removed'); // does not confirm the slug
   });
 
-  it('allows resubmitting content matching a layout the owner previously deleted', async () => {
+  it('allows the SAME owner to resubmit content they previously deleted', async () => {
     // schema.ts's own documented intent: deleted (owner-withdrawn) is not
     // the same as removed (moderator-withdrawn) — only the latter must
-    // resist being laundered back via resubmission.
+    // resist being laundered back via resubmission. Scoped to the same
+    // owner, though — see the next test.
     const raw = JSON.stringify({
       version: 1,
       layoutRevision: BUNDLED_REVISION,
@@ -262,8 +263,37 @@ describe('POST /api/v1/layouts — dedupe', () => {
       tiles: Array(169).fill(0),
       furniture: [],
     });
+    const { user, accessToken } = await tokenFor();
     await insertLayout(harness.db, {
       slug: 'previously-deleted',
+      authorUserId: user.id,
+      raw,
+      layout: JSON.parse(raw),
+      sha256: sha256(raw),
+      visibility: 'deleted',
+    });
+
+    const response = await submit('title=Republish+Attempt', raw, {
+      authorization: `Bearer ${accessToken}`,
+    });
+    expect(response.statusCode).toBe(201);
+  });
+
+  it('still rejects a STRANGER resubmitting content someone else deleted', async () => {
+    // The deleted-exception is "an owner may re-publish something they
+    // withdrew" (schema.ts), not "anyone may publish anything anyone else
+    // ever deleted" — a byte-identical match against someone else's
+    // deleted layout is still a conflict.
+    const raw = JSON.stringify({
+      version: 1,
+      layoutRevision: BUNDLED_REVISION,
+      cols: 14,
+      rows: 14,
+      tiles: Array(196).fill(0),
+      furniture: [],
+    });
+    await insertLayout(harness.db, {
+      slug: 'someone-elses-deleted-layout',
       raw,
       layout: JSON.parse(raw),
       sha256: sha256(raw),
@@ -271,10 +301,10 @@ describe('POST /api/v1/layouts — dedupe', () => {
     });
 
     const { accessToken } = await tokenFor();
-    const response = await submit('title=Republish+Attempt', raw, {
+    const response = await submit('title=Stranger+Republish+Attempt', raw, {
       authorization: `Bearer ${accessToken}`,
     });
-    expect(response.statusCode).toBe(201);
+    expect(response.statusCode).toBe(409);
   });
 });
 

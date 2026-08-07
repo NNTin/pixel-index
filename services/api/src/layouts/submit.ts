@@ -127,11 +127,14 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
 
         const hash = sha256(raw);
         const duplicate = await findLayoutBySha256(db, hash);
-        // `deleted` is excluded deliberately: an owner may re-publish content
-        // they withdrew themselves (schema.ts's own visibility table says so),
-        // and only a moderator-removed/hidden or still-public duplicate should
-        // block a resubmission — see #9's fix note.
-        if (duplicate && duplicate.visibility !== 'deleted') {
+        // `deleted` is excluded only when it is the SAME owner republishing
+        // content they withdrew themselves (schema.ts's own visibility table:
+        // "an owner may re-publish something they withdrew") — a stranger's
+        // byte-identical resubmission of someone ELSE's deleted layout is
+        // still a conflict, or `findLayoutBySha256` would let anyone publish
+        // content only because its original owner once deleted it.
+        const isOwnersOwnDeleted = duplicate?.visibility === 'deleted' && duplicate.authorUserId === user.id;
+        if (duplicate && !isOwnersOwnDeleted) {
           throw ApiError.conflict(
             duplicate.visibility === 'public'
               ? `This exact layout is already published at "${duplicate.slug}".`

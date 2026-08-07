@@ -236,10 +236,13 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
         const hash = sha256(raw);
         if (hash !== layout.sha256) {
           // Same dedupe rule as submission, and the same `deleted` exception
-          // (#9's fix note) — replacing with content that is a byte-exact
-          // match of some OTHER layout is still a duplicate.
+          // (#9's fix note) — but only when it is the SAME owner's own
+          // previously-deleted layout; a byte-identical match against
+          // someone ELSE's deleted layout is still a conflict, see submit.ts.
           const duplicate = await findLayoutBySha256(db, hash);
-          if (duplicate && duplicate.id !== layout.id && duplicate.visibility !== 'deleted') {
+          const isOwnersOwnDeleted =
+            duplicate?.visibility === 'deleted' && duplicate.authorUserId === user.id;
+          if (duplicate && duplicate.id !== layout.id && !isOwnersOwnDeleted) {
             throw ApiError.conflict(
               duplicate.visibility === 'public'
                 ? `This exact layout is already published at "${duplicate.slug}".`
