@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/NNTin/pixel-index/schema/meta.schema.json",
   "title": "Pixel Index layout metadata",
-  "description": "Describes one community layout. Kept out of layout.json so that file stays byte-for-byte what Pixel Agents imports.",
+  "description": "Describes one community layout. Kept out of layout.json so that file stays byte-for-byte what Pixel Agents imports. Layouts are not licensed individually — the repository is MIT licensed as a whole.",
   "type": "object",
   "additionalProperties": false,
   "required": ["title", "author", "description"],
@@ -30,11 +30,6 @@
       "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "maxLength": 24 },
       "maxItems": 8,
       "description": "Lowercase kebab-case keywords used for filtering."
-    },
-    "license": {
-      "type": "string",
-      "maxLength": 40,
-      "description": "SPDX identifier, e.g. CC0-1.0 or MIT. Optional, but layouts without one are harder for others to reuse."
     },
     "source": {
       "type": "string",

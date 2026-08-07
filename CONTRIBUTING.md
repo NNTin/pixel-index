@@ -7,7 +7,7 @@
    ```
    layouts/my-office/
    ├── layout.json    the export, unmodified
-   └── meta.json      title, author, description, tags, license
+   └── meta.json      title, author, description, tags
    ```
 
    ```json
@@ -15,8 +15,7 @@
      "title": "My Office",
      "author": "your-github-username",
      "description": "One or two sentences on what it is for.",
-     "tags": ["open-plan", "small"],
-     "license": "CC0-1.0"
+     "tags": ["open-plan", "small"]
    }
    ```
 

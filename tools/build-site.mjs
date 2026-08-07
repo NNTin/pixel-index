@@ -48,7 +48,7 @@ function card(entry) {
         </a>
         <div class="body">
           <h2>${escape(entry.title)}</h2>
-          <p class="by">by ${escape(entry.author)}${entry.license ? ` · ${escape(entry.license)}` : ''}</p>
+          <p class="by">by ${escape(entry.author)}</p>
           <p class="desc">${escape(entry.description)}</p>
           <p class="facts">${facts.map((fact) => `<span>${escape(fact)}</span>`).join('')}</p>
           ${
@@ -168,6 +168,10 @@ ${index.layouts.map(card).join('\n')}
       <p>
         Generated ${escape(index.generatedAt)}. Previews are rendered by Pixel Agents' own
         renderer, so they match what you will see in the office.
+      </p>
+      <p>
+        Layouts are credited to their authors. This index is
+        <a href="https://github.com/NNTin/pixel-index">open source</a> under the MIT license.
       </p>
     </footer>
   </body>

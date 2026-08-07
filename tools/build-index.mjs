@@ -35,7 +35,6 @@ const entries = layouts.map(({ slug, layout, meta, layoutPath }) => {
     author: meta?.author ?? 'unknown',
     description: meta?.description ?? '',
     tags: meta?.tags ?? [],
-    ...(meta?.license ? { license: meta.license } : {}),
     ...(meta?.source ? { source: meta.source } : {}),
     ...layoutStats(layout),
     bytes: raw.length,

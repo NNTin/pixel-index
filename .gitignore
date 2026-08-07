@@ -4,3 +4,6 @@
 dist/
 
 node_modules/
+
+# Local deployment config
+.env

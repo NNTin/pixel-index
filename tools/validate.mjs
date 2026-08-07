@@ -20,13 +20,9 @@ import {
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 const errors = [];
-const warnings = [];
 
 function error(slug, message) {
   errors.push(`${slug}: ${message}`);
-}
-function warn(slug, message) {
-  warnings.push(`${slug}: ${message}`);
 }
 
 const pin = upstreamPin();
@@ -60,9 +56,6 @@ for (const { slug, layout, meta, layoutPath, metaPath } of layouts) {
     }
     for (const tag of meta.tags ?? []) {
       if (!SLUG_RE.test(tag)) error(slug, `tag "${tag}" must be lowercase kebab-case`);
-    }
-    if (!meta.license) {
-      warn(slug, 'no license in meta.json — others cannot tell how they may reuse it');
     }
   }
 
@@ -149,11 +142,10 @@ console.log(
     `${pin.commit ? ` (${pin.commit.slice(0, 7)})` : ''}, bundled layoutRevision ${requiredRevision}.`,
 );
 
-for (const message of warnings) console.log(`  warning: ${message}`);
-for (const message of errors) console.error(`  error:   ${message}`);
+for (const message of errors) console.error(`  error: ${message}`);
 
 if (errors.length > 0) {
   console.error(`\n${errors.length} error(s).`);
   process.exit(1);
 }
-console.log(warnings.length > 0 ? `\nOK with ${warnings.length} warning(s).` : '\nOK.');
+console.log('\nOK.');

@@ -11,7 +11,7 @@ Browse the gallery, download a `layout.json`, and load it in Pixel Agents with
 ```
 layouts/<slug>/
 ├── layout.json          the artifact people download, exactly as exported
-└── meta.json            title, author, description, tags, license
+└── meta.json            title, author, description, tags
 
 schema/                  JSON Schemas for both files
 tools/                   validation, preview rendering, index + site build
@@ -96,6 +96,37 @@ published below the current revision is one that silently disappears on the
 user's next start, so `tools/validate.mjs` fails on it. When the pinned upstream
 bumps its bundled default, affected layouts have to be re-exported.
 
+## Deployment
+
+The gallery is served at <https://pixel-index.nntin.xyz> from a container built
+by `Dockerfile`: a Playwright builder stage runs the same `npm run build` used
+locally, and the resulting `dist/` is served by nginx. The image is therefore
+self-contained — previews are rendered during the build, so a deployed preview
+can never disagree with the layout beside it.
+
+```bash
+docker network create pixel-index-network   # once
+cp .env.example .env
+docker compose up -d --build
+```
+
+Routing is by Traefik label (`Host(pixel-index.nntin.xyz)`, `websecure`,
+Let's Encrypt DNS-01), reached through the Cloudflare Tunnel like the other
+`*.nntin.xyz` services. Publishing a new layout means rebuilding the image.
+
+> **Keep the healthcheck passing.** Traefik drops unhealthy containers from its
+> load balancer, so a failing healthcheck takes the site off the internet with a
+> bare 404 and no error anywhere in the Traefik logs. The check talks to
+> `127.0.0.1` rather than `localhost` on purpose: `localhost` resolves to `::1`
+> first inside the container, which an IPv4-only nginx listener refuses.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+This repository — the tooling, the schemas and the site — is MIT licensed; see
+[LICENSE](LICENSE). Layouts are not licensed individually; each is credited to
+its author in `meta.json`. The seed layouts are by
+[pablodelucca](https://github.com/pablodelucca), who also wrote Pixel Agents.

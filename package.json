@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "A community index of Pixel Agents office layouts",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "validate": "node tools/validate.mjs",
