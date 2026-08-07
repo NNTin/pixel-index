@@ -8,19 +8,41 @@ Browse the gallery, download a `layout.json`, and load it in Pixel Agents with
 
 ## Repository layout
 
+An npm workspace. The `v1` column is what runs today; the `v2` column is where the work
+in [epic #19](https://github.com/NNTin/pixel-index/issues/19) lands.
+
 ```
+# v1 — the static index, currently live
 layouts/<slug>/
 ├── layout.json          the artifact people download, exactly as exported
 └── meta.json            title, author, description, tags
-
 schema/                  JSON Schemas for both files
 tools/                   validation, preview rendering, index + site build
+
+# v2 — skeletons, filled in by the epic
+apps/web/                static gallery SPA           -> GitHub Pages  (#12–#16)
+services/api/            Fastify + Postgres           -> container     (#5–#10)
+services/renderer/       Playwright + pinned upstream -> container     (#4)
+packages/layout-core/    shared validation + schemas                   (#2)
+
+docs/adr/                architecture decisions
 vendor/pixel-agents/     pinned upstream (git submodule) — build-time only
 dist/                    generated: previews, index.json, the gallery (gitignored)
 ```
 
+`npm ci` at the root bootstraps every workspace. `vendor/pixel-agents` is deliberately
+**not** a workspace member — it is a submodule with its own lockfile, installed with
+`npm ci --prefix vendor/pixel-agents`.
+
 Metadata is kept out of `layout.json` on purpose: that file should be byte-for-byte
 what Pixel Agents exported, so importing it can never be surprising.
+
+## Architecture
+
+[ADR 0001](docs/adr/0001-v2-architecture.md) records the v2 design and, more usefully,
+the alternatives that were rejected and why — the hosting split and the cross-origin
+auth problem it creates, npm workspaces, matching upstream's stack, Postgres via
+Drizzle, the renderer as its own service, post-moderation, and the git-versioned seed.
 
 ## Previews are generated, never committed
 

@@ -1,0 +1,8 @@
+{
+  "name": "@pixel-index/api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fastify + Postgres: public layout API, Discord auth, submission and moderation",
+  "license": "MIT",
+  "type": "module"
+}

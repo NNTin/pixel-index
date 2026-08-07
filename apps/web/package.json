@@ -1,0 +1,8 @@
+{
+  "name": "@pixel-index/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Static gallery SPA — GitHub Pages in production, Vercel for PR previews",
+  "license": "MIT",
+  "type": "module"
+}

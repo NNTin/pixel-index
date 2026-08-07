@@ -1,0 +1,8 @@
+{
+  "name": "@pixel-index/renderer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Renders a layout to a PNG using Pixel Agents' own renderer",
+  "license": "MIT",
+  "type": "module"
+}

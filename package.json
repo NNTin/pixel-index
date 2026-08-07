@@ -5,6 +5,14 @@
   "description": "A community index of Pixel Agents office layouts",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*"
+  ],
   "scripts": {
     "validate": "node tools/validate.mjs",
     "previews": "node tools/render-previews.mjs",
