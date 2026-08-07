@@ -32,11 +32,9 @@ different origin, and everything else follows from that:
 - The Discord OAuth **code exchange happens on the API**, which is the only component
   that can hold the client secret.
 - The session has to survive a **cross-origin boundary** between the Pages site and the
-  API host. This is the hardest design problem in v2 and it is deliberately *not*
-  settled here — [#7](https://github.com/NNTin/pixel-index/issues/7) owns it, and must
-  choose between a cookie on a shared parent domain, a bearer token held by the SPA, or
-  a `SameSite=None` cookie, recording the trade-off. Browsers are actively degrading the
-  third option, which is also the easiest one to reach for.
+  API host. This was the hardest design problem in v2; [decision 10](#decision-10-session-mechanism--bearer-tokens-never-cookies)
+  settles it — a bearer token held by the SPA, never a cookie, and records why the two
+  cookie-based alternatives (a shared parent domain, `SameSite=None`) were rejected.
 - **CORS is a product surface, not a detail.** The allowlist is configuration, so the
   official index and a self-hoster's domain are both just values.
 - The site is only as available as the API it calls. Loading, empty and error states are
@@ -209,6 +207,102 @@ delete Traefik config to get started
 - **Bumping `vendor/pixel-agents` is a release-worthy event.** It can change the
   furniture catalog and the bundled `layoutRevision`, which can invalidate published
   layouts. It gets its own pull request and a re-validation of `seed/`.
+
+## Decision 10: session mechanism — bearer tokens, never cookies
+
+Decision 1 named the problem and deferred it: the frontend is a static SPA on GitHub
+Pages, the API is a separately-hosted service, and the two are permanently different
+origins for **every** deployment — the official index and any self-hoster's. Something
+has to carry "who is logged in" across that boundary on every API call the SPA makes.
+
+**Chosen: a bearer access token held by the SPA, refreshed via a bearer refresh token,
+with tokens delivered to the SPA via a one-time code after a browser redirect through
+Discord.** No cookie is ever used for the ongoing session.
+
+The reasoning turns on a distinction that is easy to miss: **not every part of an OAuth
+flow is cross-origin.** The transient `state`/PKCE handshake
+(`GET /api/v1/auth/discord/login` → Discord → `GET /callback`) is three top-level browser
+*navigations*, not `fetch()` calls — at every point a cookie is read, the API's own
+origin is the top-level site the browser is sitting on, so an ordinary `SameSite=Lax`
+cookie works exactly as well as it does for any single-site login form. That part was
+never the hard problem. The hard problem is what happens *after*: every subsequent call
+the SPA makes to the API (`GET /api/v1/me`, submitting a layout, moderating one) is a
+`fetch()` from the frontend's origin to the API's origin — a genuinely cross-site
+request, from the browser's privacy-partitioning point of view, no matter what
+`SameSite` value the API's cookie uses. That is where the three options actually differ:
+
+- **Cookie on a shared parent domain.** Would sidestep the third-party problem entirely
+  by making the API and the frontend same-site. **Rejected**: it requires the official
+  index and every self-hoster to put their frontend and API under one registrable
+  domain, which most static+container hosting combinations (GitHub Pages plus any
+  container platform) do not naturally give you. It would work beautifully for exactly
+  the deployments that don't need it and constrain everyone else.
+- **`SameSite=None; Secure` cookie.** The tempting, simplest-to-write option — and the
+  one the issue explicitly warns is degrading. Safari's ITP already restricts this kind
+  of cross-site cookie by default; the direction of travel across browsers is further
+  restriction, not less. **Rejected**: building new, load-bearing auth in 2026 on a
+  mechanism actively being deprecated in exactly the browsers real users have is
+  building on sand.
+- **Bearer token held by the SPA.** Sent explicitly via `Authorization: Bearer`, never
+  attached automatically by the browser, so it is immune to third-party cookie policy by
+  construction — there is no cookie for a browser to partition. **Chosen.**
+
+The traded-away safety property is real and is spelled out rather than hand-waved: a
+bearer token lives in JS-reachable memory, so an XSS bug on the frontend can steal it.
+Mitigations, in order of how much they actually help: (1) the access token is
+short-lived (`ACCESS_TOKEN_TTL_MS`, default 15 minutes) and never written to
+`localStorage` — the frontend holds it in memory only, so a closed tab already discards
+it; (2) the refresh token is opaque, DB-backed, and **rotated on every use**
+(`auth_refresh_tokens.rotatedToId`) — presenting an already-rotated token is treated as
+theft and revokes the entire token family, not just that one token
+(`services/api/src/auth/sessions.ts`); (3) logout and a moderator's "block user" action
+both revoke server-side immediately (`revokeSession`, `revokeAllSessionsForUser`), which
+a cookie-based session gets for free but a bearer token needs to earn back explicitly.
+It is worth being honest that XSS is close to game-over regardless of storage
+mechanism — a page that can run arbitrary JS as the user can also just *use* the token
+while it is live, whichever object it is sitting in — so the marginal defence
+in-memory-over-localStorage buys is mostly about *persistence* after the JS stops
+running, not about preventing the theft itself.
+
+**Delivery, and why it is not "put the tokens in the /callback redirect":** `/callback`
+is a top-level navigation landing on the API's own origin, where there is no frontend
+JavaScript running to receive anything. Putting the real tokens in that redirect's query
+string would leak them into browser history and any access log between the API and the
+frontend. Instead `/callback` mints a single-use, 60-second code
+(`auth_login_codes`) and redirects to the frontend with it in a **URL fragment**
+(`#pixelIndexLoginCode=...`), which browsers never transmit to a server at all. The SPA
+reads the fragment, immediately clears it from the address bar, and exchanges the code
+for the real tokens over an ordinary `POST /api/v1/auth/token` — a CORS `fetch`
+protected by the same origin allowlist as everything else, and the only place a bearer
+token ever appears in a response body.
+
+**CSRF** is mostly moot as a result: a malicious page cannot make a victim's browser
+attach an `Authorization` header the way it can a cookie, and CORS blocks it from
+reading the SPA's in-memory token or from completing a fetch that would need custom
+headers against an unlisted origin anyway. The one place CSRF-shaped forgery is still
+possible is the login *initiation* itself, which state existing for is the standard
+defense: `/callback` checks the returned `state` against the value from the cookie set
+at `/login`, and rejects a mismatch or a missing cookie outright
+(`services/api/src/auth/routes.ts`).
+
+**Roles and enforcement.** The access token embeds `role` so most requests need no
+database hit — the explicit trade for that is staleness: a promotion, demotion or block
+takes up to `ACCESS_TOKEN_TTL_MS` to reach a token already issued
+(`services/api/src/auth/context.ts`). `rotateRefreshToken` closes the gap for the one
+path that matters most for a *block*: refreshing re-checks `users.blockedAt` on every
+call and revokes the whole family if it is set, so a blocked user cannot silently keep
+minting fresh access tokens by refreshing through the staleness window. Every role check
+is a server-side comparison (`requireRole`, a strict ladder — `admin` satisfies a
+`moderator` check) against the token's verified claims; nothing about authorization is
+ever decided in the frontend.
+
+**Bootstrapping the first admin without SQL.** A self-hoster sets
+`INITIAL_ADMIN_DISCORD_ID` to their own Discord user id. On every login matching that
+id, `upsertDiscordUser` promotes the account to `admin` if it is not already
+(`services/api/src/auth/users.ts`) — idempotent, no UI and no direct database access
+required, matching the acceptance criterion exactly. The deliberate documented
+alternative for someone who forgot to set it before their first login: `UPDATE users SET
+role = 'admin' WHERE discord_id = '...'`, one statement, no migration.
 
 ## Migration order
 

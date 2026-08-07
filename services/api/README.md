@@ -5,17 +5,17 @@ secret, the database connection, and every authorization decision.
 
 ## Status
 
-The **database layer** ([#3](https://github.com/NNTin/pixel-index/issues/3)) and the
-**service skeleton** ([#5](https://github.com/NNTin/pixel-index/issues/5)) exist: config,
-CORS, the error envelope, rate limiting, health/readiness and a Dockerfile. There are
-still **no business routes** — that starts with #6.
+The **database layer** (#3), the **service skeleton** (#5) and **Discord auth** (#7)
+exist: config, CORS, the error envelope, rate limiting, health/readiness, a Dockerfile,
+and the whole OAuth2 + session lifecycle. There are still **no layout routes** — that
+starts with #6.
 
 | Issue | Scope | State |
 |---|---|---|
 | [#3](https://github.com/NNTin/pixel-index/issues/3) | schema, migrations, migration entrypoint | done |
 | [#5](https://github.com/NNTin/pixel-index/issues/5) | service skeleton: config, CORS, health, error envelope, rate limits | done |
 | [#6](https://github.com/NNTin/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | next |
-| [#7](https://github.com/NNTin/pixel-index/issues/7) | Discord OAuth, sessions, roles | |
+| [#7](https://github.com/NNTin/pixel-index/issues/7) | Discord OAuth, sessions, roles | done |
 | [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | |
 | [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service | |
 | [#10](https://github.com/NNTin/pixel-index/issues/10) | reports, moderation, audit log | |
@@ -23,17 +23,23 @@ still **no business routes** — that starts with #6.
 ## The HTTP surface today
 
 ```
-src/config.ts        env-only config, validated at boot, all problems reported at once
-src/errors.ts         ApiError + the one error envelope every response uses
-src/rateLimit.ts      writeRateLimitConfig() — the tighter per-route bucket
-src/auth/context.ts   request.user, and the seam #7 replaces
-src/server.ts          Fastify app: CORS, rate limits, error handling, /health, /ready
-src/index.ts           entrypoint: open the pool, boot the server, shut down together
+src/config.ts          env-only config, validated at boot, all problems reported at once
+src/errors.ts           ApiError + the one error envelope every response uses
+src/rateLimit.ts        writeRateLimitConfig() — the tighter per-route bucket
+src/server.ts            Fastify app: CORS, rate limits, error handling, /health, /ready
+src/index.ts             entrypoint: open the pool, boot the server, shut down together
+
+src/auth/context.ts     request.user — wired up, verifies the bearer access token
+src/auth/tokens.ts       sign/verify the access JWT; generate/hash opaque tokens
+src/auth/discord.ts      Discord's HTTP API: authorize URL, code exchange, profile, PKCE
+src/auth/sessions.ts     issue/rotate/revoke refresh tokens; login codes
+src/auth/users.ts        upsert on login; the admin-bootstrap promotion
+src/auth/routes.ts       /auth/discord/login, /callback, /auth/token, /refresh, /logout, /me
 ```
 
 ```bash
 npm run dev --workspace @pixel-index/api    # tsx watch
-npm test --workspace @pixel-index/api        # 73 tests, no real Postgres needed
+npm test --workspace @pixel-index/api        # 149 tests, no real Postgres needed
 ```
 
 `GET /health` is liveness — always 200 once the process is up. `GET /ready` actually
@@ -53,15 +59,21 @@ is ever compiled in; see [ADR 0001, decision 8](../../docs/adr/0001-v2-architect
 | `DATABASE_URL` | yes | — | `postgres://` or `postgresql://` |
 | `RENDERER_URL` | yes | — | The renderer (#4). Not called by any route yet |
 | `PUBLIC_WEB_ORIGIN` | yes | — | Comma-separated **exact origins** allowed to call the API with credentials |
-| `DISCORD_CLIENT_ID` | yes | — | Read now so #7 only adds logic, not config |
+| `DISCORD_CLIENT_ID` | yes | — | From the Discord Developer Portal |
 | `DISCORD_CLIENT_SECRET` | yes | — | Same |
+| `PUBLIC_API_ORIGIN` | yes | — | This API's own externally-reachable origin. `${this}/callback` **must exactly match** the redirect URI registered in the Discord Developer Portal — Discord rejects a mismatch, and mismatches fail late and confusingly |
+| `SESSION_SECRET` | yes | — | Signs access tokens. `openssl rand -base64 48`. ≥32 characters, checked at boot |
+| `INITIAL_ADMIN_DISCORD_ID` | | — | Your own Discord user id, to bootstrap the first admin with no SQL — see below |
+| `ACCESS_TOKEN_TTL_MS` | | `900000` (15 min) | How stale a role/block check can be — see ADR decision 10 |
+| `REFRESH_TOKEN_TTL_MS` | | `2592000000` (30 days) | |
+| `LOGIN_CODE_TTL_MS` | | `60000` | Window for the post-`/callback` handoff to the SPA |
 | `API_HOST` | | `::` | Dual-stack — see the healthcheck note below |
 | `API_PORT` | | `3000` | |
 | `API_TRUST_PROXY` | | `true` | Trust `X-Forwarded-For`. Every deployment sits behind a reverse proxy; a self-hoster exposing the API directly must set this `false` |
 | `API_BODY_LIMIT_BYTES` | | `5000000` | Refused at the socket, before parsing |
 | `LOG_LEVEL` | | `info` | Pino level |
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | | `300` / `60000` | General bucket |
-| `RATE_LIMIT_WRITE_MAX` / `RATE_LIMIT_WRITE_WINDOW_MS` | | `20` / `60000` | Tighter bucket for #8's submission and render-triggering paths |
+| `RATE_LIMIT_WRITE_MAX` / `RATE_LIMIT_WRITE_WINDOW_MS` | | `20` / `60000` | Tighter bucket for #8's submission, render-triggering paths, and the auth endpoints below |
 
 `PUBLIC_WEB_ORIGIN` entries must be an **origin only** — `https://pixel-index.example`,
 never `https://pixel-index.example/` or `.../some/path`. `new URL(x).origin !== x` is
@@ -116,12 +128,119 @@ which overrides just that route — the general bucket for everything else is un
 
 ## The auth seam
 
-`request.user: AuthUser | null` is decorated on every request, resolved by one hook that
-currently always returns `null`
-(`src/auth/context.ts`). Every route already runs after it. **#7 replaces the body of
-one function** (`resolveUser`) rather than threading a new decorator through every route
-file that needs to know who is asking. `requireAuth(request)` throws a 401 in the shared
-envelope for routes that need to require it, once #7 can actually populate `user`.
+`request.user: AuthUser | null` is decorated on every request, resolved by one hook
+(`src/auth/context.ts`) — exactly the seam #5 left, now wired up: it verifies the
+`Authorization: Bearer` access token and sets `{ id, role }` with **no database hit**.
+`requireAuth(request)` throws a 401 in the shared envelope; `requireRole(request, role)`
+throws a 403 unless the caller's role is at least `role` on a strict ladder
+(`user < moderator < admin` — an admin satisfies a moderator check).
+
+## Discord auth
+
+Full design rationale, the three options considered and why cookies lost to a bearer
+token in every deployment shape this project supports, is
+[ADR 0001, decision 10](../../docs/adr/0001-v2-architecture.md#decision-10-session-mechanism--bearer-tokens-never-cookies) —
+read that first if something here seems arbitrary. This section is the practical surface.
+
+### The flow
+
+```
+Browser                    API                              Discord
+  │  GET /api/v1/auth/discord/login?returnTo=...
+  ├──────────────────────────▶│  sets state+PKCE cookie (Path=/callback)
+  │◀── 302 to Discord ────────┤
+  │                                                              │
+  ├───────────────────── user logs in, consents ────────────────▶│
+  │                                                              │
+  │◀──────────────── 302 to GET /callback?code&state ────────────┤
+  │  GET /callback?code&state │
+  ├──────────────────────────▶│  checks state == cookie (constant-time)
+  │                            │  exchanges code for a Discord token
+  │                            │  fetches the Discord profile
+  │                            │  upserts the user, mints a one-time login code
+  │◀── 302 to frontend#pixelIndexLoginCode=... ───────────────────┤
+  │                                                              │
+  │  POST /api/v1/auth/token {code}         (ordinary CORS fetch, from here on)
+  ├──────────────────────────▶│  consumes the code, mints access+refresh tokens
+  │◀── { accessToken, refreshToken, user } ──┤
+```
+
+Two structurally different kinds of request happen here, and it is the reason the
+whole thing works without a cookie ever crossing origins: `/login` and `/callback` are
+**top-level navigations** — the API's own origin is the top-level site every time a
+cookie is set or read, which is why an ordinary `SameSite=Lax` cookie is sufficient
+there. `/token`, `/refresh` and `/logout` are **CORS fetches** from the SPA, which is
+the part that actually crosses origins — and carries no cookie at all.
+
+### Routes
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /api/v1/auth/discord/login?returnTo=` | — | Starts the flow. `returnTo` must be one of `PUBLIC_WEB_ORIGIN`; anything else silently falls back to the first configured origin rather than becoming an open redirect |
+| `GET /callback` | — | **Fixed path, not under `/api/v1`.** Must exactly match what is registered in the Discord Developer Portal |
+| `POST /api/v1/auth/token` `{code}` | — | Exchanges a login code for a session. Single-use; a replay is a 401 |
+| `POST /api/v1/auth/refresh` `{refreshToken}` | — | Rotates to a new pair. A reused (already-rotated) token revokes the whole session family — see below |
+| `POST /api/v1/auth/logout` `{refreshToken}` | — | Revokes the family. Always 204, whether or not the token was valid — logout never leaks validity |
+| `GET /api/v1/me` | bearer | `{ id, username, avatarUrl, role }` for the caller |
+
+### Refresh token rotation and theft detection
+
+Every refresh **spends** the presented token and issues a new one in its place
+(`auth_refresh_tokens.rotatedToId`). Presenting a token a second time — because it was
+copied by an attacker, or because a client retried a request it thought had failed —
+means neither the original holder's copy nor the replayer's can be trusted to be the
+real one, so the **entire family is revoked**, not just that token. `#10`'s "block a
+user" reaches for the same mechanism (`revokeAllSessionsForUser`) to take effect
+immediately rather than waiting for tokens to individually expire.
+
+Refresh also re-checks `users.blockedAt` on every call — the one place staleness from
+the stateless access token doesn't apply, because refreshing is exactly when the API
+has the user row in hand anyway.
+
+### Bootstrapping the first admin
+
+Set `INITIAL_ADMIN_DISCORD_ID` to your own Discord user id (right-click your name in
+Discord with Developer Mode on → Copy User ID) and log in once. `upsertDiscordUser`
+promotes that account to `admin` on every login where the id matches — idempotent, no
+UI, no SQL. It only ever promotes, never demotes: an admin who was deliberately demoted
+by another admin stays demoted even if `INITIAL_ADMIN_DISCORD_ID` still points at them.
+
+The deliberate documented alternative, for someone who forgot to set it before their
+first login:
+
+```sql
+UPDATE users SET role = 'admin' WHERE discord_id = '<your discord user id>';
+```
+
+### Setting up the Discord application
+
+1. https://discord.com/developers/applications → **New Application**.
+2. **OAuth2** tab → note the **Client ID** and **Client Secret** → `DISCORD_CLIENT_ID` /
+   `DISCORD_CLIENT_SECRET`.
+3. **OAuth2 → Redirects** → add exactly `${PUBLIC_API_ORIGIN}/callback` — e.g.
+   `https://api.pixel-index.example/callback`. This has to be byte-for-byte identical to
+   what the API constructs from `PUBLIC_API_ORIGIN`, or Discord rejects the exchange with
+   `invalid_client` for a reason that has nothing to do with whether your client secret
+   is correct — a mismatch here and a wrong secret produce the *same* error from
+   Discord, which is exactly the "fails late and confusingly" the issue warned about.
+4. The `identify` scope (username, avatar, id) is all this needs — no bot, no
+   `guilds`/email access.
+
+**A live credential fails the same way a wrong one does, and both look like an `invalid_client`
+from Discord's side**, so if login rejects immediately: verify the pairing independently
+of this codebase before debugging further —
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://discord.com/api/v10/oauth2/token \
+  -u "$DISCORD_CLIENT_ID:$DISCORD_CLIENT_SECRET" \
+  -d grant_type=client_credentials
+```
+
+`200` confirms the id/secret pair itself authenticates. Anything else (`401
+invalid_client` in particular) means the secret does not belong to that client id —
+often because it was reset in the Developer Portal after being copied, or a different
+field (e.g. the Public Key) was pasted by mistake — and the fix is to generate a fresh
+secret and update `.env`, before spending any time on the flow itself.
 
 ## Docker
 
@@ -248,7 +367,23 @@ engine provides.
 
 The migration entrypoint itself was additionally verified end-to-end against a real
 Postgres 17 container, since the tests exercise the PGlite driver rather than
-`node-postgres`.
+`node-postgres`. The same real-Postgres check was re-run after #7's migration
+(`auth_refresh_tokens`, `auth_login_codes`): tables land, check constraints apply, and a
+second run is a no-op.
+
+`auth/routes.test.ts` runs the **entire OAuth flow through real HTTP route handlers**
+(`app.inject`) against a migrated PGlite database, stubbing only the outbound call to
+Discord's API — login → callback → code exchange → `/me` → refresh → logout. Discord's
+own confidential-client details (Basic-auth header shape, token endpoint contract) are
+exercised separately in `auth/discord.test.ts`.
+
+The three properties that most matter for this issue's acceptance criteria are
+**mutation-tested**, not just covered — the guard was deleted and the relevant test
+confirmed to fail before being restored: refresh-token reuse detection, OAuth `state`
+comparison, and the `returnTo` origin allowlist. A green test suite proves the code
+runs; deleting the check and watching the right test go red is what proves the test is
+actually anchored to the security property it claims to guard, not merely exercising
+the code path around it.
 
 ## A note on `drizzle-kit`
 

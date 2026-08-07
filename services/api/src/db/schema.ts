@@ -362,6 +362,78 @@ export const moderationActions = pgTable(
   ],
 );
 
+/**
+ * Refresh tokens for the bearer-token session (#7, ADR 0001 decision 10).
+ *
+ * Never stores a usable token — only `tokenHash`, sha256 of the raw value the
+ * client holds, so a database dump alone cannot be replayed as a session.
+ *
+ * `familyId` links every token descended from one login through rotation.
+ * Refreshing sets `rotatedToId` on the token just spent and issues a new row
+ * in the same family. A refresh request presenting a token that already has
+ * `rotatedToId` set is a stolen-and-reused token: the app revokes the whole
+ * family, not just that one row, because at that point neither the attacker's
+ * nor the legitimate holder's copy can be trusted to be the "real" one.
+ *
+ * `rotatedToId` is deliberately not a foreign key — Drizzle self-references
+ * add real friction for a link that is never queried by join, only compared
+ * for presence, and the security property it encodes (detecting reuse) does
+ * not depend on referential integrity.
+ */
+export const authRefreshTokens = pgTable(
+  'auth_refresh_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    familyId: uuid('family_id').notNull(),
+    rotatedToId: uuid('rotated_to_id'),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex('auth_refresh_tokens_token_hash_key').on(table.tokenHash),
+    index('auth_refresh_tokens_family_idx').on(table.familyId),
+    index('auth_refresh_tokens_user_idx').on(table.userId),
+    check('auth_refresh_tokens_hash_format', sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
+/**
+ * The one-time code used to hand a freshly-minted session to the SPA.
+ *
+ * `/callback` is a full top-level navigation landing on the API's own origin —
+ * there is no SPA JavaScript running there to receive tokens directly, and
+ * putting the real access/refresh tokens in a 302's query string would leak
+ * them into browser history and any access log between here and the frontend.
+ * Instead the callback redirects to the frontend with a single-use code; the
+ * SPA immediately exchanges it over a normal CORS `fetch`, which is where the
+ * tokens actually appear in a response body for the first time.
+ *
+ * 60 seconds is generous for "the browser finishes one more redirect and the
+ * SPA's landing script runs" and stingy for anything else.
+ */
+export const authLoginCodes = pgTable(
+  'auth_login_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    codeHash: text('code_hash').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex('auth_login_codes_code_hash_key').on(table.codeHash),
+    check('auth_login_codes_hash_format', sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Layout = typeof layouts.$inferSelect;
@@ -371,3 +443,7 @@ export type Report = typeof reports.$inferSelect;
 export type NewReport = typeof reports.$inferInsert;
 export type ModerationAction = typeof moderationActions.$inferSelect;
 export type NewModerationAction = typeof moderationActions.$inferInsert;
+export type AuthRefreshToken = typeof authRefreshTokens.$inferSelect;
+export type NewAuthRefreshToken = typeof authRefreshTokens.$inferInsert;
+export type AuthLoginCode = typeof authLoginCodes.$inferSelect;
+export type NewAuthLoginCode = typeof authLoginCodes.$inferInsert;

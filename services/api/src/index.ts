@@ -10,7 +10,7 @@ import { buildServer } from './server.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
-  const { pool } = createDatabase({ connectionString: config.databaseUrl });
+  const { db, pool } = createDatabase({ connectionString: config.databaseUrl });
 
   let closing = false;
   const shutdown = async (signal: string, code = 0): Promise<void> => {
@@ -26,7 +26,7 @@ export async function main(): Promise<void> {
     process.exit(code);
   };
 
-  const app = await buildServer({ config, pool });
+  const app = await buildServer({ config, pool, db });
 
   try {
     await app.listen({ host: config.host, port: config.port });

@@ -9,14 +9,17 @@
  * allowlisted origin can carry credentials.
  */
 
+import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { registerAuthContext } from './auth/context.js';
+import { registerAuthRoutes } from './auth/routes.js';
 import type { ApiConfig } from './config.js';
-import { registerErrorHandling } from './errors.js';
+import type { AnyDatabase } from './db/client.js';
 import type { Queryable } from './db/pool.js';
+import { registerErrorHandling } from './errors.js';
 
 export interface BuildServerDeps {
   config: ApiConfig;
@@ -26,9 +29,11 @@ export interface BuildServerDeps {
    * see the note on `onClose` there.
    */
   pool: Queryable;
+  /** The full Drizzle handle, for the auth routes and everything after. */
+  db: AnyDatabase;
 }
 
-export async function buildServer({ config, pool }: BuildServerDeps): Promise<FastifyInstance> {
+export async function buildServer({ config, pool, db }: BuildServerDeps): Promise<FastifyInstance> {
   const app = Fastify({
     bodyLimit: config.bodyLimitBytes,
     // The reverse proxy (Traefik, Cloudflare Tunnel) sets X-Forwarded-For.
@@ -38,7 +43,9 @@ export async function buildServer({ config, pool }: BuildServerDeps): Promise<Fa
   });
 
   registerErrorHandling(app);
-  registerAuthContext(app);
+  registerAuthContext(app, config.sessionSecret);
+
+  await app.register(cookie);
 
   await app.register(cors, {
     // No `origin` header (curl, server-to-server, same-origin) is not a CORS
@@ -69,6 +76,8 @@ export async function buildServer({ config, pool }: BuildServerDeps): Promise<Fa
       return error;
     },
   });
+
+  registerAuthRoutes(app, { config, db });
 
   app.get('/health', async () => ({ status: 'ok' }));
 

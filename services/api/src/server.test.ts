@@ -2,27 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { requireAuth } from './auth/context.js';
+import type { AnyDatabase } from './db/client.js';
 import type { ApiConfig } from './config.js';
 import { ApiError } from './errors.js';
 import { buildServer } from './server.js';
-
-function testConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
-  return {
-    host: '127.0.0.1',
-    port: 0,
-    logLevel: 'silent',
-    bodyLimitBytes: 5_000_000,
-    trustProxy: true,
-    databaseUrl: 'postgres://user:pass@localhost:5432/pixel_index',
-    rendererUrl: 'http://renderer.internal:3000',
-    webOrigins: ['https://pixel-index.example', 'https://preview.pixel-index.example'],
-    discordClientId: 'client-id',
-    discordClientSecret: 'client-secret',
-    rateLimit: { max: 100, windowMs: 60_000 },
-    writeRateLimit: { max: 2, windowMs: 60_000 },
-    ...overrides,
-  };
-}
+import { testConfig } from './test-support/config.js';
 
 /** A pool stub. Nothing here touches a real Postgres. */
 function fakePool(behaviour: 'up' | 'down' | 'slow' = 'up') {
@@ -35,14 +19,22 @@ function fakePool(behaviour: 'up' | 'down' | 'slow' = 'up') {
   };
 }
 
+/**
+ * None of the tests in this file exercise an auth route, so `db` is never
+ * actually queried — a typed stand-in keeps `buildServer`'s signature honest
+ * without pulling PGlite into a file that is otherwise DB-free. Auth routes
+ * are covered against a real (in-memory) database in auth/routes.test.ts.
+ */
+const unusedDb = {} as AnyDatabase;
+
 let apps: FastifyInstance[] = [];
 afterEach(async () => {
   await Promise.all(apps.map((app) => app.close()));
   apps = [];
 });
 
-async function build(config: ApiConfig = testConfig(), pool = fakePool()) {
-  const app = await buildServer({ config, pool });
+async function build(config: ApiConfig = testConfig(), pool = fakePool(), db = unusedDb) {
+  const app = await buildServer({ config, pool, db });
   apps.push(app);
   return app;
 }

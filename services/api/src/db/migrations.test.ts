@@ -15,6 +15,8 @@ describe('migrations', () => {
 
   it('runs from empty to current on a clean Postgres', async () => {
     expect(await tableNames(harness.client)).toEqual([
+      'auth_login_codes',
+      'auth_refresh_tokens',
       'layout_tags',
       'layouts',
       'moderation_actions',

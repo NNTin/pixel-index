@@ -8,6 +8,8 @@ const REQUIRED = {
   PUBLIC_WEB_ORIGIN: 'https://pixel-index.example',
   DISCORD_CLIENT_ID: 'client-id',
   DISCORD_CLIENT_SECRET: 'client-secret',
+  PUBLIC_API_ORIGIN: 'https://api.pixel-index.example',
+  SESSION_SECRET: 'a'.repeat(32),
 } as const;
 
 const ENV_KEYS = [
@@ -21,6 +23,10 @@ const ENV_KEYS = [
   'RATE_LIMIT_WINDOW_MS',
   'RATE_LIMIT_WRITE_MAX',
   'RATE_LIMIT_WRITE_WINDOW_MS',
+  'INITIAL_ADMIN_DISCORD_ID',
+  'ACCESS_TOKEN_TTL_MS',
+  'REFRESH_TOKEN_TTL_MS',
+  'LOGIN_CODE_TTL_MS',
 ] as const;
 
 function setRequired(overrides: Partial<Record<string, string>> = {}) {
@@ -116,6 +122,66 @@ describe('loadConfig — PUBLIC_WEB_ORIGIN', () => {
   it('rejects garbage', () => {
     setRequired({ PUBLIC_WEB_ORIGIN: 'not an origin' });
     expect(() => loadConfig()).toThrow(/is not a valid origin/);
+  });
+});
+
+describe('loadConfig — PUBLIC_API_ORIGIN', () => {
+  it('accepts exactly one origin', () => {
+    setRequired({ PUBLIC_API_ORIGIN: 'https://api.example' });
+    expect(loadConfig().publicApiOrigin).toBe('https://api.example');
+  });
+
+  it('rejects a path — this is what redirect_uri is built from, and it must be exact', () => {
+    setRequired({ PUBLIC_API_ORIGIN: 'https://api.example/v1' });
+    expect(() => loadConfig()).toThrow(/PUBLIC_API_ORIGIN must be an origin only/);
+  });
+
+  it('rejects garbage', () => {
+    setRequired({ PUBLIC_API_ORIGIN: 'not a url' });
+    expect(() => loadConfig()).toThrow(/PUBLIC_API_ORIGIN is not a valid origin/);
+  });
+});
+
+describe('loadConfig — SESSION_SECRET', () => {
+  it('accepts a secret at the minimum length', () => {
+    setRequired({ SESSION_SECRET: 'x'.repeat(32) });
+    expect(loadConfig().sessionSecret).toHaveLength(32);
+  });
+
+  it('rejects a short secret — short signing keys are brute-forceable', () => {
+    setRequired({ SESSION_SECRET: 'too-short' });
+    expect(() => loadConfig()).toThrow(/SESSION_SECRET must be at least 32 characters/);
+  });
+});
+
+describe('loadConfig — auth extras', () => {
+  it('INITIAL_ADMIN_DISCORD_ID is optional and absent by default', () => {
+    setRequired();
+    expect('initialAdminDiscordId' in loadConfig()).toBe(false);
+  });
+
+  it('reads INITIAL_ADMIN_DISCORD_ID when set', () => {
+    setRequired({ INITIAL_ADMIN_DISCORD_ID: '123456789012345678' });
+    expect(loadConfig().initialAdminDiscordId).toBe('123456789012345678');
+  });
+
+  it('has sane token TTL defaults: access shorter than refresh', () => {
+    setRequired();
+    const config = loadConfig();
+    expect(config.accessTokenTtlMs).toBeLessThan(config.refreshTokenTtlMs);
+    expect(config.loginCodeTtlMs).toBeLessThan(config.accessTokenTtlMs);
+  });
+
+  it('reads TTL overrides', () => {
+    setRequired({
+      ACCESS_TOKEN_TTL_MS: '1000',
+      REFRESH_TOKEN_TTL_MS: '2000',
+      LOGIN_CODE_TTL_MS: '3000',
+    });
+    const config = loadConfig();
+    expect(config.accessTokenTtlMs).toBe(1000);
+    expect(config.refreshTokenTtlMs).toBe(2000);
+    expect(config.loginCodeTtlMs).toBe(3000);
   });
 });
 

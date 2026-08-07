@@ -36,9 +36,31 @@ export interface ApiConfig {
   /** Exact origins allowed to call the API with credentials. No wildcards. */
   webOrigins: string[];
 
-  /** Read now so #7 only has to add logic, not config. */
   discordClientId: string;
   discordClientSecret: string;
+  /**
+   * This API's own externally-reachable origin. The OAuth `redirect_uri` sent
+   * to Discord is always `${publicApiOrigin}/callback` — never derived from
+   * request input — which is what "the redirect URI is allowlisted" means in
+   * practice for a value Discord itself also strictly matches against what is
+   * registered in the Developer Portal. Both sides have to agree on this
+   * value; see auth/discord.ts and the ADR.
+   */
+  publicApiOrigin: string;
+  /** Signs access tokens (HS256) and the transient OAuth state cookie. */
+  sessionSecret: string;
+  /**
+   * A Discord user id to promote to `admin` on login, so a self-hoster can
+   * bootstrap their first admin from `.env` with no SQL and no UI. Optional:
+   * once at least one admin exists, most deployments never need it again.
+   */
+  initialAdminDiscordId?: string;
+  /** How long a minted access token is valid without a fresh DB lookup. */
+  accessTokenTtlMs: number;
+  /** How long an unused refresh token stays valid. */
+  refreshTokenTtlMs: number;
+  /** How long the post-login handoff code to the SPA stays valid. */
+  loginCodeTtlMs: number;
 
   rateLimit: RateLimitBucket;
   /** Tighter bucket for #8's submission and #4's render-triggering paths. */
@@ -137,6 +159,44 @@ function requireOriginList(name: string, problems: string[]): string[] {
   return valid;
 }
 
+/** The single-value form of `requireOriginList` — exactly one origin, nothing else. */
+function requireOrigin(name: string, problems: string[]): string {
+  const raw = requireEnv(name, problems);
+  if (raw === '') return raw;
+  try {
+    const url = new URL(raw);
+    if (url.origin !== raw) {
+      problems.push(
+        `${name} must be an origin only (no path, query or trailing slash), got ${JSON.stringify(raw)}`,
+      );
+      return url.origin;
+    }
+    return url.origin;
+  } catch {
+    problems.push(`${name} is not a valid origin, got ${JSON.stringify(raw)}`);
+    return raw;
+  }
+}
+
+const MIN_SESSION_SECRET_LENGTH = 32;
+
+function requireSessionSecret(problems: string[]): string {
+  const raw = requireEnv('SESSION_SECRET', problems);
+  if (raw !== '' && raw.length < MIN_SESSION_SECRET_LENGTH) {
+    problems.push(
+      `SESSION_SECRET must be at least ${MIN_SESSION_SECRET_LENGTH} characters ` +
+        `(got ${raw.length}) — short signing keys are brute-forceable. ` +
+        'Generate one with: openssl rand -base64 48',
+    );
+  }
+  return raw;
+}
+
+function optionalEnv(name: string): string | undefined {
+  const raw = process.env[name];
+  return raw === undefined || raw.trim() === '' ? undefined : raw;
+}
+
 export function loadConfig(): ApiConfig {
   const problems: string[] = [];
 
@@ -153,6 +213,14 @@ export function loadConfig(): ApiConfig {
 
     discordClientId: requireEnv('DISCORD_CLIENT_ID', problems),
     discordClientSecret: requireEnv('DISCORD_CLIENT_SECRET', problems),
+    publicApiOrigin: requireOrigin('PUBLIC_API_ORIGIN', problems),
+    sessionSecret: requireSessionSecret(problems),
+    ...(optionalEnv('INITIAL_ADMIN_DISCORD_ID')
+      ? { initialAdminDiscordId: optionalEnv('INITIAL_ADMIN_DISCORD_ID') }
+      : {}),
+    accessTokenTtlMs: intFromEnv('ACCESS_TOKEN_TTL_MS', 15 * 60_000, problems),
+    refreshTokenTtlMs: intFromEnv('REFRESH_TOKEN_TTL_MS', 30 * 24 * 60 * 60_000, problems),
+    loginCodeTtlMs: intFromEnv('LOGIN_CODE_TTL_MS', 60_000, problems),
 
     rateLimit: {
       max: intFromEnv('RATE_LIMIT_MAX', 300, problems),

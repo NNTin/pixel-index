@@ -19,11 +19,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/rate-limit": "^11.2.0",
     "@pixel-index/layout-core": "*",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.8.5",
+    "jose": "^6.2.8",
     "pg": "^8.16.3"
   },
   "devDependencies": {
