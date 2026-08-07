@@ -23,6 +23,7 @@ import type { AnyDatabase } from './db/client.js';
 import type { Queryable } from './db/pool.js';
 import { registerErrorHandling } from './errors.js';
 import { registerLayoutRoutes } from './layouts/routes.js';
+import { registerSubmitRoutes } from './layouts/submit.js';
 import { sharedSchemas } from './layouts/schemas.js';
 import { registerMetaRoutes } from './meta.js';
 
@@ -121,6 +122,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
   registerAuthRoutes(app, { config, db });
   registerMetaRoutes(app, config, db);
   registerLayoutRoutes(app, { config, db });
+  registerSubmitRoutes(app, { config, db });
 
   app.get('/health', { schema: { hide: true } }, async () => ({ status: 'ok' }));
 

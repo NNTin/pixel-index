@@ -5,9 +5,9 @@ secret, the database connection, and every authorization decision.
 
 ## Status
 
-The **database layer** (#3), the **service skeleton** (#5), **Discord auth** (#7) and the
-**public layout API** (#6) exist. There is nothing here yet that *writes* a layout —
-that starts with #8.
+The **database layer** (#3), the **service skeleton** (#5), **Discord auth** (#7), the
+**public layout API** (#6) and **submission** (#8) exist. Publishing a layout no longer
+requires a pull request.
 
 | Issue | Scope | State |
 |---|---|---|
@@ -15,8 +15,8 @@ that starts with #8.
 | [#5](https://github.com/NNTin/pixel-index/issues/5) | service skeleton: config, CORS, health, error envelope, rate limits | done |
 | [#6](https://github.com/NNTin/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | done |
 | [#7](https://github.com/NNTin/pixel-index/issues/7) | Discord OAuth, sessions, roles | done |
-| [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | next |
-| [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service | |
+| [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | done |
+| [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service | next |
 | [#10](https://github.com/NNTin/pixel-index/issues/10) | reports, moderation, audit log | |
 
 ## The HTTP surface today
@@ -42,11 +42,14 @@ src/layouts/serialize.ts DB row -> public JSON shape, one place, for list and de
 src/layouts/schemas.ts   the JSON Schemas that validate requests AND generate the OpenAPI doc
 src/layouts/routes.ts    GET /layouts, /layouts/:slug{,/download,/preview.png,/thumbnail.png}
 src/renderer/client.ts   thin client for the renderer service (#4), used by preview routes
+
+src/layouts/submit.ts    POST /layouts — the whole submission pipeline
+src/layouts/slug.ts      title -> collision-safe, stable-once-assigned slug
 ```
 
 ```bash
 npm run dev --workspace @pixel-index/api    # tsx watch
-npm test --workspace @pixel-index/api        # 217 tests, no real Postgres or renderer needed
+npm test --workspace @pixel-index/api        # 258 tests, no real Postgres or renderer needed
 ```
 
 `GET /health` is liveness — always 200 once the process is up. `GET /ready` actually
@@ -81,8 +84,10 @@ is ever compiled in; see [ADR 0001, decision 8](../../docs/adr/0001-v2-architect
 | `LOG_LEVEL` | | `info` | Pino level |
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | | `300` / `60000` | General bucket |
 | `RATE_LIMIT_WRITE_MAX` / `RATE_LIMIT_WRITE_WINDOW_MS` | | `20` / `60000` | Tighter bucket for #8's submission, render-triggering paths, and the auth endpoints |
-| `PIXEL_AGENTS_DIR` | | auto-discovered | Where `vendor/pixel-agents` lives, for `GET /api/v1/meta`. Only needed in a container |
+| `PIXEL_AGENTS_DIR` | | auto-discovered | Where `vendor/pixel-agents` lives, for `GET /api/v1/meta` and submission validation |
 | `PIXEL_AGENTS_COMMIT` | | — | A container's copy has no `.git` to read a commit from — same trap and fix as the renderer |
+| `MAX_LAYOUT_BYTES` | | `2000000` | Submission size cap (#8), refused before `JSON.parse` even runs — matches the renderer's own default so a layout accepted here is never subsequently rejected there |
+| `MAX_SUBMISSIONS_PER_USER_PER_DAY` | | `20` | Post-moderation means a flood is a real, cheap attack — a real 24h count, not a token bucket |
 
 `PUBLIC_WEB_ORIGIN` entries must be an **origin only** — `https://pixel-index.example`,
 never `https://pixel-index.example/` or `.../some/path`. `new URL(x).origin !== x` is
@@ -356,6 +361,114 @@ its right-hand side — the combination throws `op ANY/ALL (array) requires arra
 side` **at query time**, not at compile time. The tags ALL-match filter
 (`src/layouts/query.ts`) uses `sql.join(...)` to build a real `IN (…)` list instead.
 
+## Submitting a layout
+
+```
+POST /api/v1/layouts?title=<1-60 chars>&description=<0-300 chars>&tags=<comma,separated>
+Authorization: Bearer <access token>
+Content-Type: application/json
+
+<the layout.json bytes, exactly>
+```
+
+The body **is** `layout.json` — not a field nested in a larger JSON envelope. Title,
+description and tags travel as query parameters instead. That is not how a JSON API
+would normally shape "upload a resource plus its metadata", and it is deliberate: nested
+JSON gets re-serialised the moment it is parsed out of the envelope — different
+whitespace, different number formatting — which would silently reintroduce the exact
+byte-fidelity problem `layouts.raw` (#6) exists to solve, for the one field where it
+matters most. `title`/`description`/`tags` genuinely are just metadata; the layout is the
+resource, so it gets the whole body.
+
+Making that work means this one route deliberately overrides Fastify's default
+`application/json` body parser with one that keeps the raw string instead of an object —
+scoped to an *encapsulated* child plugin (`app.register(async (instance) => …)`) so it
+cannot leak into any other JSON route. `layouts/submit.test.ts` includes a regression
+test proving `/api/v1/auth/token` still receives a normally-parsed body.
+
+### What happens, in order
+
+Everything cheap runs before anything expensive, so a bad request is rejected as early
+as possible:
+
+1. **Auth.** `requireAuth` (401 if absent), then a **fresh** `blockedAt` check
+   (`getUserById`) — not `resolveUser`'s job (auth/context.ts is deliberately
+   stateless), but a write this abuse-sensitive is exactly the path where the access
+   token's staleness trade-off (ADR decision 10) stops being acceptable, so this route
+   checks the real row instead of trusting the token's claims.
+2. **Size.** `MAX_LAYOUT_BYTES`, checked on the raw string's byte length before
+   `JSON.parse` ever runs — `413`.
+3. **Is it JSON at all** — `400`.
+4. **layout-core validation** — `createValidator()`'s full check (schema, grid
+   consistency, furniture ids, `layoutRevision`) — `422` with field-level `issues`,
+   exactly `@pixel-index/layout-core`'s `ValidationIssue[]`. A `layoutRevision` below the
+   bundled default gets layout-core's own explanation of *why* it would break, not just
+   that it did — see `packages/layout-core`.
+5. **Dedupe**, by `sha256` — `409`.
+6. **The daily cap**, a real count of the last 24h — `429 too_many_submissions`.
+7. Slug generation, insert (in a transaction with tag attachment), then a best-effort
+   render.
+
+### Dedupe also stops a moderation decision being laundered back in
+
+The `sha256` lookup (`findLayoutBySha256`) is **not** scoped to public layouts — it
+checks every visibility. A layout a moderator removed still blocks a byte-identical
+resubmission with the same `409`, worded so it does not confirm *why* ("was submitted
+before and is not available", never naming the slug) — otherwise dedupe-by-content-hash
+would be exactly the mechanism someone could use to quietly undo a moderation decision by
+resubmitting the same content under a new title.
+
+### Render failure never blocks publication
+
+The issue asked this to be a documented decision, not a default: after the transaction
+commits, this route asks the renderer for a preview and includes `previewReady` in the
+response, but a renderer failure — down, timed out, or (should it ever happen) rejecting
+a layout layout-core already accepted — is logged and does **not** roll back or block the
+publication already committed. Coupling "can I submit" to "is the renderer currently up"
+would let a secondary feature take down the core one, and there is nothing to
+compensate for later regardless: #6's preview routes are a live proxy with no stored
+state, so the very next viewer's request tries the renderer fresh no matter what
+happened here. The one thing this call buys, beyond the immediate `previewReady` signal,
+is a warm renderer cache by the time anyone looks.
+
+### Slugs are generated once, and stay
+
+Derived from the title (`slug.ts`): lowercased, accents stripped rather than dropped
+(`"Café"` → `cafe`), non-alphanumeric runs collapsed to one hyphen, truncated to 60
+characters. A collision appends `-2`, `-3`, … — checked against **every** existing slug
+regardless of visibility, because the unique index has no visibility filter (schema.ts):
+a moderator-removed layout still reserves its slug forever, the same reason dedupe checks
+every visibility too. The slug is never regenerated from a later title edit (#9) — it is
+a permanent, linkable, downloadable URL, and silently moving it under a link someone
+already shared would be a worse surprise than a slug that no longer matches a since-renamed
+title. A true race between two concurrent submissions computing the same slug before
+either commits is retried (up to 3 attempts) rather than surfaced as the caller's problem.
+
+### A boot-time tension this route shares with `/meta`, and resolves the same way
+
+Building the validator once at boot (rather than per request — `furnitureCatalog()`
+walks the whole asset tree) raised the same question `/meta` already answered: what
+happens if the pinned upstream cannot be found? Crashing the whole process over a
+misconfigured `PIXEL_AGENTS_DIR` would take down every read route along with the one
+route that actually needs it, so this degrades exactly like `/meta` does — logging loudly
+at boot and answering every submission with a clear `503 validator_unavailable` instead of
+either refusing to start or failing every request with a confusing, unrelated-looking
+stack trace.
+
+### Verified against a real renderer, not just a stub
+
+Beyond the unit and route-level suite (stubbed renderer, matching #6/#7's own pattern),
+#8 was checked against the **actual, built renderer image** rendering a submission
+end-to-end: a real login-free JWT signed with the container's own `SESSION_SECRET`,
+`POST`ed to the live API, produced a `201` with `previewReady: true`, a subsequent
+`GET .../preview.png` returned a genuine 736×768 rendered PNG (not a stub), `/download`
+was confirmed byte-identical to the exact bytes sent, a resubmission of the same content
+correctly `409`'d, and `/api/v1/meta`'s count incremented by one.
+
+Three of this route's own guards are mutation-tested — dedupe (both the public and the
+non-public case), the blocked-user check, and the daily cap — deleted and confirmed to
+fail the specific test built to catch it, then restored.
+
 ## Docker
 
 ```bash
@@ -384,8 +497,8 @@ boot, `/ready` succeeds, `/ready` fails within milliseconds when Postgres is sto
 (fails fast — this does not wait for the 2s timeout, because `pg` rejects a refused
 connection immediately), a restart re-runs migrations idempotently, the image reports
 `healthy`, and `SIGTERM` stops the container with exit `0` in under 0.3s. #6 re-verified
-the layout routes the same way, with a layout inserted directly by SQL (there is no
-writer yet): `/api/v1/meta` reports the real build-arg commit, list/detail/download all
+the layout routes the same way, with a layout inserted directly by SQL (#8 did not exist
+yet): `/api/v1/meta` reports the real build-arg commit, list/detail/download all
 round-trip correctly, `/download` is **byte-identical** to the source file on disk, a 404
 renderer (`RENDERER_URL` pointed at nothing) produces a real `502` rather than a hang or
 a crash, and `/openapi.json` names its schemas `LayoutSummary`/`LayoutDetail` rather than
@@ -540,10 +653,18 @@ that inserts a new highest-ranked row *between* two page requests and asserts pa
 unaffected, which is the specific failure `OFFSET` pagination cannot avoid.
 
 #6 was additionally verified against a real containerised Postgres 17 with a real seed
-layout inserted by hand (there is no writer yet): `/api/v1/meta` reports the real
+layout inserted by hand (#8 did not exist yet): `/api/v1/meta` reports the real
 build-arg-supplied commit, `/download` is **byte-identical** to the source file on disk,
 and a `RENDERER_URL` pointed at nothing produces a real `502` from the live container,
 not a hang.
+
+`layouts/submit.test.ts` and `layouts/slug.test.ts` cover #8 the same way #6 and #7 were
+covered — real HTTP handlers, PGlite, a stubbed renderer — and #8 goes one step further:
+the **actual, built renderer image** rendered a real submission end-to-end (a genuine
+736×768 PNG, not a stub) against the live API and a real Postgres container — see
+"Submitting a layout" above for what that checked. Dedupe (both the public and the
+non-public/laundering case), the blocked-user check and the daily cap are
+mutation-tested.
 
 ## A note on `drizzle-kit`
 

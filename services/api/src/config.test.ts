@@ -29,6 +29,8 @@ const ENV_KEYS = [
   'LOGIN_CODE_TTL_MS',
   'PIXEL_AGENTS_DIR',
   'PIXEL_AGENTS_COMMIT',
+  'MAX_LAYOUT_BYTES',
+  'MAX_SUBMISSIONS_PER_USER_PER_DAY',
 ] as const;
 
 function setRequired(overrides: Partial<Record<string, string>> = {}) {
@@ -184,6 +186,22 @@ describe('loadConfig — auth extras', () => {
     expect(config.accessTokenTtlMs).toBe(1000);
     expect(config.refreshTokenTtlMs).toBe(2000);
     expect(config.loginCodeTtlMs).toBe(3000);
+  });
+});
+
+describe('loadConfig — submission limits (#8)', () => {
+  it('has sane defaults matching the renderer\'s own default cap', () => {
+    setRequired();
+    const config = loadConfig();
+    expect(config.maxLayoutBytes).toBe(2_000_000);
+    expect(config.maxSubmissionsPerUserPerDay).toBe(20);
+  });
+
+  it('reads overrides', () => {
+    setRequired({ MAX_LAYOUT_BYTES: '500000', MAX_SUBMISSIONS_PER_USER_PER_DAY: '5' });
+    const config = loadConfig();
+    expect(config.maxLayoutBytes).toBe(500_000);
+    expect(config.maxSubmissionsPerUserPerDay).toBe(5);
   });
 });
 

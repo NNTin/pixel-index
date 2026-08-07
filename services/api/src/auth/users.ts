@@ -62,3 +62,15 @@ export async function upsertDiscordUser(
     .returning();
   return created!;
 }
+
+/**
+ * The fresh row behind an access token's `{id, role}` claims. `resolveUser`
+ * (context.ts) deliberately never does this — it is the stateless-access-token
+ * trade-off's whole point — but #8's submission route needs `blockedAt`, which
+ * the token cannot carry (it would be exactly as stale as `role` already is),
+ * and the full row's `id` for `authorUserId` regardless.
+ */
+export async function getUserById(db: AnyDatabase, id: string): Promise<schema.User | null> {
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.id, id));
+  return user ?? null;
+}

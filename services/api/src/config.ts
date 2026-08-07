@@ -77,6 +77,22 @@ export interface ApiConfig {
   /** How long the post-login handoff code to the SPA stays valid. */
   loginCodeTtlMs: number;
 
+  /**
+   * Refused before JSON.parse even runs (#8). Matches the renderer's own
+   * default (`RENDERER_MAX_LAYOUT_BYTES`) so a layout that clears this check
+   * is never subsequently rejected by the renderer for being oversized —
+   * independently configurable because the two services are configured
+   * independently and there is no reason to force them to agree.
+   */
+  maxLayoutBytes: number;
+  /**
+   * Post-moderation means nothing stands between a stranger and the front
+   * page except this and the rate-limit bucket below — a flood is a real,
+   * cheap attack (#8). Checked against a real count of the user's last 24h
+   * of submissions, not a token-bucket approximation.
+   */
+  maxSubmissionsPerUserPerDay: number;
+
   rateLimit: RateLimitBucket;
   /** Tighter bucket for #8's submission and #4's render-triggering paths. */
   writeRateLimit: RateLimitBucket;
@@ -241,6 +257,9 @@ export function loadConfig(): ApiConfig {
     accessTokenTtlMs: intFromEnv('ACCESS_TOKEN_TTL_MS', 15 * 60_000, problems),
     refreshTokenTtlMs: intFromEnv('REFRESH_TOKEN_TTL_MS', 30 * 24 * 60 * 60_000, problems),
     loginCodeTtlMs: intFromEnv('LOGIN_CODE_TTL_MS', 60_000, problems),
+
+    maxLayoutBytes: intFromEnv('MAX_LAYOUT_BYTES', 2_000_000, problems),
+    maxSubmissionsPerUserPerDay: intFromEnv('MAX_SUBMISSIONS_PER_USER_PER_DAY', 20, problems),
 
     rateLimit: {
       max: intFromEnv('RATE_LIMIT_MAX', 300, problems),

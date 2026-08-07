@@ -230,3 +230,59 @@ export async function authorsForLayouts(
     .where(inArray(schema.users.id, [...new Set(authorUserIds)]));
   return new Map(rows.map((row) => [row.id, row]));
 }
+
+/**
+ * By content hash, **regardless of visibility** — dedupe (#8) has to catch a
+ * resubmission of something a moderator already removed, not just a public
+ * one, or a moderation decision could be silently laundered back onto the
+ * front page by re-uploading byte-identical content under a fresh slug.
+ */
+export async function findLayoutBySha256(
+  db: AnyDatabase,
+  sha256: string,
+): Promise<schema.Layout | null> {
+  const [row] = await db.select().from(schema.layouts).where(eq(schema.layouts.sha256, sha256));
+  return row ?? null;
+}
+
+/** For the per-user daily submission cap (#8). */
+export async function countUserSubmissionsSince(
+  db: AnyDatabase,
+  userId: string,
+  since: Date,
+): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(schema.layouts)
+    .where(and(eq(schema.layouts.authorUserId, userId), gte(schema.layouts.createdAt, since)));
+  return row?.total ?? 0;
+}
+
+/**
+ * Create-or-reuse each tag by name, then attach every one to the layout.
+ * Tag names are validated by the caller (layout-core's `SLUG_RE`, the same
+ * pattern `tags_name_format` enforces) before this ever runs.
+ */
+export async function attachTags(
+  db: AnyDatabase,
+  layoutId: string,
+  tagNames: string[],
+): Promise<void> {
+  if (tagNames.length === 0) return;
+
+  const unique = [...new Set(tagNames)];
+  const existing = await db.select().from(schema.tags).where(inArray(schema.tags.name, unique));
+  const existingNames = new Set(existing.map((tag) => tag.name));
+  const toCreate = unique.filter((name) => !existingNames.has(name));
+
+  const created =
+    toCreate.length > 0
+      ? await db
+          .insert(schema.tags)
+          .values(toCreate.map((name) => ({ name })))
+          .returning()
+      : [];
+
+  const allTags = [...existing, ...created];
+  await db.insert(schema.layoutTags).values(allTags.map((tag) => ({ layoutId, tagId: tag.id })));
+}
