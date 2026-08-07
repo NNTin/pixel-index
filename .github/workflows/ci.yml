@@ -27,10 +27,14 @@ jobs:
         run: npm run validate
 
   test:
-    name: layout-core tests
+    name: Unit tests
     runs-on: ubuntu-latest
-    # The suite runs against the real pinned submodule rather than a fixture:
-    # the point of the package is that it agrees with the upstream we ship.
+    # Typecheck + fast tests across every workspace (layout-core, api,
+    # renderer). layout-core's suite runs against the real pinned submodule
+    # rather than a fixture: the point of the package is that it agrees with
+    # the upstream we ship. Nothing here needs a real Postgres or a browser —
+    # api's tests use a fake pool, renderer's slow browser suite is the
+    # separate "renderer" job below.
     steps:
       - uses: actions/checkout@v4
         with:

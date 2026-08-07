@@ -5,18 +5,144 @@ secret, the database connection, and every authorization decision.
 
 ## Status
 
-The **database layer exists** ([#3](https://github.com/NNTin/pixel-index/issues/3)).
-There is no HTTP server yet.
+The **database layer** ([#3](https://github.com/NNTin/pixel-index/issues/3)) and the
+**service skeleton** ([#5](https://github.com/NNTin/pixel-index/issues/5)) exist: config,
+CORS, the error envelope, rate limiting, health/readiness and a Dockerfile. There are
+still **no business routes** — that starts with #6.
 
 | Issue | Scope | State |
 |---|---|---|
 | [#3](https://github.com/NNTin/pixel-index/issues/3) | schema, migrations, migration entrypoint | done |
-| [#5](https://github.com/NNTin/pixel-index/issues/5) | service skeleton: config, CORS, health, error envelope, rate limits | next |
-| [#6](https://github.com/NNTin/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | |
+| [#5](https://github.com/NNTin/pixel-index/issues/5) | service skeleton: config, CORS, health, error envelope, rate limits | done |
+| [#6](https://github.com/NNTin/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | next |
 | [#7](https://github.com/NNTin/pixel-index/issues/7) | Discord OAuth, sessions, roles | |
 | [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | |
 | [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service | |
 | [#10](https://github.com/NNTin/pixel-index/issues/10) | reports, moderation, audit log | |
+
+## The HTTP surface today
+
+```
+src/config.ts        env-only config, validated at boot, all problems reported at once
+src/errors.ts         ApiError + the one error envelope every response uses
+src/rateLimit.ts      writeRateLimitConfig() — the tighter per-route bucket
+src/auth/context.ts   request.user, and the seam #7 replaces
+src/server.ts          Fastify app: CORS, rate limits, error handling, /health, /ready
+src/index.ts           entrypoint: open the pool, boot the server, shut down together
+```
+
+```bash
+npm run dev --workspace @pixel-index/api    # tsx watch
+npm test --workspace @pixel-index/api        # 73 tests, no real Postgres needed
+```
+
+`GET /health` is liveness — always 200 once the process is up. `GET /ready` actually
+queries Postgres (2s timeout) and is what the Dockerfile's `HEALTHCHECK` uses, so a
+database outage takes the container out of the load balancer instead of leaving it
+"healthy" while every real route would 500.
+
+## Configuration
+
+Every required variable is validated **at boot**, and every problem is reported
+**together** — a misconfigured deployment fails once with a full list, not one
+frustrating restart per missing value. No hostname, domain or deployment-specific string
+is ever compiled in; see [ADR 0001, decision 8](../../docs/adr/0001-v2-architecture.md).
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `DATABASE_URL` | yes | — | `postgres://` or `postgresql://` |
+| `RENDERER_URL` | yes | — | The renderer (#4). Not called by any route yet |
+| `PUBLIC_WEB_ORIGIN` | yes | — | Comma-separated **exact origins** allowed to call the API with credentials |
+| `DISCORD_CLIENT_ID` | yes | — | Read now so #7 only adds logic, not config |
+| `DISCORD_CLIENT_SECRET` | yes | — | Same |
+| `API_HOST` | | `::` | Dual-stack — see the healthcheck note below |
+| `API_PORT` | | `3000` | |
+| `API_TRUST_PROXY` | | `true` | Trust `X-Forwarded-For`. Every deployment sits behind a reverse proxy; a self-hoster exposing the API directly must set this `false` |
+| `API_BODY_LIMIT_BYTES` | | `5000000` | Refused at the socket, before parsing |
+| `LOG_LEVEL` | | `info` | Pino level |
+| `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | | `300` / `60000` | General bucket |
+| `RATE_LIMIT_WRITE_MAX` / `RATE_LIMIT_WRITE_WINDOW_MS` | | `20` / `60000` | Tighter bucket for #8's submission and render-triggering paths |
+
+`PUBLIC_WEB_ORIGIN` entries must be an **origin only** — `https://pixel-index.example`,
+never `https://pixel-index.example/` or `.../some/path`. `new URL(x).origin !== x` is
+rejected at boot rather than silently never matching a real browser `Origin` header
+later.
+
+## CORS is a product surface here, not a detail
+
+The frontend is on GitHub Pages and this service is on another origin, so every browser
+call is cross-origin. The allowlist comes from `PUBLIC_WEB_ORIGIN`, so the official index
+and a self-hoster's Pages domain are both just values — never hardcoded. Only an
+allowlisted origin gets `Access-Control-Allow-Credentials: true`; anything else gets no
+CORS headers at all, which is what makes a real browser block the response from ever
+reaching page JS. A request with **no** `Origin` header (curl, server-to-server) is not a
+CORS request and is unaffected either way.
+
+## One error envelope
+
+Every error response — thrown deliberately, raised by Fastify's schema validation, or
+unhandled — comes out the same shape:
+
+```jsonc
+{ "error": "validation_error", "message": "Validation failed.", "issues": [ /* … */ ] }
+```
+
+`issues` is only present on a 422, and is exactly
+`@pixel-index/layout-core`'s `ValidationResult.issues` — `ApiError.validation(result.issues)`
+is the whole translation layer #8 needs. `ApiError` has `.notFound()`, `.forbidden()`,
+`.unauthorized()`, `.conflict()` and `.badRequest()` statics; anything unexpected is
+logged in full server-side and rendered to the client as a bare `internal_error`, never
+leaking internals.
+
+## Rate limiting
+
+`@fastify/rate-limit`, registered once, globally, keyed on the real client via
+`trustProxy` (not the reverse proxy's own IP). A 429 carries `Retry-After` and the shared
+envelope. A route that needs the tighter bucket spreads in `writeRateLimitConfig(config)`:
+
+```ts
+app.post('/api/v1/layouts', writeRateLimitConfig(config), handler);
+```
+
+which overrides just that route — the general bucket for everything else is untouched.
+
+> **A subtlety that cost a debugging session:** `@fastify/rate-limit`'s
+> `errorResponseBuilder` does not `reply.send()` — it *returns a value that gets thrown*
+> into Fastify's normal error pipeline. Returning a plain object with no `.statusCode`
+> means the central error handler has nothing to key on and falls back to 500. The
+> builder in `server.ts` mirrors the plugin's own default shape (`new Error(...)` with
+> `.statusCode` set) for exactly this reason — the actual envelope is still rendered by
+> `errors.ts`, this only has to get the shape right.
+
+## The auth seam
+
+`request.user: AuthUser | null` is decorated on every request, resolved by one hook that
+currently always returns `null`
+(`src/auth/context.ts`). Every route already runs after it. **#7 replaces the body of
+one function** (`resolveUser`) rather than threading a new decorator through every route
+file that needs to know who is asking. `requireAuth(request)` throws a 401 in the shared
+envelope for routes that need to require it, once #7 can actually populate `user`.
+
+## Docker
+
+```bash
+# Context is the repo root.
+docker build -f services/api/Dockerfile -t pixel-index-api .
+```
+
+`docker-entrypoint.sh` runs `db/migrate.js` **before every start**, not just the first —
+migrations are forward-only and idempotent, so this is what makes a self-hoster's first
+`docker compose up` provision a working database with no manual step, and makes a restart
+after a schema-bumping deploy just work.
+
+`drizzle-kit` and the rest of the dev toolchain are pruned from the runtime image
+(`npm prune --omit=dev`) — they never run in production.
+
+Verified end-to-end against a real containerised Postgres 17: migrations apply on first
+boot, `/ready` succeeds, `/ready` fails within milliseconds when Postgres is stopped
+(fails fast — this does not wait for the 2s timeout, because `pg` rejects a refused
+connection immediately), a restart re-runs migrations idempotently, the image reports
+`healthy`, and `SIGTERM` stops the container with exit `0` in under 0.3s.
 
 ## The database
 
@@ -132,31 +258,6 @@ is not installed in the runtime image. It currently pulls a deprecated
 `@esbuild-kit/*` chain with a moderate advisory against esbuild's dev server. That
 advisory needs an esbuild dev server running to matter, which `drizzle-kit generate` does
 not start, and the latest drizzle-kit still carries it. `npm audit --omit=dev` — the tree
-that actually ships — reports zero vulnerabilities.
-
-## Configuration
-
-Environment only, validated at boot, failing loudly on anything missing. No hostname or
-domain is ever compiled in — see
-[ADR 0001, decision 8](../../docs/adr/0001-v2-architecture.md).
-
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | Postgres connection string. Required. |
-
-More arrive with [#5](https://github.com/NNTin/pixel-index/issues/5) and
-[#7](https://github.com/NNTin/pixel-index/issues/7).
-
-## Two things to get right early
-
-**CORS is a product surface here, not a detail.** The frontend is on GitHub Pages and
-this service is on another origin, so every browser call is cross-origin. The allowlist
-comes from config, so the official index and a self-hoster's domain are both just
-values.
-
-**A health check that always returns 200 is how a container stays in a load balancer
-while broken.** Readiness must actually probe Postgres. Bind and probe both IP stacks
-explicitly — probing `localhost` resolves to `::1` first inside a container, so an
-IPv4-only listener fails the check, the container is marked unhealthy, and reverse
-proxies drop it, producing a bare 404 with nothing in any log. That exact failure has
-already happened once to this project.
+that actually ships — reports zero vulnerabilities. The same is true of `services/api`'s
+own image: it is pruned to production dependencies before the runtime stage, so
+`drizzle-kit` and its dev-only chain never ship at all.

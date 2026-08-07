@@ -8,6 +8,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
     "db:generate": "drizzle-kit generate",
     "//db:migrate": "The container entrypoint. Runs the built artifact, exactly as production does.",
     "db:migrate": "node dist/db/migrate.js",
@@ -17,8 +19,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^11.2.0",
     "@pixel-index/layout-core": "*",
     "drizzle-orm": "^0.45.2",
+    "fastify": "^5.8.5",
     "pg": "^8.16.3"
   },
   "devDependencies": {
