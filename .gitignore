@@ -1,0 +1,6 @@
+# Build output. Previews and the index are generated on every build and
+# published with the site, never committed, so they cannot drift from the
+# layouts or from the pinned Pixel Agents.
+dist/
+
+node_modules/

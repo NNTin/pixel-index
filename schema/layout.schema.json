@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NNTin/pixel-index/schema/layout.schema.json",
+  "title": "Pixel Agents office layout",
+  "description": "Structural shape of an exported Pixel Agents layout. Upstream treats the layout as an opaque object owned by the rendering layer, so this schema covers the invariants the index depends on rather than every field. Cross-field rules (tiles length, known furniture ids, layoutRevision) are enforced by tools/validate.mjs.",
+  "type": "object",
+  "required": ["version", "cols", "rows", "tiles", "furniture"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Layout format version. Only 1 exists so far."
+    },
+    "layoutRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Pixel Agents discards a stored layout when the bundled default's revision is HIGHER than this. A layout published below the current revision will be wiped on the user's next start."
+    },
+    "cols": { "type": "integer", "minimum": 1, "maximum": 64 },
+    "rows": { "type": "integer", "minimum": 1, "maximum": 64 },
+    "tiles": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "Row-major tile types, length cols * rows."
+    },
+    "tileColors": {
+      "type": "array",
+      "description": "Per-tile colour values, parallel to tiles. Null where a tile is uncoloured."
+    },
+    "furniture": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "col", "row"],
+        "properties": {
+          "type": { "type": "string" },
+          "col": { "type": "integer", "minimum": 0 },
+          "row": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "carpets": { "type": "array" },
+    "areas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label"],
+        "properties": {
+          "label": { "type": "string" },
+          "color": { "type": "string" }
+        }
+      }
+    },
+    "areaTiles": { "type": "array" },
+    "pets": { "type": "array" }
+  }
+}

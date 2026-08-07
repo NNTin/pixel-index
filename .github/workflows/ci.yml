@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate layouts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate layouts against the pinned Pixel Agents
+        run: node tools/validate.mjs
+
+  previews:
+    name: Render previews
+    runs-on: ubuntu-latest
+    # Proves every layout still renders. The images are build output, never
+    # committed — the deployed site is the only place they live.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install index tooling
+        run: npm ci
+
+      - name: Install upstream webview dependencies
+        run: npm ci
+        working-directory: vendor/pixel-agents
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - run: node tools/build-index.mjs
+      - run: node tools/render-previews.mjs
+      - run: node tools/build-site.mjs
+
+      - name: Upload gallery for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery
+          path: dist/
+          retention-days: 7
