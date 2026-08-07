@@ -173,6 +173,10 @@ ${index.layouts.map(card).join('\n')}
         Layouts are credited to their authors. This index is
         <a href="https://github.com/NNTin/pixel-index">open source</a> under the MIT license.
       </p>
+      <p>
+        Read the <a href="https://github.com/NNTin/pixel-index/blob/main/CONTENT_POLICY.md">content policy</a>
+        for what is not allowed and how to report a layout.
+      </p>
     </footer>
   </body>
 </html>

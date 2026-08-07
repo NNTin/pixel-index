@@ -554,6 +554,11 @@ PATCH /api/v1/users/:id/block    moderator+: block/unblock an account
 Deliberately narrow — there is no general `PATCH /users/:id`. Role and block are two
 specific, heavily-audited powers, not an account-edit surface.
 
+For *when* to reach for hide vs. remove vs. block, and the rest of the judgment calls
+around using these endpoints, see the repo root's
+[CONTENT_POLICY.md](../../CONTENT_POLICY.md) and [MODERATORS.md](../../MODERATORS.md) —
+this section is the "how", those are the "when" and "why".
+
 Both routes fetch a **fresh** actor row from the database rather than trusting the
 access token's `{id, role}` claim (`requireFreshRole`, `users/routes.ts`). ADR 0001's
 stateless-access-token trade-off is explicit that this is acceptable because nothing

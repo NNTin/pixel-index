@@ -159,6 +159,13 @@ Let's Encrypt DNS-01), reached through the Cloudflare Tunnel like the other
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Content policy and moderation
+
+This index is post-moderated — content is public on submission, not reviewed before it
+appears. See [CONTENT_POLICY.md](CONTENT_POLICY.md) for what is not allowed and how to
+report a layout, and [MODERATORS.md](MODERATORS.md) for how the moderation team applies
+it.
+
 ## License
 
 This repository — the tooling, the schemas and the site — is MIT licensed; see
