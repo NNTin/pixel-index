@@ -212,17 +212,18 @@ delete Traefik config to get started
 
 ## Migration order
 
-v1 keeps working until v2 can replace it. Concretely, this ADR and the restructure
-**do not move or delete** `tools/`, `schema/` or `layouts/`:
+v1 keeps working until v2 can replace it. Nothing is deleted before its replacement
+exists, so the published index never goes dark mid-migration.
 
-| v1 artifact | Fate | Owner |
-|---|---|---|
-| `tools/validate.mjs`, `tools/lib/layouts.mjs` | become `packages/layout-core` | [#2](https://github.com/NNTin/pixel-index/issues/2) |
-| `schema/*.json` | move into `packages/layout-core` | [#2](https://github.com/NNTin/pixel-index/issues/2) |
-| `tools/render-previews.mjs` | becomes `services/renderer` | [#4](https://github.com/NNTin/pixel-index/issues/4) |
-| `tools/build-site.mjs`, `.github/workflows/pages.yml` | replaced by `apps/web` | [#12](https://github.com/NNTin/pixel-index/issues/12) |
-| `tools/build-index.mjs`, `tools/serve.mjs`, `Dockerfile`, `nginx.conf` | deleted | [#18](https://github.com/NNTin/pixel-index/issues/18) |
-| `layouts/` | becomes `seed/` | [#18](https://github.com/NNTin/pixel-index/issues/18) |
+| v1 artifact | Fate | Owner | Status |
+|---|---|---|---|
+| `tools/validate.mjs`, validation half of `tools/lib/layouts.mjs` | become `packages/layout-core` | [#2](https://github.com/NNTin/pixel-index/issues/2) | done |
+| `schema/*.json` | move into `packages/layout-core/schema/` | [#2](https://github.com/NNTin/pixel-index/issues/2) | done |
+| `tools/lib/layouts.mjs` (disk discovery) | retires with `layouts/` | [#18](https://github.com/NNTin/pixel-index/issues/18) | pending |
+| `tools/render-previews.mjs` | becomes `services/renderer` | [#4](https://github.com/NNTin/pixel-index/issues/4) | pending |
+| `tools/build-site.mjs`, `.github/workflows/pages.yml` | replaced by `apps/web` | [#12](https://github.com/NNTin/pixel-index/issues/12) | pending |
+| `tools/build-index.mjs`, `tools/serve.mjs`, `Dockerfile`, `nginx.conf` | deleted | [#18](https://github.com/NNTin/pixel-index/issues/18) | pending |
+| `layouts/` | becomes `seed/` | [#18](https://github.com/NNTin/pixel-index/issues/18) | pending |
 
 Deleting any of it now would take the published index offline before its replacement
 exists. The new directories are created empty-but-resolvable so later issues have

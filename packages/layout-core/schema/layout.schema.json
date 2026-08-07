@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/NNTin/pixel-index/schema/layout.schema.json",
+  "$id": "https://github.com/NNTin/pixel-index/packages/layout-core/schema/layout.schema.json",
   "title": "Pixel Agents office layout",
-  "description": "Structural shape of an exported Pixel Agents layout. Upstream treats the layout as an opaque object owned by the rendering layer, so this schema covers the invariants the index depends on rather than every field. Cross-field rules (tiles length, known furniture ids, layoutRevision) are enforced by tools/validate.mjs.",
+  "description": "Structural shape of an exported Pixel Agents layout. Upstream treats the layout as an opaque object owned by the rendering layer, so this schema covers the invariants the index depends on rather than every field. Cross-field and upstream-dependent rules (tiles length, known furniture ids, layoutRevision, grid bounds) cannot be expressed here and are enforced by validateLayout() in @pixel-index/layout-core.",
   "type": "object",
   "required": ["version", "cols", "rows", "tiles", "furniture"],
   "properties": {
@@ -34,7 +34,10 @@
         "properties": {
           "type": { "type": "string" },
           "col": { "type": "integer", "minimum": 0 },
-          "row": { "type": "integer", "minimum": 0 }
+          "row": {
+            "type": "integer",
+            "description": "May be negative. Wall-mounted furniture is anchored by its BOTTOM row (editorActions.ts getWallPlacementRow: row - (footprintH - 1)), so a tall item on the top wall legitimately sits above row 0. The real lower bound depends on the item's footprint and canPlaceOnWalls, which only validateLayout() can check."
+          }
         }
       }
     },

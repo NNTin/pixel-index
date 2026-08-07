@@ -12,7 +12,9 @@ FROM mcr.microsoft.com/playwright:v1.62.1-noble AS builder
 WORKDIR /app
 
 # Index tooling first: it changes far less often than the layouts.
+# The workspace manifests have to be present before `npm ci` will resolve them.
 COPY package.json package-lock.json ./
+COPY packages/layout-core/package.json ./packages/layout-core/
 RUN npm ci
 
 # The pinned upstream supplies both the renderer and the asset catalog.
@@ -23,8 +25,8 @@ COPY vendor/pixel-agents/webview-ui/package.json ./vendor/pixel-agents/webview-u
 RUN npm ci --prefix vendor/pixel-agents
 
 COPY vendor/pixel-agents ./vendor/pixel-agents
+COPY packages ./packages
 COPY tools ./tools
-COPY schema ./schema
 COPY layouts ./layouts
 
 RUN npm run build

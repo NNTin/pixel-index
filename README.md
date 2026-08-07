@@ -16,14 +16,13 @@ in [epic #19](https://github.com/NNTin/pixel-index/issues/19) lands.
 layouts/<slug>/
 ├── layout.json          the artifact people download, exactly as exported
 └── meta.json            title, author, description, tags
-schema/                  JSON Schemas for both files
-tools/                   validation, preview rendering, index + site build
+tools/                   preview rendering, index + site build
 
-# v2 — skeletons, filled in by the epic
+# v2
+packages/layout-core/    validation, stats, JSON Schemas — shared by all of the below
 apps/web/                static gallery SPA           -> GitHub Pages  (#12–#16)
 services/api/            Fastify + Postgres           -> container     (#5–#10)
 services/renderer/       Playwright + pinned upstream -> container     (#4)
-packages/layout-core/    shared validation + schemas                   (#2)
 
 docs/adr/                architecture decisions
 vendor/pixel-agents/     pinned upstream (git submodule) — build-time only
@@ -106,16 +105,30 @@ npm ci
 npx playwright install chromium
 
 npm run validate    # schema, furniture ids, layoutRevision
+npm test            # layout-core unit tests
 npm run build       # validate + index + previews + gallery into dist/
 npm run serve       # http://127.0.0.1:4173
 ```
+
+## Validation lives in one place
+
+`packages/layout-core` is the single definition of what a valid layout is, because
+three things need that answer — CI, the API's submission endpoint (#8) and the renderer
+(#4) — and three copies would drift.
+
+It validates in two layers: **structure** from JSON Schema
+(`packages/layout-core/schema/`), and **semantics** in code for the rules a schema
+cannot express, because they are cross-field (`tiles.length === cols * rows`) or depend
+on the pinned upstream (which furniture ids exist, what the bundled `layoutRevision`
+is). Issues come back as data (`{ code, path, message }`), so the API can render them as
+a 422 and the CLI can print them.
 
 ## The rule that eats layouts
 
 Pixel Agents resets a stored layout when the bundled default's `layoutRevision`
 is **higher** than the layout's (`server/src/layoutPersistence.ts`). A layout
 published below the current revision is one that silently disappears on the
-user's next start, so `tools/validate.mjs` fails on it. When the pinned upstream
+user's next start, so validation fails on it. When the pinned upstream
 bumps its bundled default, affected layouts have to be re-exported.
 
 ## Deployment

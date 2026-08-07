@@ -23,7 +23,8 @@
 
    ```bash
    git submodule update --init --recursive
-   node tools/validate.mjs
+   npm ci
+   npm run validate
    ```
 
 4. Open a pull request. CI validates the layout and renders its preview; the

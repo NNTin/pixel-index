@@ -17,9 +17,38 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
+      - name: Install index tooling
+        run: npm ci
+
+      # Builds @pixel-index/layout-core, then runs its CLI over layouts/.
       - name: Validate layouts against the pinned Pixel Agents
-        run: node tools/validate.mjs
+        run: npm run validate
+
+  test:
+    name: layout-core tests
+    runs-on: ubuntu-latest
+    # The suite runs against the real pinned submodule rather than a fixture:
+    # the point of the package is that it agrees with the upstream we ship.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install index tooling
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
 
   previews:
     name: Render previews
