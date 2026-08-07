@@ -1,9 +1,10 @@
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 import { apiUrl, getLayout, getMeta } from '../api/client';
 import { useApi } from '../api/useApi';
+import { AuthorLink } from '../components/AuthorLink';
 import { ErrorNotice } from '../components/ErrorNotice';
-import { FactsRow, factsFor } from '../components/FactsRow';
+import { factsFor, FactsRow } from '../components/FactsRow';
 import { PreviewImage } from '../components/PreviewImage';
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
@@ -31,7 +32,8 @@ export function LayoutDetailPage() {
     <article>
       <h1 className="text-2xl font-semibold">{layout.title}</h1>
       <p className="mt-1 text-slate-400">
-        by {layout.author.username} · published {dateFormatter.format(new Date(layout.createdAt))}
+        by <AuthorLink author={layout.author} /> · published{' '}
+        {dateFormatter.format(new Date(layout.createdAt))}
       </p>
 
       <div className="mt-6 max-w-2xl">
@@ -47,9 +49,13 @@ export function LayoutDetailPage() {
       {layout.tags.length > 0 && (
         <p className="mt-3 flex flex-wrap gap-1.5">
           {layout.tags.map((tag) => (
-            <span key={tag} className="rounded border border-sky-900 px-2 py-0.5 text-xs text-sky-400">
+            <Link
+              key={tag}
+              to={`/?tags=${encodeURIComponent(tag)}`}
+              className="rounded border border-sky-900 px-2 py-0.5 text-xs text-sky-400 hover:bg-sky-900/30"
+            >
               {tag}
-            </span>
+            </Link>
           ))}
         </p>
       )}

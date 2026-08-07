@@ -8,16 +8,17 @@ same output for per-pull-request previews.
 
 ## Status
 
-The shell (#12) and the gallery/detail views (#13) exist: routing, the API client,
-loading/error/empty states, both deploy pipelines, the layout grid, and the detail page.
-No search/filtering yet, nothing authenticated, and the visual design is still
-placeholder Tailwind, not the office/docs-site look.
+The shell (#12), the gallery/detail views (#13), and search/filter (#14) exist:
+routing, the API client, loading/error/empty states, both deploy pipelines, the layout
+grid and detail page, and a full filter bar with URL-shareable state. Nothing
+authenticated yet, and the visual design is still placeholder Tailwind, not the
+office/docs-site look.
 
 | Issue | Scope | State |
 |---|---|---|
 | [#12](https://github.com/NNTin/pixel-index/issues/12) | SPA shell, API client, Pages deploy, Vercel PR previews | done |
 | [#13](https://github.com/NNTin/pixel-index/issues/13) | gallery, layout detail, preview, download | done |
-| [#14](https://github.com/NNTin/pixel-index/issues/14) | search and filter | |
+| [#14](https://github.com/NNTin/pixel-index/issues/14) | search and filter | done |
 | [#15](https://github.com/NNTin/pixel-index/issues/15) | login, submit, my layouts, moderation console, report | |
 | [#16](https://github.com/NNTin/pixel-index/issues/16) | visual alignment with the office and docs site | |
 
@@ -31,18 +32,52 @@ src/components/PreviewImage.tsx  checkered backdrop, image-rendering:pixelated,
                                   missing-preview placeholder (carried over from v1)
 src/components/FactsRow.tsx      "25×22 · 59 furniture · 4 areas · 2 pets" — zero-valued
                                   facts omitted, carried over from v1
+src/components/AuthorLink.tsx    "clicking an author name filters to their layouts" — #14
+src/components/FilterBar.tsx     search, sort, size/pets/furniture filters, the tag
+                                  multi-select (populated from GET /api/v1/tags),
+                                  "N active, clear filters"
 src/api/client.ts                fetch wrapper for the #6 public API; VITE_API_BASE_URL,
                                   never a hardcoded hostname; apiUrl() resolves the
                                   API-relative preview/thumbnail/download paths
 src/api/types.ts                 hand-written against services/api/src/layouts/schemas.ts
 src/api/useApi.ts                loading/error/ready as data, for every screen that calls
                                   the API
-src/routes/Home.tsx              the gallery: keyset pagination via #6's cursor, "Load more"
+src/routes/filters.ts            the URL <-> Filters <-> #6 API params translation — the
+                                  URL is the shareable, human-readable form; #6's own
+                                  min/max params are what's actually sent
+src/routes/Home.tsx              the gallery: FilterBar wired to useSearchParams, keyset
+                                  pagination via #6's cursor, "Load more", a filter-aware
+                                  empty state
 src/routes/LayoutDetailPage.tsx  full metadata, download, the layoutRevision-ahead-of-pin
-                                  warning
+                                  warning, clickable tags/author (into #14's filters)
 vite.config.ts                   base path config + the GitHub Pages 404.html generator
 index.html                       the matching restore-path script (see the two together)
 ```
+
+### Filters live in the URL, not component state
+
+`routes/filters.ts` is the one place that translates between three shapes: the URL's
+query string (`?size=large&tags=cosy,small` — readable, shareable, what a pasted link
+looks like), the `Filters` object components work with, and #6's own query parameters
+(`minCols`/`maxCols`/`minRows`/`maxRows`, `minPets`/`maxPets`, …). `Home.tsx` derives
+`filters` from `useSearchParams()` on every render rather than holding its own copy in
+`useState` — the URL *is* the state, so the browser back button, a bookmark, and a
+pasted link all just work, with no separate synchronization code to keep them aligned.
+
+The size bucket (small/up to 15×15, medium/16–30, large/31+) is a client-side
+approximation, not a real backend concept — #6 only offers independent min/max on `cols`
+and `rows`, not on `cols × rows`, so a bucket applies the same range to both axes, ANDed.
+A long, thin layout (say 8×40) falls outside every bucket. Documented as a known
+imprecision in `filters.ts` rather than worked around, since a real fix is a computed
+tile-count column, not a client heuristic.
+
+### The tag picker never offers a filter guaranteed to return nothing
+
+`GET /api/v1/tags` (added alongside this issue, `services/api/src/layouts/query.ts`)
+returns only tags actually used by a **public** layout, with a count, most-used first.
+`FilterBar` hides the tag picker entirely when that list is empty — on a fresh install
+with no tags yet, rather than rendering a picker with nothing in it, which the issue's
+own notes flagged as a real risk ("tags is currently empty on all four seed layouts").
 
 ## Constraints that come with static hosting
 

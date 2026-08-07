@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 
 import { apiUrl } from '../api/client';
 import type { LayoutSummary } from '../api/types';
-import { FactsRow, factsFor } from './FactsRow';
+import { AuthorLink } from './AuthorLink';
+import { factsFor, FactsRow } from './FactsRow';
 import { PreviewImage } from './PreviewImage';
 
 export function LayoutCard({ layout }: { layout: LayoutSummary }) {
@@ -17,7 +18,9 @@ export function LayoutCard({ layout }: { layout: LayoutSummary }) {
             {layout.title}
           </Link>
         </h2>
-        <p className="m-0 text-sm text-slate-400">by {layout.author.username}</p>
+        <p className="m-0 text-sm text-slate-400">
+          by <AuthorLink author={layout.author} />
+        </p>
         {layout.description && <p className="m-0 text-sm">{layout.description}</p>}
         <FactsRow facts={factsFor(layout)} />
       </div>

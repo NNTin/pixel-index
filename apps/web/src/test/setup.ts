@@ -1,6 +1,7 @@
+import '@testing-library/jest-dom/vitest';
+
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
-import '@testing-library/jest-dom/vitest';
 
 // Testing Library's own auto-cleanup detects test-framework globals
 // (`typeof afterEach !== 'undefined'`), which vitest only provides when

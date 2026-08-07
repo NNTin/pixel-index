@@ -1,14 +1,14 @@
-import { render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Home } from './Home';
 
 afterEach(() => vi.unstubAllGlobals());
 
-function renderHome() {
+function renderHome(initialEntries: string[] = ['/']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <Home />
     </MemoryRouter>,
   );
@@ -38,13 +38,22 @@ function summary(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** Every Home test hits both #6's list endpoint and FilterBar's /tags call — branch on URL, once, here. */
+function stubHomeFetch(handleLayouts: (url: string) => Response, tags: { name: string; count: number }[] = []) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/v1/tags')) return Response.json({ schemaVersion: 1, tags });
+      return handleLayouts(url);
+    }),
+  );
+}
+
 describe('Home', () => {
   it('shows a loading state, then the layout list with its facts row', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({ schemaVersion: 1, total: 1, layouts: [summary()], nextCursor: null }),
-      ),
+    stubHomeFetch(() =>
+      Response.json({ schemaVersion: 1, total: 1, layouts: [summary()], nextCursor: null }),
     );
     renderHome();
     expect(screen.getByText('Loading layouts…')).toBeInTheDocument();
@@ -58,30 +67,37 @@ describe('Home', () => {
   });
 
   it('omits zero-valued facts (no "0 areas" clutter)', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({
-          schemaVersion: 1,
-          total: 1,
-          layouts: [summary({ areas: 0, pets: 0 })],
-          nextCursor: null,
-        }),
-      ),
+    stubHomeFetch(() =>
+      Response.json({
+        schemaVersion: 1,
+        total: 1,
+        layouts: [summary({ areas: 0, pets: 0 })],
+        nextCursor: null,
+      }),
     );
     renderHome();
     await screen.findByText('Blue Office');
-    expect(screen.queryByText(/areas/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/pets/)).not.toBeInTheDocument();
+    // Loose /areas/ or /pets/ regexes now also match FilterBar's own "Has
+    // pets" / "No pets" <option> labels — assert the specific chip text
+    // that would render for a nonzero fact instead.
+    expect(screen.queryByText(/\d areas/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d pets/)).not.toBeInTheDocument();
   });
 
-  it('shows an empty state when there are no layouts', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null })),
-    );
+  it('shows an empty state when there are no layouts and no filters are active', async () => {
+    stubHomeFetch(() => Response.json({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null }));
     renderHome();
     expect(await screen.findByText('No layouts published yet.')).toBeInTheDocument();
+  });
+
+  it('shows a filter-aware empty state when filters exclude everything', async () => {
+    stubHomeFetch(() => Response.json({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null }));
+    renderHome(['/?q=nonexistent&size=large']);
+    expect(await screen.findByText(/No layouts match the current filters/)).toBeInTheDocument();
+    // The same "active filters" summary also renders in the FilterBar
+    // itself — both are legitimate, assert at least one exists.
+    expect(screen.getAllByText(/text "nonexistent"/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/size: large/).length).toBeGreaterThan(0);
   });
 
   it('shows a message, not a blank page, when the API is unreachable', async () => {
@@ -96,8 +112,7 @@ describe('Home', () => {
   });
 
   it('loads the next page via "Load more" and appends, without a duplicate request loop', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+    stubHomeFetch((url) => {
       if (url.includes('cursor=page2')) {
         return Response.json({
           schemaVersion: 1,
@@ -106,14 +121,8 @@ describe('Home', () => {
           nextCursor: null,
         });
       }
-      return Response.json({
-        schemaVersion: 1,
-        total: 2,
-        layouts: [summary()],
-        nextCursor: 'page2',
-      });
+      return Response.json({ schemaVersion: 1, total: 2, layouts: [summary()], nextCursor: 'page2' });
     });
-    vi.stubGlobal('fetch', fetchMock);
     renderHome();
 
     await screen.findByText('Blue Office');
@@ -125,16 +134,53 @@ describe('Home', () => {
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument(); // no more pages
   });
 
+  it('re-fetches from scratch (not appends) when a filter changes', async () => {
+    let lastUrl = '';
+    stubHomeFetch((url) => {
+      lastUrl = url;
+      const wantsLarge = url.includes('minCols=31');
+      return Response.json({
+        schemaVersion: 1,
+        total: 1,
+        layouts: [summary(wantsLarge ? { slug: 'big-office', title: 'Big Office' } : {})],
+        nextCursor: null,
+      });
+    });
+    renderHome();
+    await screen.findByText('Blue Office');
+
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'large' } });
+
+    expect(await screen.findByText('Big Office')).toBeInTheDocument();
+    expect(screen.queryByText('Blue Office')).not.toBeInTheDocument(); // replaced, not appended
+    expect(lastUrl).toContain('minCols=31');
+  });
+
   it('renders a placeholder, not a broken image, when a preview fails to load', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        Response.json({ schemaVersion: 1, total: 1, layouts: [summary()], nextCursor: null }),
-      ),
+    stubHomeFetch(() =>
+      Response.json({ schemaVersion: 1, total: 1, layouts: [summary()], nextCursor: null }),
     );
     renderHome();
     const img = await screen.findByAltText('Blue Office office layout');
     img.dispatchEvent(new Event('error'));
     expect(await screen.findByText('no preview')).toBeInTheDocument();
+  });
+
+  it('shows the tag picker only when tags actually exist, and toggling one re-fetches filtered', async () => {
+    let lastUrl = '';
+    stubHomeFetch(
+      (url) => {
+        lastUrl = url;
+        return Response.json({ schemaVersion: 1, total: 1, layouts: [summary()], nextCursor: null });
+      },
+      [{ name: 'cosy', count: 3 }],
+    );
+    renderHome();
+    await screen.findByText('Blue Office');
+
+    const tagButton = await screen.findByRole('button', { name: 'cosy (3)' });
+    fireEvent.click(tagButton);
+
+    await waitFor(() => expect(lastUrl).toContain('tags=cosy'));
   });
 });

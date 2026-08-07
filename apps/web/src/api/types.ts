@@ -60,6 +60,14 @@ export interface ListLayoutsParams {
   author?: string;
   tags?: string;
   q?: string;
+  minCols?: number;
+  maxCols?: number;
+  minRows?: number;
+  maxRows?: number;
+  minFurniture?: number;
+  maxFurniture?: number;
+  minPets?: number;
+  maxPets?: number;
 }
 
 export interface MetaResponse {
@@ -71,4 +79,14 @@ export interface MetaResponse {
     layoutRevision: number;
   };
   count: number;
+}
+
+export interface TagUsage {
+  name: string;
+  count: number;
+}
+
+export interface ListTagsResponse {
+  schemaVersion: number;
+  tags: TagUsage[];
 }

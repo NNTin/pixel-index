@@ -5,7 +5,13 @@
  * self-hoster's deployment never has to grep the source for a hardcoded
  * domain and replace it with their own.
  */
-import type { ListLayoutsParams, ListLayoutsResponse, LayoutDetail, MetaResponse } from './types';
+import type {
+  LayoutDetail,
+  ListLayoutsParams,
+  ListLayoutsResponse,
+  ListTagsResponse,
+  MetaResponse,
+} from './types';
 
 // `||`, not `??`: an unset GitHub Actions repo variable interpolates to an
 // empty string, not undefined, and an empty base URL would silently turn
@@ -59,6 +65,10 @@ export function getLayout(slug: string): Promise<LayoutDetail> {
 
 export function getMeta(): Promise<MetaResponse> {
   return request('/api/v1/meta');
+}
+
+export function listTags(): Promise<ListTagsResponse> {
+  return request('/api/v1/tags');
 }
 
 /**
