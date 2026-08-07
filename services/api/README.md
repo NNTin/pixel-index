@@ -50,13 +50,15 @@ src/layouts/metadata.ts  tag validation, length limits, shared by submit.ts and 
 src/layouts/upstreamValidator.ts  the layout-core validator, built once, shared by submit.ts and manage.ts
 src/layouts/manage.ts    PATCH/PUT/DELETE /layouts/:slug, GET /me/layouts — #9's edits, #10's moderation, same routes
 src/moderation/audit.ts  recordModerationAction() — the one insert path into the append-only audit log
+src/moderation/routes.ts GET /moderation/layouts — #15's moderation console browse endpoint
 
-src/users/routes.ts      PATCH /users/:id/role, /block — admin/moderator account actions (#10)
+src/users/routes.ts      GET /users, PATCH /users/:id/role, /block — admin/moderator account actions
+src/auth/freshRole.ts    requireFreshRole() — shared by users/routes.ts and moderation/routes.ts
 ```
 
 ```bash
 npm run dev --workspace @pixel-index/api    # tsx watch
-npm test --workspace @pixel-index/api        # 301 tests, no real Postgres or renderer needed
+npm test --workspace @pixel-index/api        # 310 tests, no real Postgres or renderer needed
 ```
 
 `GET /health` is liveness — always 200 once the process is up. `GET /ready` actually
@@ -548,12 +550,15 @@ no visibility filter — instead of a second, parallel pagination implementation
 ## Account moderation: roles and blocking
 
 ```
+GET   /api/v1/users?q=<text>     admin-only: find a user by username, before promoting or blocking them
 PATCH /api/v1/users/:id/role     admin-only: promote/demote user|moderator|admin
 PATCH /api/v1/users/:id/block    moderator+: block/unblock an account
 ```
 
 Deliberately narrow — there is no general `PATCH /users/:id`. Role and block are two
-specific, heavily-audited powers, not an account-edit surface.
+specific, heavily-audited powers, not an account-edit surface. `GET /api/v1/users` exists
+only as a lookup step before one of those two calls — #15's admin console needed a way to
+turn a username into an id, which nothing previously provided.
 
 For *when* to reach for hide vs. remove vs. block, and the rest of the judgment calls
 around using these endpoints, see the repo root's
@@ -604,6 +609,19 @@ implementation, in favor of moderators acting directly through `PATCH` above:
 
 See the [#10 comment thread](https://github.com/NNTin/pixel-index/issues/10) for the full
 before/after and the four decisions that replaced the original scope.
+
+### Finding something to moderate: `GET /api/v1/moderation/layouts`
+
+`PATCH /api/v1/layouts/:slug` (above) is how a moderator **acts** on a layout, but #10
+never built a way to **find** one — a moderator could only act on a slug they already
+knew, which was fine when #10 shipped (no UI existed yet to browse from) but not once
+#15's moderation console needed something to list. `GET /api/v1/moderation/layouts`
+(moderator-minimum) is #6's public list with the one constraint that defines "public"
+removed: every author, every visibility, optionally narrowed to exactly one
+(`?visibility=hidden` to see what's already been actioned, `?visibility=public` with a
+`q=` to go looking for something that shouldn't be). Same filters, same keyset
+pagination, same sort keys as the public list — a moderator's browse experience is not a
+different tool, just an unfiltered one.
 
 ### Mutation-tested
 

@@ -8,36 +8,15 @@
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
-import { hasAtLeastRole, requireAuth, type Role } from '../auth/context.js';
+import { hasAtLeastRole, type Role } from '../auth/context.js';
+import { requireFreshRole } from '../auth/freshRole.js';
 import { revokeAllSessionsForUser } from '../auth/sessions.js';
-import { getUserById } from '../auth/users.js';
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { hideAllPublicLayoutsForUser } from '../layouts/query.js';
 import { recordModerationAction } from '../moderation/audit.js';
-
-/**
- * A fresh actor row, not the access token's `{id, role}` claim. Role changes
- * and blocking are exactly the "path that matters most" ADR 0001's
- * stateless-access-token trade-off names: a moderator demoted a minute ago
- * should not get up to `ACCESS_TOKEN_TTL_MS` more minutes of using this
- * route on the strength of their old token. This also doubles as where the
- * actor's username comes from for `actorLabel` in the audit log.
- */
-async function requireFreshRole(
-  db: AnyDatabase,
-  request: Parameters<typeof requireAuth>[0],
-  role: Role,
-): Promise<schema.User> {
-  const auth = requireAuth(request);
-  const actor = await getUserById(db, auth.id);
-  if (!actor) throw ApiError.unauthorized();
-  if (!hasAtLeastRole(actor.role, role)) {
-    throw ApiError.forbidden(`This action requires the ${role} role.`);
-  }
-  return actor;
-}
+import { searchUsersByUsername } from '../auth/users.js';
 
 export interface UserAdminRoutesDeps {
   db: AnyDatabase;
@@ -95,7 +74,27 @@ const blockBodySchema = {
   required: ['blocked'],
 } as const;
 
+const searchQuerySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { q: { type: 'string', minLength: 1, maxLength: 100 } },
+  required: ['q'],
+} as const;
+
 export function registerUserAdminRoutes(app: FastifyInstance, { db }: UserAdminRoutesDeps): void {
+  app.get(
+    '/api/v1/users',
+    { schema: { querystring: searchQuerySchema } },
+    async (request) => {
+      // Admin-only, and a fresh check for the same reason role/block are:
+      // this is a lookup step immediately before a privileged action.
+      await requireFreshRole(db, request, 'admin');
+      const { q } = request.query as { q: string };
+      const users = await searchUsersByUsername(db, q);
+      return { users: users.filter((u) => !u.isSystem).map(toPublicUserView) };
+    },
+  );
+
   app.patch(
     '/api/v1/users/:id/role',
     { schema: { params: roleParamsSchema, body: roleBodySchema } },

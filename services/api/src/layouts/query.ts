@@ -29,15 +29,22 @@ export interface ListLayoutsFilters {
   furniture?: NumericRange;
   areas?: NumericRange;
   pets?: NumericRange;
+  /** Moderator-scope only: narrow to one visibility, e.g. "show me what's hidden". */
+  visibility?: schema.Layout['visibility'];
 }
 
 /**
  * `public` is #6's whole world: every result filtered to `visibility =
  * 'public'`. `owner` is #9's `/me/layouts` — everything a user owns,
  * regardless of visibility, so a hidden layout does not just disappear on
- * its owner too.
+ * its owner too. `moderator` is #15's moderation console — every layout
+ * from every author, any visibility, since a moderator has to be able to
+ * find something to act on before they can act on it.
  */
-export type ListLayoutsScope = { type: 'public' } | { type: 'owner'; userId: string };
+export type ListLayoutsScope =
+  | { type: 'public' }
+  | { type: 'owner'; userId: string }
+  | { type: 'moderator' };
 
 export interface ListLayoutsOptions {
   filters: ListLayoutsFilters;
@@ -81,9 +88,12 @@ function buildFilterConditions(filters: ListLayoutsFilters, scope: ListLayoutsSc
   const conditions =
     scope.type === 'public'
       ? [eq(schema.layouts.visibility, 'public')]
-      : [eq(schema.layouts.authorUserId, scope.userId)];
+      : scope.type === 'owner'
+        ? [eq(schema.layouts.authorUserId, scope.userId)]
+        : []; // moderator: no base condition — every author, every visibility.
 
   if (filters.author) conditions.push(eq(schema.layouts.authorUserId, filters.author));
+  if (filters.visibility) conditions.push(eq(schema.layouts.visibility, filters.visibility));
 
   if (filters.tags && filters.tags.length > 0) {
     // ALL of the requested tags, not any — narrows further with each one

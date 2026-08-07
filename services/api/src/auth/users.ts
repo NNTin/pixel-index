@@ -7,7 +7,7 @@
  * bootstrap admin.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, ilike } from 'drizzle-orm';
 
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
@@ -73,4 +73,23 @@ export async function upsertDiscordUser(
 export async function getUserById(db: AnyDatabase, id: string): Promise<schema.User | null> {
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, id));
   return user ?? null;
+}
+
+/**
+ * #15's admin console needs to find a user to promote/demote/block without
+ * already knowing their raw uuid — `PATCH /users/:id/role` existed, but
+ * nothing let an admin discover an id from a username. Substring match,
+ * case-insensitive, capped at 20: a lookup aid, not a paginated directory.
+ */
+export async function searchUsersByUsername(
+  db: AnyDatabase,
+  query: string,
+  limit = 20,
+): Promise<schema.User[]> {
+  return db
+    .select()
+    .from(schema.users)
+    .where(ilike(schema.users.username, `%${query}%`))
+    .orderBy(schema.users.username)
+    .limit(limit);
 }

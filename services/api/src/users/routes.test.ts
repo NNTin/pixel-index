@@ -197,3 +197,33 @@ describe('PATCH /api/v1/users/:id/block', () => {
     expect(response.statusCode).toBe(400);
   });
 });
+
+describe('GET /api/v1/users', () => {
+  it('is admin-only', async () => {
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const anon = await app.inject({ method: 'GET', url: '/api/v1/users?q=someone' });
+    expect(anon.statusCode).toBe(401);
+    const asModerator = await app.inject({
+      method: 'GET',
+      url: '/api/v1/users?q=someone',
+      headers: { authorization: `Bearer ${modToken}` },
+    });
+    expect(asModerator.statusCode).toBe(403);
+  });
+
+  it('finds a user by a username substring, and never the system user', async () => {
+    const { accessToken: adminToken } = await tokenFor({ role: 'admin' });
+    await tokenFor({ username: 'findable-search-target' });
+    await insertUser(harness.db, { isSystem: true, discordId: null, username: 'findable-system-user' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/users?q=findable',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const usernames = response.json().users.map((u: { username: string }) => u.username);
+    expect(usernames).toContain('findable-search-target');
+    expect(usernames).not.toContain('findable-system-user');
+  });
+});
