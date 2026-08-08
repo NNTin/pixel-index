@@ -9,6 +9,248 @@ reverse proxy you already run, or none at all if `localhost`/a private network i
 for your case. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for *why* there are two origins
 to proxy in the first place — this doc only covers the *how*.
 
+Start with **[Environment variables](#environment-variables)** below: it is the
+authoritative list of what to set, where each value goes, and what shape it takes —
+including the two hosted frontends (GitHub Pages, Vercel), which are configured outside
+this repository entirely.
+
+## Environment variables
+
+Every deployment-specific string in this project — API hostname, web hostname, Discord
+credentials — is configuration, never source. Nothing in this repository contains a real
+hostname, and that is a constraint worth keeping: a fork should be deployable without
+grepping anyone else's domain out of the code first.
+
+The catch is that "configuration" means **three separate places**, and which one a
+variable belongs in is decided entirely by *what reads it*:
+
+| Where | What reads it | What it holds |
+|---|---|---|
+| **GitHub Actions variables** | `.github/workflows/pages.yml`, at build time | Two public build inputs for the GitHub Pages site. No secrets. |
+| **Vercel project env vars** | Vercel's build container, at build time | One public build input, set per-environment. No secrets. |
+| **The backend's `.env`** | `services/api` (and `docker-compose.yml`), at run time | Everything. All of the secrets live here and only here. |
+
+### The thing to understand before setting anything
+
+**The two hosted frontends are static files with no backend of their own.** GitHub Pages
+and Vercel both build `apps/web` into a folder of HTML/JS and serve it. Neither can hold
+a secret: a `VITE_`-prefixed variable is *inlined into the JavaScript bundle a visitor
+downloads*, so anything you put there is public by construction. Vite enforces this by
+only exposing `VITE_`-prefixed variables to client code in the first place.
+
+So the Discord OAuth credentials do **not** go into GitHub or Vercel. There is no
+GitHub-hosted or Vercel-hosted backend to use them. They go in the self-hosted API's
+`.env`, next to the API that actually performs the OAuth exchange. The only thing the
+hosted frontends need to know is *where that API lives*.
+
+### (a) GitHub Actions — the Pages build
+
+Set both at **Settings → Secrets and variables → Actions → Variables** (the
+*Variables* tab, not *Secrets* — neither value is secret, and a secret would be masked
+in logs for no benefit).
+
+| Name | Required | Example shape | Notes |
+|---|---|---|---|
+| `PRODUCTION_API_BASE_URL` | Yes, for a working Pages site | `https://api.example.com` | Origin only, no trailing slash. Baked into the bundle as `VITE_API_BASE_URL`. |
+| `PAGES_BASE_PATH` | No | `/` | Only for a **custom domain**. Unset it for a normal `github.io` project site. |
+
+**Repository-level, not Environment-level.** `pages.yml`'s `build` job deliberately
+declares no `environment:`, so environment-scoped variables are not in scope for it —
+only repository (or organisation) variables are. Adding `environment: github-pages` to
+the build job *would* bring the environment's variables into scope, but it also makes
+GitHub record a second, meaningless deployment against `github-pages` alongside the real
+one `actions/deploy-pages` creates, which muddies the environment's deployment history
+for no gain. Neither value is secret, so there is nothing an Environment would protect
+here. The `github-pages` Environment still exists and is still used — by the `deploy`
+job, for the deployment record and its URL.
+
+If `PRODUCTION_API_BASE_URL` is unset, the build still succeeds and the site still
+loads; every API call then fails with the client's "Could not reach the API" message
+rather than a blank page. That is intentional (#12), not a bug to work around.
+
+**About `PAGES_BASE_PATH`.** A GitHub Pages *project* site is served from a repo-name
+subpath — `https://<user>.github.io/pixel-index/` — and that prefix has to be compiled
+into every asset URL at build time, because there is no way to detect it at runtime.
+`pages.yml` defaults to `/${{ github.event.repository.name }}/`, which is correct for
+`https://<user>.github.io/pixel-index/` today and stays correct through a rename. Set
+`PAGES_BASE_PATH=/` **only** if you point a custom domain at Pages, because a custom
+domain serves from the root and the repo-name prefix would then 404 every asset.
+
+### (b) Vercel — Production and Preview
+
+The Vercel project's **Root Directory must be `apps/web`** (that is where `vercel.json`
+lives, and its `installCommand`/`buildCommand` reach back up to the monorepo root).
+
+| Name | Required | Example shape | Set for |
+|---|---|---|---|
+| `VITE_API_BASE_URL` | Yes | `https://api.example.com` | Production, Preview (and Development if you use `vercel dev`) |
+
+Do **not** set `VITE_BASE_PATH` on Vercel — it serves from the root, and `vercel.json`'s
+rewrite already handles deep links.
+
+**This cannot live in `vercel.json`.** Two reasons, either one sufficient: `vercel.json`
+has no supported way to vary a value between the Production and Preview environments,
+and it is a committed file, so putting a real API hostname in it would drop the exact
+domain reference this project keeps out of its source. Set it in the dashboard
+(**Project → Settings → Environment Variables**), or with the CLI:
+
+```bash
+vercel env add VITE_API_BASE_URL production   # then paste the value when prompted
+vercel env add VITE_API_BASE_URL preview
+```
+
+Vercel bakes env vars in at build time, so changing one requires a **redeploy** —
+existing deployments keep the old value. Use "Redeploy" without the build cache.
+
+**Preview deploys need one thing from the backend.** Every Vercel PR preview gets a
+fresh hostname (`https://<project>-<build-hash>-<team>.vercel.app`), so there is no
+exact origin to put in the API's `PUBLIC_WEB_ORIGIN` and credentialed calls from a
+preview fail CORS. That is what `PUBLIC_WEB_ORIGIN_PATTERNS` in the backend `.env`
+is for — see below.
+
+### (c) The self-hosted backend — `.env`
+
+Copy `.env.example` to `.env` (gitignored) and fill it in. `docker-compose.yml` reads
+it, and fails the container start with a named message for anything required that is
+missing. `services/api` re-validates at boot and reports *every* problem at once rather
+than one restart per missing value.
+
+| Name | Required | Example shape | Notes |
+|---|---|---|---|
+| `POSTGRES_USER` / `POSTGRES_DB` | No | `pixel_index` | Defaults are fine. |
+| `POSTGRES_PASSWORD` | **Yes** | *(random string)* | Compose refuses to start without it. |
+| `RENDERER_URL` | No | `http://renderer:3000` | The compose-network default. |
+| `PUBLIC_WEB_ORIGIN` | **Yes** | `https://gallery.example.com` | Comma-separated for several. Origin only — scheme + host + optional port, **no path, no trailing slash**. This is the CORS allowlist *and* the OAuth `returnTo` allowlist. |
+| `PUBLIC_WEB_ORIGIN_PATTERNS` | No | `https://my-project-*-my-team.vercel.app` | Opt-in wildcard for per-deploy preview hostnames. See below. |
+| `PUBLIC_API_ORIGIN` | **Yes** | `https://api.example.com` | This API's own public origin. Origin only. Must match the Discord Developer Portal exactly — see the Discord section. |
+| `DISCORD_CLIENT_ID` | **Yes** | `1234567890123456789` | Public, but it lives here because the API is what uses it. |
+| `DISCORD_CLIENT_SECRET` | **Yes** | *(from the Developer Portal)* | **Secret.** Never in GitHub, never in Vercel, never in a `VITE_` variable. |
+| `SESSION_SECRET` | **Yes** | 32+ chars, `openssl rand -base64 48` | **Secret.** Signs access tokens and the OAuth state cookie. Rejected below 32 characters. |
+| `INITIAL_ADMIN_DISCORD_ID` | No | `999888777666555444` | Your own Discord user id, promoted to `admin` on your next login. Unset it once you have an admin. |
+| `VITE_API_BASE_URL` | Only if you build the `web` image | `https://api.example.com` | **Build-time**, baked into the bundle by `apps/web/Dockerfile`. `docker compose build web` after a change — restarting is not enough. |
+| `API_TRUST_PROXY` | No (`true` by default in the app) | `true` | Compose ships `false`. Flip it to `true` the moment a reverse proxy is in front — see above. |
+| `WEB_PORT` / `API_PORT_HOST` | No | `8080` / `3000` | Host ports. |
+
+Tuning knobs with working defaults you can usually ignore: `API_HOST`, `API_PORT`,
+`LOG_LEVEL`, `API_BODY_LIMIT_BYTES`, `MAX_LAYOUT_BYTES`,
+`MAX_SUBMISSIONS_PER_USER_PER_DAY`, `RATE_LIMIT_*`, `ACCESS_TOKEN_TTL_MS`,
+`REFRESH_TOKEN_TTL_MS`, `LOGIN_CODE_TTL_MS`, `PIXEL_AGENTS_DIR`,
+`PIXEL_AGENTS_COMMIT`. `services/api/src/config.ts` is the authoritative list.
+
+#### `PUBLIC_WEB_ORIGIN_PATTERNS`, and its trade-off
+
+`PUBLIC_WEB_ORIGIN` takes exact origins only, on purpose. But a Vercel PR preview's
+hostname is minted per deploy and cannot be enumerated in advance, so previews of this
+repo's frontend get no CORS access and no working login. This variable is the opt-in
+escape hatch:
+
+```
+PUBLIC_WEB_ORIGIN_PATTERNS=https://my-project-*-my-team.vercel.app
+```
+
+Validated at boot, and deliberately narrow:
+
+- **https only.** A credentialed wildcard over cleartext is not defensible.
+- **Exactly one `*` per pattern**, and it never crosses a dot — it stands in for part of
+  a single hostname label. `https://app-*.example.com` can therefore never match
+  `https://app-x.evil.example.com`.
+- **Whole-label wildcards are rejected.** `https://*.vercel.app` fails at boot, because
+  it would grant credentialed access to every project on a shared platform domain.
+
+The residual risk, stated plainly: **anyone who can deploy a hostname matching your
+pattern gets the same credentialed access your own previews do.** On a shared platform
+domain like `vercel.app`, pin as much literal text as you can — critically your *team
+slug*, which a stranger cannot mint under your project's name. If you would rather not
+take the trade-off at all, leave it unset: previews then work read-only against a public
+API, or you point previews at a separate staging API whose exact origin you *can* list.
+
+Comma-separate for more than one. Both the CORS check and the OAuth redirect allowlist
+consult it, so login from a preview works end to end rather than redirecting
+successfully and then failing on the first API call.
+
+#### Discord OAuth (#21)
+
+The API performs a standard Discord OAuth2 authorization-code flow with PKCE, requesting
+the `identify` scope only. Four variables drive it, all in the backend `.env`:
+
+`DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `PUBLIC_API_ORIGIN`, `SESSION_SECRET`
+(plus optional `INITIAL_ADMIN_DISCORD_ID`).
+
+The one that bites people: **the redirect URI is always `${PUBLIC_API_ORIGIN}/callback`**
+— derived from config, never from request input — and Discord matches it byte-for-byte
+against what you registered. If `PUBLIC_API_ORIGIN` is `https://api.example.com`, then
+`https://api.example.com/callback` must be listed under **Redirects** in the Discord
+Developer Portal, with no trailing slash and the same scheme. A mismatch surfaces as
+Discord's own `invalid_request` error page before your API is ever reached. Registering
+several redirect URIs is fine, so a staging API can coexist with production.
+
+Roles, guild membership and the moderation gating described in #21 are **not
+implemented**. User roles today live in this project's own database
+(`INITIAL_ADMIN_DISCORD_ID` bootstraps the first admin); nothing reads Discord guilds or
+Discord roles. A future integration would need something like a guild id, a bot token, an
+invite URL and role ids — those are named here so the shape is known, but they are
+**deliberately not wired into `config.ts`**: an accepted-but-unused variable reads as a
+feature that exists, and silently does nothing. They will be added with the feature that
+reads them.
+
+## Setup checklist
+
+Everything below has to be done by the repository owner in a web UI or with an
+authenticated CLI — none of it can be committed.
+
+**1. GitHub — Actions variables** (Settings → Secrets and variables → Actions → Variables)
+
+```bash
+gh variable set PRODUCTION_API_BASE_URL --body "https://api.example.com"
+# Only if GitHub Pages serves a custom domain (skip for <user>.github.io/<repo>/):
+gh variable set PAGES_BASE_PATH --body "/"
+gh variable list   # verify
+```
+
+No GitHub *secret* is needed for either deployment. No new Environment is needed either:
+`github-pages` already exists and is used by the `deploy` job; `Preview` and `Production`
+are Vercel's own and hold nothing this build reads.
+
+**2. Vercel** (Project → Settings → Environment Variables; Root Directory must be `apps/web`)
+
+```bash
+vercel env add VITE_API_BASE_URL production
+vercel env add VITE_API_BASE_URL preview
+# Then redeploy — env vars are baked in at build time.
+```
+
+**3. The backend host** — `cp .env.example .env`, then fill in:
+
+```bash
+POSTGRES_PASSWORD=...                 # any strong random string
+PUBLIC_WEB_ORIGIN=https://gallery.example.com,https://<user>.github.io
+PUBLIC_API_ORIGIN=https://api.example.com
+DISCORD_CLIENT_ID=...                 # Discord Developer Portal → OAuth2
+DISCORD_CLIENT_SECRET=...
+SESSION_SECRET=$(openssl rand -base64 48)
+INITIAL_ADMIN_DISCORD_ID=...          # your own Discord user id
+VITE_API_BASE_URL=https://api.example.com
+API_TRUST_PROXY=true                  # once a reverse proxy is in front
+# Only if you want Vercel PR previews to work with credentials:
+PUBLIC_WEB_ORIGIN_PATTERNS=https://my-project-*-my-team.vercel.app
+```
+
+then `docker compose up --build -d`.
+
+**4. Discord Developer Portal** — under OAuth2 → Redirects, add
+`${PUBLIC_API_ORIGIN}/callback` exactly (e.g. `https://api.example.com/callback`).
+
+**5. Verify.** `curl https://api.example.com/health`; open the Pages and Vercel sites and
+confirm layouts load; click through a Discord login. A CORS failure in the browser
+console means the origin you are *browsing from* is missing from `PUBLIC_WEB_ORIGIN` (or
+from `PUBLIC_WEB_ORIGIN_PATTERNS`, for a preview) — the API must be restarted after
+changing either.
+
+Note that a GitHub Pages site (`https://<user>.github.io`) and a custom-domain site are
+**different origins**, and both must be listed in `PUBLIC_WEB_ORIGIN` if you want both to
+work. The origin is the host only — `https://<user>.github.io`, never
+`https://<user>.github.io/pixel-index`.
+
 ## What you're actually proxying
 
 Two origins, both plain HTTP inside the compose network:

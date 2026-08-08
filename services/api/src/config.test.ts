@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ConfigError, loadConfig } from './config.js';
+import { allowsWebOrigin, ConfigError, loadConfig } from './config.js';
 
 const REQUIRED = {
   DATABASE_URL: 'postgres://user:pass@localhost:5432/pixel_index',
@@ -31,6 +31,7 @@ const ENV_KEYS = [
   'PIXEL_AGENTS_COMMIT',
   'MAX_LAYOUT_BYTES',
   'MAX_SUBMISSIONS_PER_USER_PER_DAY',
+  'PUBLIC_WEB_ORIGIN_PATTERNS',
 ] as const;
 
 function setRequired(overrides: Partial<Record<string, string>> = {}) {
@@ -126,6 +127,100 @@ describe('loadConfig — PUBLIC_WEB_ORIGIN', () => {
   it('rejects garbage', () => {
     setRequired({ PUBLIC_WEB_ORIGIN: 'not an origin' });
     expect(() => loadConfig()).toThrow(/is not a valid origin/);
+  });
+});
+
+describe('loadConfig — PUBLIC_WEB_ORIGIN_PATTERNS (#28: Vercel preview deploys)', () => {
+  const VERCEL_PREVIEW = 'https://pixel-index-*-acme-team.vercel.app';
+
+  it('is absent by default — matching stays exact unless you opt in', () => {
+    setRequired();
+    const config = loadConfig();
+    expect(config.webOriginPatterns).toEqual([]);
+    expect(allowsWebOrigin(config, 'https://pixel-index-abc123-acme-team.vercel.app')).toBe(false);
+  });
+
+  it('matches a per-deploy preview hostname the exact list cannot enumerate', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: VERCEL_PREVIEW });
+    const config = loadConfig();
+    expect(allowsWebOrigin(config, 'https://pixel-index-abc123-acme-team.vercel.app')).toBe(true);
+    expect(allowsWebOrigin(config, 'https://pixel-index-699uclg0a-acme-team.vercel.app')).toBe(true);
+  });
+
+  it('still allows the exact PUBLIC_WEB_ORIGIN entries alongside the patterns', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: VERCEL_PREVIEW });
+    expect(allowsWebOrigin(loadConfig(), 'https://pixel-index.example')).toBe(true);
+  });
+
+  it('accepts several comma-separated patterns', () => {
+    setRequired({
+      PUBLIC_WEB_ORIGIN_PATTERNS: `${VERCEL_PREVIEW}, https://deploy-preview-*--acme.netlify.app`,
+    });
+    const config = loadConfig();
+    expect(config.webOriginPatterns).toHaveLength(2);
+    expect(allowsWebOrigin(config, 'https://deploy-preview-42--acme.netlify.app')).toBe(true);
+  });
+
+  it('never lets the wildcard cross a dot — the whole point of the label restriction', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: 'https://pixel-index-*.example.com' });
+    const config = loadConfig();
+    expect(allowsWebOrigin(config, 'https://pixel-index-preview.example.com')).toBe(true);
+    expect(allowsWebOrigin(config, 'https://pixel-index-.evil.example.com')).toBe(false);
+    expect(allowsWebOrigin(config, 'https://pixel-index-x.evil.example.com')).toBe(false);
+  });
+
+  it('anchors both ends, so a prefix or suffix cannot be tacked on', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: VERCEL_PREVIEW });
+    const config = loadConfig();
+    expect(allowsWebOrigin(config, 'https://evil-pixel-index-abc-acme-team.vercel.app')).toBe(false);
+    expect(allowsWebOrigin(config, 'https://pixel-index-abc-acme-team.vercel.app.evil.test')).toBe(false);
+  });
+
+  it('requires the wildcard to expand to something — an empty label is not a match', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: VERCEL_PREVIEW });
+    expect(allowsWebOrigin(loadConfig(), 'https://pixel-index--acme-team.vercel.app')).toBe(false);
+  });
+
+  it('rejects a whole-label wildcard — it would cover every project on a shared domain', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: 'https://*.vercel.app' });
+    expect(() => loadConfig()).toThrow(/too broad/);
+  });
+
+  it('rejects more than one wildcard', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: 'https://a-*-b-*.example.com' });
+    expect(() => loadConfig()).toThrow(/exactly one "\*"/);
+  });
+
+  it('rejects a pattern with no wildcard — that belongs in PUBLIC_WEB_ORIGIN', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: 'https://exact.example.com' });
+    expect(() => loadConfig()).toThrow(/exactly one "\*"/);
+  });
+
+  it('rejects http — a credentialed wildcard over cleartext is not defensible', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: 'http://pixel-index-*.example.com' });
+    expect(() => loadConfig()).toThrow(/must use https/);
+  });
+
+  it('rejects a pattern with a path or trailing slash', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: 'https://pixel-index-*.example.com/' });
+    expect(() => loadConfig()).toThrow(/must be an origin only/);
+  });
+
+  it('rejects garbage', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: 'not-an-origin-*' });
+    expect(() => loadConfig()).toThrow(/is not a valid origin/);
+  });
+
+  it('reports a bad pattern alongside every other problem, not one restart at a time', () => {
+    setRequired({ PUBLIC_WEB_ORIGIN_PATTERNS: 'https://*.vercel.app', SESSION_SECRET: 'short' });
+    try {
+      loadConfig();
+      expect.unreachable();
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain('PUBLIC_WEB_ORIGIN_PATTERNS');
+      expect(message).toContain('SESSION_SECRET');
+    }
   });
 });
 

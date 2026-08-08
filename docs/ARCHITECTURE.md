@@ -103,7 +103,11 @@ string is compiled into any image. `web`'s API base URL is build-time config
 of them at boot — a misconfigured deployment fails once, loudly, with every missing
 value listed together, not one restart per missing value. This is also why
 `docker-compose.yml` itself has no reverse-proxy labels baked in: see
-[`docs/deployment.md`](deployment.md) for putting a real domain and TLS in front of it.
+[`docs/deployment.md`](deployment.md) for putting a real domain and TLS in front of it,
+and [its environment-variable section](deployment.md#environment-variables) for the
+authoritative list of what to set and *where* — the two hosted frontends (GitHub Pages,
+Vercel) are configured entirely outside this repository, and being static, neither can
+hold a secret: every secret belongs to the self-hosted `api`.
 
 ## First boot: never an empty gallery
 
