@@ -1,20 +1,20 @@
 import { useState } from 'react';
 
 /**
- * Layouts are transparent outside the floor — without the checkered
- * backdrop they dissolve into the card (carried over verbatim from
- * `tools/build-site.mjs`'s `.shot` styling). `image-rendering: pixelated`
- * keeps the renderer's pixel art crisp instead of browser-smoothed. The
- * checker itself is drawn from the surface/surface-alt tokens so it tracks
- * the active theme instead of being pinned to one hardcoded pair.
+ * Layouts are transparent outside the floor. v1 used a checkered backdrop
+ * (Photoshop-style "this is transparency") so the image wouldn't dissolve
+ * into the card — replaced (#16 follow-up) with a plain `bg-canvas` fill
+ * instead: the office itself never shows a transparency checker, its game
+ * canvas is always an opaque solid colour, and a checker read as "not truly
+ * transparent" against the office-matched palette rather than as the
+ * intentional convention it was. `image-rendering: pixelated` keeps the
+ * renderer's pixel art crisp instead of browser-smoothed.
  */
 export function PreviewImage({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false);
 
   return (
-    <div
-      className="flex items-center justify-center bg-surface-alt bg-[length:16px_16px] bg-center p-3 [background-image:repeating-conic-gradient(var(--pi-canvas)_0%_25%,transparent_0%_50%)]"
-    >
+    <div className="flex items-center justify-center bg-canvas p-3">
       {failed ? (
         <p className="py-12 text-center text-xs leading-relaxed text-subtle">no preview</p>
       ) : (

@@ -22,12 +22,10 @@
       // Applied before the app bundle loads so there's no flash of the
       // wrong theme — mirrors the persistence/default logic in
       // src/theme/ThemeContext.tsx exactly (same storage key, same
-      // prefers-color-scheme fallback).
+      // default-to-dark rationale).
       (function () {
         var stored = localStorage.getItem('pixelindex_theme');
-        var theme = stored === 'light' || stored === 'dark'
-          ? stored
-          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        var theme = stored === 'light' || stored === 'dark' ? stored : 'dark';
         document.documentElement.dataset.theme = theme;
       })();
     </script>

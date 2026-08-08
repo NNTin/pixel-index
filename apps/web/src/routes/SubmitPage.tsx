@@ -183,7 +183,7 @@ export function SubmitPage() {
         )}
 
         {previewUrl && (
-          <div className="inline-block bg-surface-alt bg-[length:16px_16px] bg-center p-3 [background-image:repeating-conic-gradient(var(--pi-canvas)_0%_25%,transparent_0%_50%)]">
+          <div className="inline-block bg-canvas p-3">
             <img src={previewUrl} alt="Preview of your layout" className="max-w-full [image-rendering:pixelated]" />
           </div>
         )}

@@ -32,8 +32,8 @@ src/components/Layout.tsx        header, role-aware nav (login/logout, submit, m
 src/components/RequireAuth.tsx   client-side route gate: "log in" / "moderators only" —
                                   UX only, the API is what actually enforces a role
 src/components/LayoutCard.tsx    the gallery grid's card: preview, title, author, facts
-src/components/PreviewImage.tsx  checkered backdrop, image-rendering:pixelated,
-                                  missing-preview placeholder (carried over from v1)
+src/components/PreviewImage.tsx  solid bg-canvas backdrop, image-rendering:pixelated,
+                                  missing-preview placeholder
 src/components/FactsRow.tsx      "25×22 · 59 furniture · 4 areas · 2 pets" — zero-valued
                                   facts omitted, carried over from v1
 src/components/AuthorLink.tsx    "clicking an author name filters to their layouts" — #14
@@ -170,9 +170,12 @@ deliberately deferred rather than built speculatively.
 
 ## Worth keeping from v1
 
-The checkered `repeating-conic-gradient` backdrop behind previews and
-`image-rendering: pixelated`. Layouts are transparent outside the floor, so without the
-backdrop they dissolve into the card.
+`image-rendering: pixelated`, so the renderer's pixel art stays crisp instead of
+browser-smoothed. (v1's checkered "this is transparency" backdrop behind previews was
+kept through #16's first pass, then dropped in a follow-up: the office itself never
+shows that convention — its game canvas is always an opaque solid colour — and it read
+as a bug rather than a decorative choice against the office-matched palette. Previews
+now sit on a plain `bg-canvas` fill instead.)
 
 ## Design tokens (#16): lifted, not invented
 
@@ -198,7 +201,7 @@ tree — no component hand-mixes a colour.
   inline script before the app bundle loads, so there's no flash of the wrong theme.
 - **Favicon / social preview**: `public/favicon.svg` (hand-written) and
   `public/og-image.png` (rendered with Playwright from a small HTML page using the same
-  tokens) — both on the same checkered-backdrop-plus-accent-grid motif as the preview
-  cards, so the brand is consistent from a browser tab to a Discord embed.
+  tokens) — both an accent-grid mark on the office's own solid dark surface, so the
+  brand is consistent from a browser tab to a Discord embed to a preview card.
 
 <!-- trigger a real Vercel preview build for #12 -->

@@ -3,12 +3,16 @@
 /*
  * Design tokens for #16: palette and typography are lifted, not invented.
  *
- * Accent (#6030ff family) and the light/dark split come from the Pixel
- * Agents docs site's own `src/css/custom.css` (Docusaurus's
- * --ifm-color-primary* scale, and its html[data-theme='dark'] emphasis
- * scale). Surface tones in dark mode borrow directly from the office
- * webview's own index.css (--color-bg: #1e1e2e). 'FS Pixel Sans' is the
- * same bitmap font both the office and the docs site use for headings.
+ * Accent (#6030ff family) comes from the Pixel Agents docs site's own
+ * `src/css/custom.css` (Docusaurus's --ifm-color-primary* scale). Dark mode
+ * is deliberately the default (see theme/ThemeContext.tsx) and its surface
+ * tones are the office webview's own index.css values verbatim —
+ * --color-bg-dark: #181828 (canvas) and --color-bg: #1e1e2e (surface) — not
+ * the docs site's own dark scale, so the site reads as "the office," which
+ * has no light mode at all. Light mode (an option, not the identity) still
+ * borrows the docs site's html[data-theme='dark'] emphasis scale for its
+ * own tones. 'FS Pixel Sans' is the same bitmap font both sources use for
+ * headings.
  *
  * Every canvas/ink/muted pair below was checked against WCAG AA (4.5:1
  * for body text) with the office/docs hexes as fixed points — see the
@@ -51,7 +55,7 @@
 html[data-theme='dark'] {
   color-scheme: dark;
 
-  --pi-canvas: #16162a;
+  --pi-canvas: #181828;
   --pi-surface: #1e1e2e;
   --pi-surface-alt: #20203a;
   --pi-border: #3c3c60;
