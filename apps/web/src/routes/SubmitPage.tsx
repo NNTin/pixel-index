@@ -70,18 +70,20 @@ export function SubmitPage() {
     }
   }
 
+  const fieldClass = 'border border-border bg-canvas px-2 py-1.5 text-ink';
+
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-semibold">Submit a layout</h1>
-      <p className="mt-1 text-sm text-slate-400">
+      <h1 className="font-display text-2xl text-ink">Submit a layout</h1>
+      <p className="mt-1 text-sm text-muted">
         Export from Pixel Agents with <strong>Layout → Export</strong>, then paste or upload the
         resulting <code>layout.json</code> below.
       </p>
-      <p className="mt-2 text-sm text-slate-400">
+      <p className="mt-2 text-sm text-muted">
         This index is <strong>public on publish</strong>, not reviewed first — read the{' '}
         <a
           href="https://github.com/NNTin/pixel-index/blob/main/CONTENT_POLICY.md"
-          className="underline"
+          className="text-accent underline"
           target="_blank"
           rel="noreferrer"
         >
@@ -91,7 +93,7 @@ export function SubmitPage() {
       </p>
 
       <div className="mt-6 flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm text-muted">
           layout.json
           <textarea
             value={raw}
@@ -100,7 +102,7 @@ export function SubmitPage() {
               setPreviewUrl(null);
             }}
             rows={8}
-            className="border border-slate-700 bg-slate-950 p-2 font-mono text-xs"
+            className={`${fieldClass} font-mono text-xs`}
             placeholder='{"version": 1, "layoutRevision": ...}'
           />
           <input
@@ -110,39 +112,39 @@ export function SubmitPage() {
               const file = event.target.files?.[0];
               if (file) onFileChosen(file);
             }}
-            className="text-xs text-slate-400"
+            className="text-xs text-muted"
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm text-muted">
           Title
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             maxLength={60}
             required
-            className="border border-slate-700 bg-slate-950 px-2 py-1.5"
+            className={fieldClass}
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm text-muted">
           Description
           <textarea
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             maxLength={300}
             rows={2}
-            className="border border-slate-700 bg-slate-950 px-2 py-1.5"
+            className={fieldClass}
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm text-muted">
           Tags (comma-separated)
           <input
             value={tags}
             onChange={(event) => setTags(event.target.value)}
             placeholder="cosy,small"
-            className="border border-slate-700 bg-slate-950 px-2 py-1.5"
+            className={fieldClass}
           />
         </label>
 
@@ -151,7 +153,7 @@ export function SubmitPage() {
             type="button"
             onClick={checkPreview}
             disabled={!raw || checking}
-            className="border-2 border-slate-700 px-4 py-2 text-sm hover:border-slate-500 disabled:opacity-50"
+            className="border-2 border-border px-4 py-2 text-sm text-ink hover:border-accent disabled:opacity-50"
           >
             {checking ? 'Rendering…' : 'Check preview'}
           </button>
@@ -159,17 +161,17 @@ export function SubmitPage() {
             type="button"
             onClick={publish}
             disabled={!raw || !title || publishing}
-            className="border-2 border-sky-500 px-4 py-2 text-sm text-sky-400 hover:bg-sky-500 hover:text-slate-950 disabled:opacity-50"
+            className="border-2 border-accent px-4 py-2 text-sm text-accent hover:bg-accent hover:text-accent-solid-ink disabled:opacity-50"
           >
             {publishing ? 'Publishing…' : 'Publish'}
           </button>
         </div>
 
         {error && (
-          <div className="rounded-lg border border-red-900 bg-red-950/50 px-4 py-3 text-red-200">
+          <div className="rounded-lg border-2 border-danger bg-danger-soft px-4 py-3 text-danger">
             <p className="font-medium">{error.message}</p>
             {error.issues && (
-              <ul className="mt-2 list-disc pl-5 text-sm text-red-300">
+              <ul className="mt-2 list-disc pl-5 text-sm text-danger">
                 {error.issues.map((issue, i) => (
                   <li key={i}>
                     <code className="text-xs">{issue.path}</code>: {issue.message}
@@ -181,12 +183,7 @@ export function SubmitPage() {
         )}
 
         {previewUrl && (
-          <div
-            className="inline-block p-3"
-            style={{
-              background: 'repeating-conic-gradient(#191926 0% 25%, #15151f 0% 50%) 50% / 16px 16px',
-            }}
-          >
+          <div className="inline-block bg-surface-alt bg-[length:16px_16px] bg-center p-3 [background-image:repeating-conic-gradient(var(--pi-canvas)_0%_25%,transparent_0%_50%)]">
             <img src={previewUrl} alt="Preview of your layout" className="max-w-full [image-rendering:pixelated]" />
           </div>
         )}

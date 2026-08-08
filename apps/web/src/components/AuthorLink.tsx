@@ -7,7 +7,7 @@ export function AuthorLink({ author }: { author: PublicAuthor }) {
   if (!author.id) return <>{author.username}</>;
   const params = new URLSearchParams({ author: author.id, authorLabel: author.username });
   return (
-    <Link to={`/?${params.toString()}`} className="hover:underline" title={`Layouts by ${author.username}`}>
+    <Link to={`/?${params.toString()}`} className="text-muted hover:text-accent hover:underline" title={`Layouts by ${author.username}`}>
       {author.username}
     </Link>
   );

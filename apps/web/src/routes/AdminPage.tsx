@@ -51,16 +51,16 @@ function UserRow({
   }
 
   return (
-    <li className="border-2 border-slate-800 p-4">
-      <p className="font-medium">
+    <li className="border-2 border-border p-4">
+      <p className="font-medium text-ink">
         {target.username}{' '}
-        {target.blocked && <span className="text-red-400">(blocked{target.blockedReason ? `: ${target.blockedReason}` : ''})</span>}
+        {target.blocked && <span className="text-danger">(blocked{target.blockedReason ? `: ${target.blockedReason}` : ''})</span>}
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
         <select
           value={role}
           onChange={(event) => setRole(event.target.value as Role)}
-          className="border border-slate-700 bg-slate-950 px-2 py-1"
+          className="border border-border bg-canvas px-2 py-1 text-ink"
         >
           {ROLES.map((r) => (
             <option key={r} value={r}>
@@ -72,13 +72,13 @@ function UserRow({
           type="button"
           onClick={saveRole}
           disabled={busy || role === target.role}
-          className="border border-sky-500 px-3 py-1 text-sky-400 disabled:opacity-50"
+          className="border border-accent px-3 py-1 text-accent disabled:opacity-50"
         >
           Save role
         </button>
 
         {target.blocked ? (
-          <button type="button" onClick={toggleBlock} disabled={busy} className="border border-slate-700 px-3 py-1 disabled:opacity-50">
+          <button type="button" onClick={toggleBlock} disabled={busy} className="border border-border px-3 py-1 text-ink disabled:opacity-50">
             Unblock
           </button>
         ) : (
@@ -87,20 +87,20 @@ function UserRow({
               value={blockReason}
               onChange={(event) => setBlockReason(event.target.value)}
               placeholder="Reason to block"
-              className="min-w-0 flex-1 border border-slate-700 bg-slate-950 px-2 py-1"
+              className="min-w-0 flex-1 border border-border bg-canvas px-2 py-1 text-ink"
             />
             <button
               type="button"
               onClick={toggleBlock}
               disabled={busy || !blockReason}
-              className="border border-red-800 px-3 py-1 text-red-400 disabled:opacity-50"
+              className="border border-danger px-3 py-1 text-danger disabled:opacity-50"
             >
               Block
             </button>
           </>
         )}
       </div>
-      {error && <p className="mt-1 text-sm text-red-400">{error.message}</p>}
+      {error && <p className="mt-1 text-sm text-danger">{error.message}</p>}
     </li>
   );
 }
@@ -132,8 +132,8 @@ export function AdminPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold">Admin</h1>
-      <p className="mt-1 text-sm text-slate-400">Grant or revoke moderator/admin, or block an account.</p>
+      <h1 className="font-display text-2xl text-ink">Admin</h1>
+      <p className="mt-1 text-sm text-muted">Grant or revoke moderator/admin, or block an account.</p>
 
       <form
         onSubmit={(event) => {
@@ -146,12 +146,12 @@ export function AdminPage() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search by username"
-          className="min-w-0 flex-1 border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm"
+          className="min-w-0 flex-1 border border-border bg-canvas px-3 py-1.5 text-sm text-ink"
         />
         <button
           type="submit"
           disabled={!query || searching}
-          className="border-2 border-slate-700 px-4 py-1.5 text-sm hover:border-slate-500 disabled:opacity-50"
+          className="border-2 border-border px-4 py-1.5 text-sm text-ink hover:border-accent disabled:opacity-50"
         >
           {searching ? 'Searching…' : 'Search'}
         </button>
@@ -165,7 +165,7 @@ export function AdminPage() {
 
       {results && (
         <ul className="mt-4 flex list-none flex-col gap-4 p-0">
-          {results.length === 0 && <p className="text-slate-400">No matching users.</p>}
+          {results.length === 0 && <p className="text-muted">No matching users.</p>}
           {accessToken &&
             results.map((target) => (
               <UserRow key={target.id} target={target} accessToken={accessToken} onUpdated={updateResult} />

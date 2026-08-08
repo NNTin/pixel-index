@@ -6,6 +6,7 @@ import { BrowserRouter } from 'react-router-dom';
 
 import { App } from './App';
 import { AuthProvider } from './auth/AuthContext';
+import { ThemeProvider } from './theme/ThemeContext';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -13,9 +14,11 @@ createRoot(document.getElementById('root')!).render(
         with the asset base path, or a GitHub Pages project-site deploy
         would resolve every route one level too shallow. */}
     <BrowserRouter basename={import.meta.env.BASE_URL}>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,
 );

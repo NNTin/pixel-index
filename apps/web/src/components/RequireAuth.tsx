@@ -16,15 +16,15 @@ export function RequireAuth({ role, children }: { role?: Role; children: ReactNo
   const { status, user } = useAuth();
 
   if (status === 'loading') {
-    return <p className="text-slate-400">Loading…</p>;
+    return <p className="text-muted">Loading…</p>;
   }
 
   if (status === 'anonymous') {
-    return <p className="text-slate-400">Log in with Discord to use this page.</p>;
+    return <p className="text-muted">Log in with Discord to use this page.</p>;
   }
 
   if (role && (!user || ROLE_RANK[user.role] < ROLE_RANK[role])) {
-    return <p className="text-slate-400">This page is for {role}s only.</p>;
+    return <p className="text-muted">This page is for {role}s only.</p>;
   }
 
   return <>{children}</>;

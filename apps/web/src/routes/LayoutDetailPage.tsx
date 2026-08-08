@@ -17,7 +17,7 @@ export function LayoutDetailPage() {
   const metaState = useApi(() => getMeta(), []);
 
   if (layoutState.status === 'loading') {
-    return <p className="text-slate-400">Loading…</p>;
+    return <p className="text-muted">Loading…</p>;
   }
 
   if (layoutState.status === 'error') {
@@ -30,8 +30,8 @@ export function LayoutDetailPage() {
 
   return (
     <article>
-      <h1 className="text-2xl font-semibold">{layout.title}</h1>
-      <p className="mt-1 text-slate-400">
+      <h1 className="font-display text-2xl text-ink">{layout.title}</h1>
+      <p className="mt-1 text-muted">
         by <AuthorLink author={layout.author} /> · published{' '}
         {dateFormatter.format(new Date(layout.createdAt))}
       </p>
@@ -40,7 +40,7 @@ export function LayoutDetailPage() {
         <PreviewImage src={apiUrl(layout.files.preview)} alt={`${layout.title} office layout`} />
       </div>
 
-      {layout.description && <p className="mt-4">{layout.description}</p>}
+      {layout.description && <p className="mt-4 text-ink">{layout.description}</p>}
 
       <div className="mt-4">
         <FactsRow facts={factsFor(layout)} />
@@ -52,7 +52,7 @@ export function LayoutDetailPage() {
             <Link
               key={tag}
               to={`/?tags=${encodeURIComponent(tag)}`}
-              className="rounded border border-sky-900 px-2 py-0.5 text-xs text-sky-400 hover:bg-sky-900/30"
+              className="rounded border border-accent/40 px-2 py-0.5 text-xs text-accent hover:bg-accent-soft"
             >
               {tag}
             </Link>
@@ -61,9 +61,9 @@ export function LayoutDetailPage() {
       )}
 
       {isAheadOfPin && (
-        <div className="mt-4 rounded-lg border border-amber-800 bg-amber-950/50 px-4 py-3 text-amber-200">
+        <div className="mt-4 rounded-lg border-2 border-warning bg-warning-soft px-4 py-3 text-warning">
           <p className="font-medium">This layout may not import cleanly.</p>
-          <p className="mt-1 text-sm text-amber-300">
+          <p className="mt-1 text-sm text-warning">
             It was made with a newer Pixel Agents (layout revision {layout.layoutRevision}) than this site
             currently validates against (revision {currentPinRevision}). Pixel Agents discards a stored layout
             whose revision is older than yours — if your own install is behind, import may reset it to the
@@ -75,15 +75,15 @@ export function LayoutDetailPage() {
       <a
         href={apiUrl(layout.files.layout)}
         download={`${layout.slug}.json`}
-        className="mt-6 inline-block border-2 border-sky-500 px-4 py-2 text-sky-400 hover:bg-sky-500 hover:text-slate-950"
+        className="mt-6 inline-block border-2 border-accent px-4 py-2 text-accent hover:bg-accent hover:text-accent-solid-ink"
       >
         Download layout.json
       </a>
-      <p className="mt-2 text-sm text-slate-500">
+      <p className="mt-2 text-sm text-subtle">
         In Pixel Agents: <strong>Layout → Import</strong>.
       </p>
 
-      <dl className="mt-8 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-slate-400">
+      <dl className="mt-8 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-muted">
         <dt>Pixel Agents version validated against</dt>
         <dd>{layout.pixelAgentsVersion ?? 'unknown'}</dd>
         <dt>Layout revision</dt>

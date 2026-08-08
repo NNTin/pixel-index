@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
 import { AuthProvider } from './auth/AuthContext';
+import { ThemeProvider } from './theme/ThemeContext';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -53,9 +54,11 @@ describe('App routing', () => {
     );
     render(
       <MemoryRouter initialEntries={['/layouts/blue-office']}>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </ThemeProvider>
       </MemoryRouter>,
     );
     expect(await screen.findByRole('heading', { name: 'Blue Office' })).toBeInTheDocument();
@@ -64,9 +67,11 @@ describe('App routing', () => {
   it('renders NotFound for an unmatched route', () => {
     render(
       <MemoryRouter initialEntries={['/does-not-exist']}>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </ThemeProvider>
       </MemoryRouter>,
     );
     expect(screen.getByRole('heading', { name: 'Not found' })).toBeInTheDocument();

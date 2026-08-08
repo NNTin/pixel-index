@@ -41,23 +41,23 @@ function ModerationRow({
   }
 
   return (
-    <li className="border-2 border-slate-800 p-4">
-      <Link to={`/layouts/${layout.slug}`} className="font-medium hover:underline">
+    <li className="border-2 border-border p-4">
+      <Link to={`/layouts/${layout.slug}`} className="font-medium text-ink hover:underline">
         {layout.title}
       </Link>
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-muted">
         by {layout.author.username} · currently <strong>{layout.visibility}</strong>
         {layout.visibilityReason && <> — {layout.visibilityReason}</>}
       </p>
 
       {layout.visibility === 'deleted' ? (
-        <p className="mt-2 text-sm text-slate-500">Owner-deleted. Not reachable by a moderator action.</p>
+        <p className="mt-2 text-sm text-subtle">Owner-deleted. Not reachable by a moderator action.</p>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <select
             value={visibility}
             onChange={(event) => setVisibility(event.target.value as typeof visibility)}
-            className="border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+            className="border border-border bg-canvas px-2 py-1 text-sm text-ink"
           >
             {VISIBILITY_OPTIONS.filter((v) => v !== 'deleted').map((v) => (
               <option key={v} value={v}>
@@ -69,19 +69,19 @@ function ModerationRow({
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             placeholder="Reason (required for a change)"
-            className="min-w-0 flex-1 border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+            className="min-w-0 flex-1 border border-border bg-canvas px-2 py-1 text-sm text-ink"
           />
           <button
             type="button"
             onClick={apply}
             disabled={saving || visibility === layout.visibility}
-            className="border border-sky-500 px-3 py-1 text-sm text-sky-400 disabled:opacity-50"
+            className="border border-accent px-3 py-1 text-sm text-accent disabled:opacity-50"
           >
             {saving ? 'Applying…' : 'Apply'}
           </button>
         </div>
       )}
-      {error && <p className="mt-1 text-sm text-red-400">{error.message}</p>}
+      {error && <p className="mt-1 text-sm text-danger">{error.message}</p>}
     </li>
   );
 }
@@ -111,12 +111,12 @@ export function ModerationPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold">Moderation</h1>
-      <p className="mt-1 text-sm text-slate-400">
+      <h1 className="font-display text-2xl text-ink">Moderation</h1>
+      <p className="mt-1 text-sm text-muted">
         Every layout, any author, any visibility. See{' '}
         <a
           href="https://github.com/NNTin/pixel-index/blob/main/MODERATORS.md"
-          className="underline"
+          className="text-accent underline"
           target="_blank"
           rel="noreferrer"
         >
@@ -125,12 +125,12 @@ export function ModerationPage() {
         for when to hide vs. remove.
       </p>
 
-      <label className="mt-4 flex items-center gap-2 text-sm text-slate-400">
+      <label className="mt-4 flex items-center gap-2 text-sm text-muted">
         Visibility
         <select
           value={visibilityFilter}
           onChange={(event) => setVisibilityFilter(event.target.value)}
-          className="border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100"
+          className="border border-border bg-canvas px-2 py-1 text-ink"
         >
           <option value="">Any</option>
           {VISIBILITY_OPTIONS.map((v) => (
@@ -143,8 +143,8 @@ export function ModerationPage() {
 
       <div className="mt-4">
         {error && <ErrorNotice error={error} />}
-        {!error && layouts === null && <p className="text-slate-400">Loading…</p>}
-        {!error && layouts?.length === 0 && <p className="text-slate-400">Nothing matches.</p>}
+        {!error && layouts === null && <p className="text-muted">Loading…</p>}
+        {!error && layouts?.length === 0 && <p className="text-muted">Nothing matches.</p>}
         {!error && layouts && layouts.length > 0 && accessToken && (
           <ul className="flex list-none flex-col gap-4 p-0">
             {layouts.map((layout) => (

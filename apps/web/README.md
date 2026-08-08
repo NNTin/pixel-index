@@ -8,10 +8,10 @@ same output for per-pull-request previews.
 
 ## Status
 
-The shell (#12), gallery/detail (#13), search/filter (#14), and the authenticated flows
-(#15) all exist: login with Discord, submit with a real pre-publish preview, manage your
-own layouts, a moderation console, and an admin console. The visual design is still
-placeholder Tailwind, not the office/docs-site look — that's #16.
+The shell (#12), gallery/detail (#13), search/filter (#14), the authenticated flows
+(#15), and the visual design (#16) all exist: login with Discord, submit with a real
+pre-publish preview, manage your own layouts, a moderation console, an admin console —
+styled with tokens lifted from the office webview and the docs site, not invented.
 
 | Issue | Scope | State |
 |---|---|---|
@@ -19,11 +19,14 @@ placeholder Tailwind, not the office/docs-site look — that's #16.
 | [#13](https://github.com/NNTin/pixel-index/issues/13) | gallery, layout detail, preview, download | done |
 | [#14](https://github.com/NNTin/pixel-index/issues/14) | search and filter | done |
 | [#15](https://github.com/NNTin/pixel-index/issues/15) | login, submit, my layouts, moderation console, admin | done |
-| [#16](https://github.com/NNTin/pixel-index/issues/16) | visual alignment with the office and docs site | |
+| [#16](https://github.com/NNTin/pixel-index/issues/16) | visual alignment with the office and docs site | done |
 
 ```
-src/main.tsx                     mounts <App>, wrapped in BrowserRouter + AuthProvider
+src/main.tsx                     mounts <App>, wrapped in BrowserRouter + ThemeProvider +
+                                  AuthProvider
 src/App.tsx                      routes, /submit /me/layouts /moderation /admin behind RequireAuth
+src/index.css                    design tokens (#16) — see below
+src/theme/ThemeContext.tsx       light/dark toggle, persisted to localStorage
 src/components/Layout.tsx        header, role-aware nav (login/logout, submit, my layouts,
                                   moderation, admin — a convenience, never the real gate)
 src/components/RequireAuth.tsx   client-side route gate: "log in" / "moderators only" —
@@ -170,5 +173,32 @@ deliberately deferred rather than built speculatively.
 The checkered `repeating-conic-gradient` backdrop behind previews and
 `image-rendering: pixelated`. Layouts are transparent outside the floor, so without the
 backdrop they dissolve into the card.
+
+## Design tokens (#16): lifted, not invented
+
+`src/index.css` defines every colour and the display font as CSS custom properties
+(`--pi-*`), fed into Tailwind v4 via `@theme inline` so they're ordinary utility classes
+(`bg-surface`, `text-accent`, `border-danger`, `font-display`, …) everywhere else in the
+tree — no component hand-mixes a colour.
+
+- **Accent (`#6030ff` family)** and the **light/dark split** come from the Pixel Agents
+  docs site's own `src/css/custom.css` (`pixel-agents-hq/docs`) — its
+  `--ifm-color-primary*` scale and its `html[data-theme='dark']` emphasis scale.
+- **Dark-mode surface tones** (`#1e1e2e`, `#16162a`) are the office webview's own
+  (`vendor/pixel-agents/webview-ui/src/index.css`).
+- **`FS Pixel Sans`** is the same bitmap font both the office and the docs site use for
+  headings — copied into `public/fonts/` (MIT, from the pinned submodule) rather than
+  symlinked to it, since `pages.yml` doesn't check out submodules.
+- **Contrast**: every canvas/ink/muted/accent pairing was checked against WCAG AA
+  (4.5:1) with the office/docs hexes as fixed points; two of the docs' own tones
+  (`muted`, `subtle` in light mode) needed darkening a step to clear it — see the
+  comments beside those tokens in `index.css` for the exact ratios.
+- **Theme toggle**: `theme/ThemeContext.tsx`, defaulting to the OS preference,
+  persisted to `localStorage` (`pixelindex_theme`) — `index.html` applies it in an
+  inline script before the app bundle loads, so there's no flash of the wrong theme.
+- **Favicon / social preview**: `public/favicon.svg` (hand-written) and
+  `public/og-image.png` (rendered with Playwright from a small HTML page using the same
+  tokens) — both on the same checkered-backdrop-plus-accent-grid motif as the preview
+  cards, so the brand is consistent from a browser tab to a Discord embed.
 
 <!-- trigger a real Vercel preview build for #12 -->

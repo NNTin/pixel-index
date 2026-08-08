@@ -1,6 +1,7 @@
 import { Link, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
+import { useTheme } from '../theme/ThemeContext';
 
 /**
  * "Role-aware navigation — but every check re-enforced server-side; hiding a
@@ -20,7 +21,7 @@ function Nav() {
       <button
         type="button"
         onClick={login}
-        className="border border-slate-700 px-3 py-1.5 text-sm hover:border-slate-500"
+        className="border-2 border-border px-3 py-1.5 text-sm text-ink hover:border-accent"
       >
         Log in with Discord
       </button>
@@ -29,38 +30,56 @@ function Nav() {
 
   return (
     <nav className="flex items-center gap-4 text-sm">
-      <Link to="/submit" className="hover:underline">
+      <Link to="/submit" className="text-ink hover:text-accent">
         Submit
       </Link>
-      <Link to="/me/layouts" className="hover:underline">
+      <Link to="/me/layouts" className="text-ink hover:text-accent">
         My layouts
       </Link>
       {user && (user.role === 'moderator' || user.role === 'admin') && (
-        <Link to="/moderation" className="hover:underline">
+        <Link to="/moderation" className="text-ink hover:text-accent">
           Moderation
         </Link>
       )}
       {user?.role === 'admin' && (
-        <Link to="/admin" className="hover:underline">
+        <Link to="/admin" className="text-ink hover:text-accent">
           Admin
         </Link>
       )}
-      <span className="text-slate-400">{user?.username}</span>
-      <button type="button" onClick={logout} className="border border-slate-700 px-2 py-1 hover:border-slate-500">
+      <span className="text-muted">{user?.username}</span>
+      <button type="button" onClick={logout} className="border-2 border-border px-2 py-1 text-ink hover:border-accent">
         Log out
       </button>
     </nav>
   );
 }
 
+function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  return (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+      title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+      className="border-2 border-border px-2 py-1 text-sm text-ink hover:border-accent"
+    >
+      {theme === 'dark' ? '☀' : '☾'}
+    </button>
+  );
+}
+
 export function Layout() {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
-        <Link to="/" className="text-lg font-semibold tracking-tight">
+    <div className="min-h-screen bg-canvas text-ink">
+      <header className="flex items-center justify-between gap-4 border-b-2 border-border px-6 py-4">
+        <Link to="/" className="font-display text-xl tracking-tight text-ink">
           Pixel Index
         </Link>
-        <Nav />
+        <div className="flex items-center gap-4">
+          <Nav />
+          <ThemeToggle />
+        </div>
       </header>
       <main className="mx-auto max-w-5xl px-6 py-8">
         <Outlet />

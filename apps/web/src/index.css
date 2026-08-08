@@ -1,1 +1,100 @@
 @import 'tailwindcss';
+
+/*
+ * Design tokens for #16: palette and typography are lifted, not invented.
+ *
+ * Accent (#6030ff family) and the light/dark split come from the Pixel
+ * Agents docs site's own `src/css/custom.css` (Docusaurus's
+ * --ifm-color-primary* scale, and its html[data-theme='dark'] emphasis
+ * scale). Surface tones in dark mode borrow directly from the office
+ * webview's own index.css (--color-bg: #1e1e2e). 'FS Pixel Sans' is the
+ * same bitmap font both the office and the docs site use for headings.
+ *
+ * Every canvas/ink/muted pair below was checked against WCAG AA (4.5:1
+ * for body text) with the office/docs hexes as fixed points — see the
+ * contrast note beside each token that needed adjusting to pass.
+ */
+
+@font-face {
+  font-family: 'FS Pixel Sans';
+  src: url('/fonts/FSPixelSansUnicode-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+
+  --pi-canvas: #f7f6fb;
+  --pi-surface: #ffffff;
+  --pi-surface-alt: #efeaff;
+  --pi-border: #ddd6f3;
+  --pi-border-strong: #c3b8ea;
+  --pi-ink: #1c1830;
+  /* darkened from docs' own #55507a body-text tone (6.94:1) to #4a4570 (8.22:1) for margin */
+  --pi-muted: #4a4570;
+  /* docs' subtle tone (#746fa0) was 4.32:1, just under AA — darkened to 4.96:1 */
+  --pi-subtle: #6b6598;
+  --pi-accent: #6030ff;
+  --pi-accent-strong: #5028dd;
+  --pi-accent-solid-ink: #ffffff;
+  --pi-accent-soft: rgb(96 48 255 / 8%);
+  --pi-danger: #b3261e;
+  --pi-danger-strong: #8c1d17;
+  --pi-danger-soft: rgb(179 38 30 / 8%);
+  --pi-warning: #92620a;
+  --pi-warning-strong: #714b05;
+  --pi-warning-soft: rgb(146 98 10 / 10%);
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+
+  --pi-canvas: #16162a;
+  --pi-surface: #1e1e2e;
+  --pi-surface-alt: #20203a;
+  --pi-border: #3c3c60;
+  --pi-border-strong: #505074;
+  --pi-ink: #eeeef4;
+  --pi-muted: #a8a8c4;
+  --pi-subtle: #8888a8;
+  --pi-accent: #9a8fff;
+  --pi-accent-strong: #c0b5ff;
+  --pi-accent-solid-ink: #16162a;
+  --pi-accent-soft: rgb(154 143 255 / 16%);
+  --pi-danger: #f87171;
+  --pi-danger-strong: #fca5a5;
+  --pi-danger-soft: rgb(248 113 113 / 12%);
+  --pi-warning: #fbbf24;
+  --pi-warning-strong: #fcd34d;
+  --pi-warning-soft: rgb(251 191 36 / 12%);
+}
+
+@theme inline {
+  --font-display: 'FS Pixel Sans', ui-sans-serif, system-ui, sans-serif;
+
+  --color-canvas: var(--pi-canvas);
+  --color-surface: var(--pi-surface);
+  --color-surface-alt: var(--pi-surface-alt);
+  --color-border: var(--pi-border);
+  --color-border-strong: var(--pi-border-strong);
+  --color-ink: var(--pi-ink);
+  --color-muted: var(--pi-muted);
+  --color-subtle: var(--pi-subtle);
+  --color-accent: var(--pi-accent);
+  --color-accent-strong: var(--pi-accent-strong);
+  --color-accent-solid-ink: var(--pi-accent-solid-ink);
+  --color-accent-soft: var(--pi-accent-soft);
+  --color-danger: var(--pi-danger);
+  --color-danger-strong: var(--pi-danger-strong);
+  --color-danger-soft: var(--pi-danger-soft);
+  --color-warning: var(--pi-warning);
+  --color-warning-strong: var(--pi-warning-strong);
+  --color-warning-soft: var(--pi-warning-soft);
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+}

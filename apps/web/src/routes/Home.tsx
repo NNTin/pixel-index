@@ -104,16 +104,16 @@ function GalleryBody({
   }
 
   if (layouts === null) {
-    return <p className="text-slate-400">Loading layouts…</p>;
+    return <p className="text-muted">Loading layouts…</p>;
   }
 
   if (layouts.length === 0) {
     return (
-      <div className="text-slate-400">
+      <div className="text-muted">
         {filtersActive ? (
           <>
             <p>No layouts match the current filters ({activeFilterSummary.join(' · ')}).</p>
-            <button type="button" onClick={onClearFilters} className="mt-2 text-sky-400 underline">
+            <button type="button" onClick={onClearFilters} className="mt-2 text-accent underline">
               Clear filters
             </button>{' '}
             to see everything.
@@ -127,7 +127,7 @@ function GalleryBody({
 
   return (
     <div>
-      <p className="mb-4 text-sm text-slate-400">
+      <p className="mb-4 text-sm text-muted">
         {total} layout{total === 1 ? '' : 's'}
       </p>
       <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-6 p-0">
@@ -143,7 +143,7 @@ function GalleryBody({
             type="button"
             onClick={onLoadMore}
             disabled={loadingMore}
-            className="border-2 border-slate-700 px-4 py-2 text-sm hover:border-slate-500 disabled:opacity-50"
+            className="border-2 border-border px-4 py-2 text-sm text-ink hover:border-accent disabled:opacity-50"
           >
             {loadingMore ? 'Loading…' : 'Load more'}
           </button>

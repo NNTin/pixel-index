@@ -54,9 +54,11 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
   }
 
   const activeFilters = describeActiveFilters(filters);
+  const inputClass = 'border border-border bg-canvas px-3 py-1.5 text-sm text-ink placeholder:text-subtle';
+  const selectClass = 'border border-border bg-canvas px-2 py-1.5 text-ink';
 
   return (
-    <div className="mb-6 flex flex-col gap-4 border-2 border-slate-800 bg-slate-900 p-4">
+    <div className="mb-6 flex flex-col gap-4 border-2 border-border bg-surface p-4">
       <div className="flex flex-wrap gap-3">
         <input
           type="search"
@@ -64,15 +66,15 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
           onChange={(event) => setText(event.target.value)}
           placeholder="Search title, description…"
           aria-label="Search layouts"
-          className="min-w-0 flex-1 border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm placeholder:text-slate-500"
+          className={`min-w-0 flex-1 ${inputClass}`}
         />
 
-        <label className="flex items-center gap-1.5 text-sm text-slate-400">
+        <label className="flex items-center gap-1.5 text-sm text-muted">
           Sort
           <select
             value={filters.sort}
             onChange={(event) => onChange({ ...filters, sort: event.target.value as SortKey })}
-            className="border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+            className={selectClass}
           >
             {SORT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -82,14 +84,14 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
           </select>
         </label>
 
-        <label className="flex items-center gap-1.5 text-sm text-slate-400">
+        <label className="flex items-center gap-1.5 text-sm text-muted">
           Size
           <select
             value={filters.size ?? ''}
             onChange={(event) =>
               onChange({ ...filters, size: (event.target.value || null) as SizeBucket | null })
             }
-            className="border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+            className={selectClass}
           >
             <option value="">Any</option>
             {SIZE_OPTIONS.map((option) => (
@@ -100,14 +102,14 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
           </select>
         </label>
 
-        <label className="flex items-center gap-1.5 text-sm text-slate-400">
+        <label className="flex items-center gap-1.5 text-sm text-muted">
           Pets
           <select
             value={filters.pets ?? ''}
             onChange={(event) =>
               onChange({ ...filters, pets: (event.target.value || null) as PetsFilter | null })
             }
-            className="border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+            className={selectClass}
           >
             <option value="">Any</option>
             <option value="has">Has pets</option>
@@ -115,7 +117,7 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
           </select>
         </label>
 
-        <label className="flex items-center gap-1.5 text-sm text-slate-400">
+        <label className="flex items-center gap-1.5 text-sm text-muted">
           Furniture
           <input
             type="number"
@@ -130,7 +132,7 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
             }
             placeholder="min"
             aria-label="Minimum furniture count"
-            className="w-16 border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+            className={`w-16 ${inputClass}`}
           />
           –
           <input
@@ -146,14 +148,14 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
             }
             placeholder="max"
             aria-label="Maximum furniture count"
-            className="w-16 border border-slate-700 bg-slate-950 px-2 py-1.5 text-slate-100"
+            className={`w-16 ${inputClass}`}
           />
         </label>
       </div>
 
       {tags.length > 0 && (
         <fieldset className="flex flex-wrap items-center gap-1.5">
-          <legend className="mb-1 w-full text-sm text-slate-400 sm:w-auto sm:mb-0 sm:mr-1">Tags</legend>
+          <legend className="mb-1 w-full text-sm text-muted sm:w-auto sm:mb-0 sm:mr-1">Tags</legend>
           {tags.map((tag) => {
             const active = filters.tags.includes(tag.name);
             return (
@@ -164,8 +166,8 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
                 onClick={() => toggleTag(tag.name)}
                 className={`rounded border px-2 py-1 text-xs ${
                   active
-                    ? 'border-sky-500 bg-sky-500/20 text-sky-300'
-                    : 'border-slate-700 text-slate-400 hover:border-slate-500'
+                    ? 'border-accent bg-accent-soft text-accent-strong'
+                    : 'border-border text-muted hover:border-accent'
                 }`}
               >
                 {tag.name} ({tag.count})
@@ -176,18 +178,18 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
       )}
 
       {filters.author && (
-        <p className="text-sm text-slate-400">
-          Filtered to author: <strong className="text-slate-200">{filters.authorLabel ?? filters.author}</strong>
+        <p className="text-sm text-muted">
+          Filtered to author: <strong className="text-ink">{filters.authorLabel ?? filters.author}</strong>
         </p>
       )}
 
       {!isDefault(filters) && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3">
-          <span className="text-xs text-slate-500">Active: {activeFilters.join(' · ')}</span>
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+          <span className="text-xs text-subtle">Active: {activeFilters.join(' · ')}</span>
           <button
             type="button"
             onClick={() => onChange(DEFAULT_FILTERS)}
-            className="ml-auto border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-slate-500"
+            className="ml-auto border border-border px-2 py-1 text-xs text-muted hover:border-accent"
           >
             Clear filters
           </button>

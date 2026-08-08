@@ -10,7 +10,7 @@ import { ErrorNotice } from '../components/ErrorNotice';
 function VisibilityBadge({ layout }: { layout: OwnerLayoutView }) {
   if (layout.visibility === 'public') return null;
   return (
-    <p className="mt-1 text-sm text-amber-400">
+    <p className="mt-1 text-sm text-warning">
       {layout.visibility}
       {layout.visibilityReason && <> — {layout.visibilityReason}</>}
     </p>
@@ -74,16 +74,16 @@ function EditRow({ layout, accessToken, onSaved }: { layout: OwnerLayoutView; ac
   }
 
   if (layout.visibility === 'deleted') {
-    return <p className="text-sm text-slate-500">Deleted.</p>;
+    return <p className="text-sm text-subtle">Deleted.</p>;
   }
 
   if (!editing) {
     return (
       <div className="mt-2 flex gap-3 text-sm">
-        <button type="button" onClick={() => setEditing(true)} className="text-sky-400 hover:underline">
+        <button type="button" onClick={() => setEditing(true)} className="text-accent hover:underline">
           Edit
         </button>
-        <label className="cursor-pointer text-sky-400 hover:underline">
+        <label className="cursor-pointer text-accent hover:underline">
           {replacing ? 'Replacing…' : 'Replace content'}
           <input
             type="file"
@@ -95,33 +95,33 @@ function EditRow({ layout, accessToken, onSaved }: { layout: OwnerLayoutView; ac
             }}
           />
         </label>
-        <button type="button" onClick={remove} className="text-red-400 hover:underline">
+        <button type="button" onClick={remove} className="text-danger hover:underline">
           Delete
         </button>
-        {error && <span className="text-red-400">{error.message}</span>}
+        {error && <span className="text-danger">{error.message}</span>}
       </div>
     );
   }
 
   return (
-    <div className="mt-2 flex flex-col gap-2 border border-slate-800 p-3">
+    <div className="mt-2 flex flex-col gap-2 border border-border p-3">
       <input
         value={title}
         onChange={(event) => setTitle(event.target.value)}
-        className="border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+        className="border border-border bg-canvas px-2 py-1 text-sm text-ink"
         placeholder="Title"
       />
       <textarea
         value={description}
         onChange={(event) => setDescription(event.target.value)}
-        className="border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+        className="border border-border bg-canvas px-2 py-1 text-sm text-ink"
         placeholder="Description"
         rows={2}
       />
       <input
         value={tags}
         onChange={(event) => setTags(event.target.value)}
-        className="border border-slate-700 bg-slate-950 px-2 py-1 text-sm"
+        className="border border-border bg-canvas px-2 py-1 text-sm text-ink"
         placeholder="tags,comma,separated"
       />
       {error && <ErrorNotice error={error} />}
@@ -130,11 +130,11 @@ function EditRow({ layout, accessToken, onSaved }: { layout: OwnerLayoutView; ac
           type="button"
           onClick={save}
           disabled={saving}
-          className="border border-sky-500 px-3 py-1 text-sm text-sky-400 disabled:opacity-50"
+          className="border border-accent px-3 py-1 text-sm text-accent disabled:opacity-50"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" onClick={() => setEditing(false)} className="border border-slate-700 px-3 py-1 text-sm">
+        <button type="button" onClick={() => setEditing(false)} className="border border-border px-3 py-1 text-sm text-ink">
           Cancel
         </button>
       </div>
@@ -161,16 +161,16 @@ export function MyLayoutsPage() {
   }
 
   if (error) return <ErrorNotice error={error} />;
-  if (layouts === null) return <p className="text-slate-400">Loading…</p>;
-  if (layouts.length === 0) return <p className="text-slate-400">You haven't submitted any layouts yet.</p>;
+  if (layouts === null) return <p className="text-muted">Loading…</p>;
+  if (layouts.length === 0) return <p className="text-muted">You haven't submitted any layouts yet.</p>;
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold">My layouts</h1>
+      <h1 className="font-display text-2xl text-ink">My layouts</h1>
       <ul className="mt-6 flex list-none flex-col gap-4 p-0">
         {layouts.map((layout) => (
-          <li key={layout.slug} className="border-2 border-slate-800 p-4">
-            <Link to={`/layouts/${layout.slug}`} className="font-medium hover:underline">
+          <li key={layout.slug} className="border-2 border-border p-4">
+            <Link to={`/layouts/${layout.slug}`} className="font-medium text-ink hover:underline">
               {layout.title}
             </Link>
             <VisibilityBadge layout={layout} />

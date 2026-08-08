@@ -4,6 +4,33 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pixel Index</title>
+    <meta name="description" content="A community index of office layouts for Pixel Agents." />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon-512.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Pixel Index" />
+    <meta property="og:description" content="A community index of office layouts for Pixel Agents." />
+    <meta property="og:image" content="/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Pixel Index" />
+    <meta name="twitter:description" content="A community index of office layouts for Pixel Agents." />
+    <meta name="twitter:image" content="/og-image.png" />
+
+    <script>
+      // Applied before the app bundle loads so there's no flash of the
+      // wrong theme — mirrors the persistence/default logic in
+      // src/theme/ThemeContext.tsx exactly (same storage key, same
+      // prefers-color-scheme fallback).
+      (function () {
+        var stored = localStorage.getItem('pixelindex_theme');
+        var theme = stored === 'light' || stored === 'dark'
+          ? stored
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
     <script>
       // Restores the real path after 404.html's redirect (see public/404.html
       // for why this exists: GitHub Pages has no server-side rewrite rules,
