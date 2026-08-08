@@ -117,5 +117,11 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      # test:integration is workspace-scoped, which skips the root's
+      # pretest hook — build layout-core explicitly (its dist is imported
+      # directly by the test, not just by the renderer's own src).
+      - name: Build layout-core
+        run: npm run build:core
+
       - name: Renderer integration tests
         run: npm run test:integration --workspace @pixel-index/renderer
