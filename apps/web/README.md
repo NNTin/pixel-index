@@ -50,7 +50,7 @@ src/api/types.ts                 hand-written against services/api/src/layouts/s
 src/api/useApi.ts                loading/error/ready as data, for every screen that calls
                                   the API
 src/auth/AuthContext.tsx         the session state machine — see below
-src/auth/storage.ts              only the refresh token is persisted; see ADR 0001 decision 10
+src/auth/storage.ts              only the refresh token is persisted; see docs/ARCHITECTURE.md
 src/routes/filters.ts            the URL <-> Filters <-> #6 API params translation — the
                                   URL is the shareable, human-readable form; #6's own
                                   min/max params are what's actually sent
@@ -67,11 +67,12 @@ vite.config.ts                   base path config + the GitHub Pages 404.html ge
 index.html                       the matching restore-path script (see the two together)
 ```
 
-### The session: ADR 0001 decision 10, implemented
+### The session: the bearer-token design, implemented
 
-`auth/AuthContext.tsx` is the state machine the ADR's bearer-token design turns into —
-worth reading alongside `docs/adr/0001-v2-architecture.md`'s decision 10, not instead of
-it. On mount: if the URL has a `#pixelIndexLoginCode=...` fragment (the redirect back
+`auth/AuthContext.tsx` is the state machine the bearer-token design (see
+[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#how-they-talk-to-each-other) for why
+it's a bearer token and not a cookie) turns into — worth reading alongside that doc, not
+instead of it. On mount: if the URL has a `#pixelIndexLoginCode=...` fragment (the redirect back
 from Discord landed here), it's exchanged immediately and cleared from the address bar
 before the app ever renders with it visible; otherwise a stored refresh token (if any)
 is used to restore a session via `/auth/refresh` then `/me`. The access token lives in

@@ -10,9 +10,13 @@ software sets their own policy for their own instance.
 A layout you submit is **public immediately** — there is no approval queue, no review
 before it appears. Moderation happens after publication: a moderator or admin acts on a
 layout once it is reported or otherwise noticed, not before. This is a deliberate
-trade-off (see [ADR 0001](docs/adr/0001-v2-architecture.md), decision 6), not an
-oversight, and it means the burden of catching a problem sits with the community and the
-moderation team together, not with a gate nothing gets past.
+trade-off, not an oversight: it keeps contribution friction low, which matters more here
+than it would for a higher-stakes index, and it means the burden of catching a problem
+sits with the community and the moderation team together, not with a gate nothing gets
+past. The traded-away risk is real and worth naming plainly — a tile grid can depict
+something like a hate symbol and will be public until someone acts on it — which is
+exactly why "hidden" has to mean hidden from every public read path (list, detail,
+download, preview alike) the moment a moderator acts, not just the gallery view.
 
 ## What may not be submitted
 

@@ -6,7 +6,8 @@ frontend, all talking to each other over the compose network. That's deliberatel
 as this repository's own config goes. Putting a real domain and TLS in front of it is a
 separate step, covered here, because there's no one right way to do it — pick the
 reverse proxy you already run, or none at all if `localhost`/a private network is enough
-for your case.
+for your case. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for *why* there are two origins
+to proxy in the first place — this doc only covers the *how*.
 
 ## What you're actually proxying
 

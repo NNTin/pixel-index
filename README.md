@@ -23,7 +23,7 @@ seed/<slug>/
                           loaded into the database on first boot (#18) — see
                           services/api/README.md's note on seeding
 
-docs/adr/                architecture decisions
+docs/ARCHITECTURE.md    the service stack: what each piece is, how they talk
 docs/deployment.md       self-hosting: TLS, reverse proxies (#17)
 vendor/pixel-agents/     pinned upstream (git submodule) — build/render-time only
 ```
@@ -43,10 +43,10 @@ before.
 
 ## Architecture
 
-[ADR 0001](docs/adr/0001-v2-architecture.md) records the v2 design and, more usefully,
-the alternatives that were rejected and why — the hosting split and the cross-origin
-auth problem it creates, npm workspaces, matching upstream's stack, Postgres via
-Drizzle, the renderer as its own service, post-moderation, and the git-versioned seed.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) covers the four-service stack — what each
+piece is, how they talk to each other, why the frontend and API are two separate origins
+with a bearer-token session instead of a cookie, and why every preview is drawn by a
+real browser rather than reimplemented.
 
 ## Previews are rendered, never stored as source
 

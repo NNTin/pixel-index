@@ -71,7 +71,7 @@ database outage takes the container out of the load balancer instead of leaving 
 Every required variable is validated **at boot**, and every problem is reported
 **together** — a misconfigured deployment fails once with a full list, not one
 frustrating restart per missing value. No hostname, domain or deployment-specific string
-is ever compiled in; see [ADR 0001, decision 8](../../docs/adr/0001-v2-architecture.md).
+is ever compiled in; see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#what-each-service-actually-needs).
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
@@ -160,10 +160,9 @@ throws a 403 unless the caller's role is at least `role` on a strict ladder
 
 ## Discord auth
 
-Full design rationale, the three options considered and why cookies lost to a bearer
-token in every deployment shape this project supports, is
-[ADR 0001, decision 10](../../docs/adr/0001-v2-architecture.md#decision-10-session-mechanism--bearer-tokens-never-cookies) —
-read that first if something here seems arbitrary. This section is the practical surface.
+Why cookies lost to a bearer token in every deployment shape this project supports is in
+[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#how-they-talk-to-each-other) — read
+that first if something here seems arbitrary. This section is the practical surface.
 
 ### The flow
 
@@ -580,10 +579,11 @@ around using these endpoints, see the repo root's
 this section is the "how", those are the "when" and "why".
 
 Both routes fetch a **fresh** actor row from the database rather than trusting the
-access token's `{id, role}` claim (`requireFreshRole`, `users/routes.ts`). ADR 0001's
-stateless-access-token trade-off is explicit that this is acceptable because nothing
-critical depends on the claim staying fresh — role changes and blocking are exactly the
-"path that matters most" that framing names, so these two routes close that gap rather
+access token's `{id, role}` claim (`requireFreshRole`, `users/routes.ts`). The
+stateless-access-token trade-off (see `docs/ARCHITECTURE.md`) is explicit that this is
+acceptable because nothing critical depends on the claim staying fresh — role changes
+and blocking are exactly the "path that matters most" that framing names, so these two
+routes close that gap rather
 than living with it: a moderator demoted a second ago cannot use their old token to keep
 demoting, promoting, or blocking for the rest of its TTL.
 
