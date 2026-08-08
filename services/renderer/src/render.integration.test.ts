@@ -12,6 +12,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -151,7 +152,10 @@ describe('the HTTP surface', () => {
     async () => {
       const config = {
         ...loadConfig(),
-        cacheDir: fs.mkdtempSync(path.join(REPO_ROOT, 'dist/.render-cache-test-')),
+        // os.tmpdir(), not a repo-relative dist/ — that directory was only
+        // ever guaranteed to exist because the v1 build pipeline created it;
+        // #18 removed that pipeline, so nothing creates dist/ anymore.
+        cacheDir: fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-index-render-cache-test-')),
       };
       const cache = new PreviewCache(config.cacheDir, config.cacheMaxEntries);
       await cache.init();
