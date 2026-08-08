@@ -18,7 +18,12 @@ import * as path from 'node:path';
 
 import { resolveUpstreamDir } from '@pixel-index/layout-core';
 
-const DEV_STARTUP_TIMEOUT_MS = 120_000;
+// 120s was too tight for a cold GitHub Actions runner — no vite cache, no
+// npm cache warm from a prior run, first-ever esbuild dep pre-bundle of the
+// whole webview-ui. Found live: this job never got far enough to hit this
+// path before #18 (it always failed earlier, on the v1 pipeline's own
+// missing dist/), so the real cold-start cost was never measured until now.
+const DEV_STARTUP_TIMEOUT_MS = 240_000;
 
 export interface DevServer {
   url: string;
