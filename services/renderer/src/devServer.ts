@@ -49,7 +49,30 @@ export interface DevServer {
  * it here means the service cannot be misconfigured into that state.
  */
 export function viteEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return { ...base, BROWSER: 'none', NODE_ENV: 'development' };
+  // NO_COLOR/FORCE_COLOR=0 belt-and-braces alongside extractDevServerUrl's
+  // own ANSI stripping below — no reason to ask vite for colour codes we're
+  // just going to parse around, on any runner that force-enables them.
+  return { ...base, BROWSER: 'none', NODE_ENV: 'development', NO_COLOR: '1', FORCE_COLOR: '0' };
+}
+
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE = /\x1b\[[0-9;]*m/g;
+
+/**
+ * Vite's "Local: http://127.0.0.1:PORT/" line, minus ANSI colour codes.
+ *
+ * GitHub Actions sets FORCE_COLOR, so vite colours its output even when
+ * stdout is a pipe, not a TTY — and it colours the port number itself, so
+ * the escape codes land *inside* the URL (`127.0.0.1:` + `\x1b[1m` +
+ * `37513`). A plain `:\d+` regex against the raw buffer never matches, and
+ * startDevServer sat out its whole timeout waiting for a URL that had
+ * already been printed. Found live, in CI only — a local TTY shell strips
+ * or renders the codes in a way that never hit this.
+ */
+export function extractDevServerUrl(buffer: string): string | null {
+  const stripped = buffer.replace(ANSI_ESCAPE, '');
+  const match = /(http:\/\/127\.0\.0\.1:\d+)\/?/.exec(stripped);
+  return match?.[1] ?? null;
 }
 
 /** Vite rejects --port 0, so pick a free one ourselves. */
@@ -106,10 +129,10 @@ export async function startDevServer(upstreamDir?: string): Promise<DevServer> {
     );
     const onData = (chunk: Buffer) => {
       buffer += chunk.toString();
-      const match = /(http:\/\/127\.0\.0\.1:\d+)\/?/.exec(buffer);
-      if (match?.[1]) {
+      const url = extractDevServerUrl(buffer);
+      if (url) {
         clearTimeout(timer);
-        resolve(match[1]);
+        resolve(url);
       }
     };
     child.stdout?.on('data', onData);
