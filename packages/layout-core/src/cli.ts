@@ -4,10 +4,11 @@
  *
  * A thin shell over the library: it owns the disk convention
  * (`<dir>/<slug>/{layout,meta}.json`) and the terminal formatting, and nothing
- * else. That convention is v1's and is on its way to `seed/` (#18), which is
- * exactly why it lives here rather than in the library.
+ * else. That convention now belongs to the git-versioned seed (#18) — the
+ * same shape v1's `layouts/` always used, just relocated — which is exactly
+ * why it lives here rather than in the library.
  *
- *   pixel-index-validate [dir]        # defaults to ./layouts
+ *   pixel-index-validate [dir]        # defaults to ./seed
  */
 
 import * as fs from 'node:fs';
@@ -17,7 +18,7 @@ import { readJsonOrNull, upstreamPin } from './upstream.js';
 import { createValidator } from './validate.js';
 import type { ValidationIssue } from './types.js';
 
-const dir = path.resolve(process.argv[2] ?? 'layouts');
+const dir = path.resolve(process.argv[2] ?? 'seed');
 
 if (!fs.existsSync(dir)) {
   console.error(`No layout directory at ${dir}.`);

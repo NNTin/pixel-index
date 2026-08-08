@@ -36,10 +36,10 @@ it, never inside it.
 ## Proposing a seed layout (pull request)
 
 The handful of layouts the index ships with by default — so a fresh install is never an
-empty page — are git-versioned in this repository (currently `layouts/`, moving to
-`seed/` per [#18](https://github.com/NNTin/pixel-index/issues/18)) rather than living
-only in the database. Proposing a *new* seed layout, or a fix to an existing one, is
-still a pull request:
+empty page — are git-versioned in `seed/` and loaded into the database on first boot
+([#18](https://github.com/NNTin/pixel-index/issues/18)), rather than living only in the
+database. Proposing a *new* seed layout, or a fix to an existing one, is still a pull
+request:
 
 ```bash
 git submodule update --init --recursive

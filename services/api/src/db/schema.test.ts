@@ -323,7 +323,7 @@ describe('denormalised stats come from layout-core', () => {
     // layoutStats() is the single source of truth for these columns, applied on
     // every write, so a number in the gallery cannot disagree with the layout
     // beside it. This test ties the two packages together.
-    const file = path.join(REPO_ROOT, 'layouts/blue-office/layout.json');
+    const file = path.join(REPO_ROOT, 'seed/blue-office/layout.json');
     const raw = fs.readFileSync(file);
     const parsed = JSON.parse(raw.toString());
     const stats = layoutStats(parsed);
@@ -358,7 +358,7 @@ describe('denormalised stats come from layout-core', () => {
     // The stored layout is the artifact people download; importing it must
     // never surprise them.
     const parsed = JSON.parse(
-      fs.readFileSync(path.join(REPO_ROOT, 'layouts/four-rooms/layout.json'), 'utf-8'),
+      fs.readFileSync(path.join(REPO_ROOT, 'seed/four-rooms/layout.json'), 'utf-8'),
     );
     const stored = await insertLayout({ layout: parsed });
     expect(stored.layout).toEqual(parsed);
@@ -371,7 +371,7 @@ describe('denormalised stats come from layout-core', () => {
     // `raw` exists specifically to keep the "byte-for-byte" and "sha256 is
     // public so a third party can dedupe" promises (#6) actually true.
     const originalBytes = fs.readFileSync(
-      path.join(REPO_ROOT, 'layouts/four-rooms/layout.json'),
+      path.join(REPO_ROOT, 'seed/four-rooms/layout.json'),
       'utf-8',
     );
     const stored = await insertLayout({

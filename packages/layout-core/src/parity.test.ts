@@ -16,11 +16,11 @@ import { createValidator } from './validate.js';
  * that the extraction preserved those fixes.
  */
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const LAYOUTS_DIR = path.join(REPO_ROOT, 'layouts');
+const SEED_DIR = path.join(REPO_ROOT, 'seed');
 
-const slugs = fs.existsSync(LAYOUTS_DIR)
+const slugs = fs.existsSync(SEED_DIR)
   ? fs
-      .readdirSync(LAYOUTS_DIR, { withFileTypes: true })
+      .readdirSync(SEED_DIR, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
@@ -34,7 +34,7 @@ describe('published layouts', () => {
   });
 
   it.each(slugs)('%s validates clean', (slug) => {
-    const dir = path.join(LAYOUTS_DIR, slug);
+    const dir = path.join(SEED_DIR, slug);
     const layout = JSON.parse(fs.readFileSync(path.join(dir, 'layout.json'), 'utf-8'));
     const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf-8'));
 
@@ -51,7 +51,7 @@ describe('published layouts', () => {
     // Guards the regression test itself: if this layout ever loses its negative
     // rows, the parity suite silently stops covering that fix.
     const layout = JSON.parse(
-      fs.readFileSync(path.join(LAYOUTS_DIR, 'four-rooms/layout.json'), 'utf-8'),
+      fs.readFileSync(path.join(SEED_DIR, 'four-rooms/layout.json'), 'utf-8'),
     );
     const negative = layout.furniture.filter((item: { row: number }) => item.row < 0);
     expect(negative.length).toBeGreaterThan(0);
@@ -59,7 +59,7 @@ describe('published layouts', () => {
 
   it('produces the stats the index publishes', () => {
     const layout = JSON.parse(
-      fs.readFileSync(path.join(LAYOUTS_DIR, 'blue-office/layout.json'), 'utf-8'),
+      fs.readFileSync(path.join(SEED_DIR, 'blue-office/layout.json'), 'utf-8'),
     );
     expect(layoutStats(layout)).toMatchObject({ cols: 25, rows: 22, furniture: 59, areas: 4 });
   });

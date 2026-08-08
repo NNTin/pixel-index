@@ -66,14 +66,14 @@ a directory instead of using a constant.
 ## CLI
 
 ```bash
-npm run validate                                  # from the repo root, over layouts/
+npm run validate                                  # from the repo root, over seed/
 node packages/layout-core/dist/cli.js <dir>       # any directory of <slug>/ folders
 ```
 
 The CLI owns the on-disk convention (`<dir>/<slug>/{layout,meta}.json`) and the terminal
-formatting, and nothing else. That convention is v1's and is on its way to `seed/`
-([#18](https://github.com/NNTin/pixel-index/issues/18)), which is exactly why it lives
-in the CLI rather than in the library.
+formatting, and nothing else — that convention belongs to the git-versioned seed
+(`seed/`, [#18](https://github.com/NNTin/pixel-index/issues/18)), which is exactly why
+it lives in the CLI rather than in the library.
 
 ## The rule that eats layouts
 
@@ -86,7 +86,7 @@ explains the consequence rather than just refusing.
 ## Two false positives, permanently pinned by tests
 
 Both were found the hard way, and both appear in real published layouts — so
-`parity.test.ts` re-proves them against `layouts/` on every run, and guards that the
+`parity.test.ts` re-proves them against `seed/` on every run, and guards that the
 data still exercises them:
 
 - **Virtual `:left` furniture ids.** Upstream synthesises entries like `PC_SIDE:left`

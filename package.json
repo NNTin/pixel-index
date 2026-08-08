@@ -15,12 +15,7 @@
   ],
   "scripts": {
     "build:core": "npm run build --workspace @pixel-index/layout-core",
-    "validate": "npm run build:core && node packages/layout-core/dist/cli.js layouts",
-    "previews": "node tools/render-previews.mjs",
-    "index": "node tools/build-index.mjs",
-    "site": "node tools/build-site.mjs",
-    "build": "npm run validate && npm run index && npm run previews && npm run site",
-    "serve": "node tools/serve.mjs",
+    "validate": "npm run build:core && node packages/layout-core/dist/cli.js seed",
     "//deps": "layout-core is a source dependency of the other workspaces, so its dist has to exist before anything typechecks or tests against it.",
     "pretest": "npm run build:core",
     "test": "npm run test --workspaces --if-present",

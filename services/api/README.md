@@ -58,7 +58,7 @@ src/auth/freshRole.ts    requireFreshRole() — shared by users/routes.ts and mo
 
 ```bash
 npm run dev --workspace @pixel-index/api    # tsx watch
-npm test --workspace @pixel-index/api        # 315 tests, no real Postgres or renderer needed
+npm test --workspace @pixel-index/api        # 326 tests, no real Postgres or renderer needed
 ```
 
 `GET /health` is liveness — always 200 once the process is up. `GET /ready` actually
@@ -725,6 +725,7 @@ PGlite-and-a-stub coverage can.
 src/db/schema.ts      the tables, and why they are shaped that way
 src/db/client.ts      pool + Drizzle handle from DATABASE_URL
 src/db/migrate.ts     container entrypoint: apply pending migrations, exit
+src/db/seed.ts        container entrypoint: load seed/ if the database is empty, exit
 migrations/           generated SQL, forward-only
 ```
 
@@ -742,6 +743,22 @@ Migrations are **forward-only and idempotent**. Drizzle records what it applied 
 safe and is the intended usage — that is what makes a self-hoster's first
 `docker compose up` provision a working database with no manual step. There is no
 `down`; rolling back a schema change means writing the next migration.
+
+### Seeding (#18)
+
+`docker-entrypoint.sh` runs `seed.ts` immediately after migrations, on every boot, not
+just the first. It is a no-op the moment **any** layout exists — seeded or not — so a
+self-hoster who has since published real content never gets it silently supplemented on
+a restart; this only ever fills a genuinely empty table.
+
+The repo root's `seed/<slug>/{layout.json,meta.json}` is copied into the image at build
+time (`services/api/Dockerfile`) and loaded with the same `layout-core` validation a real
+submission goes through — a seed layout the API itself would reject fails the boot
+loudly rather than publishing something broken. Seed layouts have no Discord account
+behind them: they belong to the synthetic system user (`SYSTEM_USER_ID`, see below) with
+the human credit in `authorDisplay`, and are otherwise ordinary rows — moderatable,
+editable by an admin acting through the same tools as anything else, no special case
+anywhere else in the codebase.
 
 ## Decisions worth knowing before you write a query
 

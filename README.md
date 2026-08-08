@@ -8,26 +8,24 @@ Browse the gallery, download a `layout.json`, and load it in Pixel Agents with
 
 ## Repository layout
 
-An npm workspace. The `v1` column is what runs today; the `v2` column is where the work
-in [epic #19](https://github.com/NNTin/pixel-index/issues/19) lands.
+An npm workspace, built out across the epic tracked in
+[#19](https://github.com/NNTin/pixel-index/issues/19):
 
 ```
-# v1 — the static-site pipeline; retiring in #18, superseded by v2 below
-layouts/<slug>/
+packages/layout-core/    validation, stats, JSON Schemas — shared by everything below
+apps/web/                the gallery SPA        -> GitHub Pages, or self-hosted (#17)
+services/api/            Fastify + Postgres     -> container, the public API and auth
+services/renderer/       Playwright + pinned upstream -> container, draws every preview
+
+seed/<slug>/
 ├── layout.json          the artifact people download, exactly as exported
 └── meta.json             title, author, description, tags
-tools/                   preview rendering, index + site build
-
-# v2 — what docker-compose.yml (root) actually builds and runs now
-packages/layout-core/    validation, stats, JSON Schemas — shared by all of the below
-apps/web/                gallery SPA          -> GitHub Pages (#12–#16) or self-hosted (#17)
-services/api/            Fastify + Postgres   -> container (#5–#10)
-services/renderer/       Playwright + pinned upstream -> container (#4)
+                          loaded into the database on first boot (#18) — see
+                          services/api/README.md's note on seeding
 
 docs/adr/                architecture decisions
 docs/deployment.md       self-hosting: TLS, reverse proxies (#17)
-vendor/pixel-agents/     pinned upstream (git submodule) — build-time only
-dist/                    generated: previews, index.json, the gallery (gitignored)
+vendor/pixel-agents/     pinned upstream (git submodule) — build/render-time only
 ```
 
 `npm ci` at the root bootstraps every workspace. `vendor/pixel-agents` is deliberately
@@ -37,6 +35,12 @@ dist/                    generated: previews, index.json, the gallery (gitignore
 Metadata is kept out of `layout.json` on purpose: that file should be byte-for-byte
 what Pixel Agents exported, so importing it can never be surprising.
 
+There was a v1 here: a static site rebuilt by a pull request, previews rendered at
+build time, and no per-user ownership. It's gone — retired in
+[#18](https://github.com/NNTin/pixel-index/issues/18) once the database-backed API
+(#6–#10), the SPA (#12–#16) and self-hosting (#17) could actually replace it, not
+before.
+
 ## Architecture
 
 [ADR 0001](docs/adr/0001-v2-architecture.md) records the v2 design and, more usefully,
@@ -44,55 +48,28 @@ the alternatives that were rejected and why — the hosting split and the cross-
 auth problem it creates, npm workspaces, matching upstream's stack, Postgres via
 Drizzle, the renderer as its own service, post-moderation, and the git-versioned seed.
 
-## Previews are generated, never committed
+## Previews are rendered, never stored as source
 
-Every preview is rendered at build time by **Pixel Agents' own renderer**, driven
-through its dev-mode browser mock with the layout substituted for the bundled
-default. Wall autotiling, carpet marching-squares, per-tile colorize and
-z-sorting therefore all match what a user will actually see, and a preview can
-never drift from its layout or from the pinned upstream.
-
-The trade-off is that previews only exist in a build — there are no PNGs in the
-repository. The deployed gallery is the place to look at them.
+Every preview is drawn by **Pixel Agents' own renderer** (`services/renderer`), driven
+through its dev-mode browser mock with the layout substituted for the bundled default.
+Wall autotiling, carpet marching-squares, per-tile colorize and z-sorting therefore all
+match what a user will actually see, and a preview can never drift from its layout or
+from the pinned upstream. Nothing is pre-rendered into the repository — `GET
+/api/v1/layouts/:slug/preview.png` renders on request (and caches by content hash); see
+`services/renderer/README.md` for how.
 
 ## The index
 
-`dist/index.json` is the machine-readable index, built from the per-layout
-`meta.json` files:
-
-```jsonc
-{
-  "schemaVersion": 1,
-  "generatedAt": "…",
-  "pixelAgents": { "version": "1.4.0", "commit": "9794e07…", "layoutRevision": 1 },
-  "count": 4,
-  "layouts": [
-    {
-      "slug": "blue-office",
-      "title": "Blue Office",
-      "author": "NNTin",
-      "description": "…",
-      "tags": [],
-      "cols": 25, "rows": 22,
-      "furniture": 59, "areas": 4, "pets": 0, "carpets": 0,
-      "layoutRevision": 1,
-      "bytes": 24067,
-      "sha256": "…",
-      "files": { "layout": "layouts/blue-office.json", "preview": "previews/blue-office.png" }
-    }
-  ]
-}
-```
-
-`pixelAgents` records the version every layout was validated and previewed
-against, so a consumer on an older build can tell when a layout is newer than
-its Pixel Agents.
+`GET /api/v1/layouts` (`services/api`) is the machine-readable index — filtered, sorted,
+keyset-paginated, documented at `/openapi.json` and `/docs` on a running instance. See
+`services/api/README.md` for the full response shape and query parameters.
 
 ## The pinned upstream
 
-`vendor/pixel-agents` is a submodule and is needed at build time only — for
-rendering previews and for validating layouts against a known furniture catalog.
-Pinning it is what makes previews reproducible.
+`vendor/pixel-agents` is a submodule, needed by the renderer (to actually draw a
+preview) and by `packages/layout-core` (to validate against a known furniture catalog
+and the bundled `layoutRevision`). Pinning it is what makes a given layout's preview
+reproducible.
 
 ```bash
 git submodule update --init --recursive
@@ -103,13 +80,21 @@ git submodule update --init --recursive
 ```bash
 npm ci
 (cd vendor/pixel-agents && npm ci)
-npx playwright install chromium
+npx playwright install chromium   # needed by services/renderer and its tests
 
-npm run validate    # schema, furniture ids, layoutRevision
-npm test            # layout-core unit tests
-npm run build       # validate + index + previews + gallery into dist/
-npm run serve       # http://127.0.0.1:4173
+npm run validate      # seed/ against the pinned Pixel Agents
+npm test              # every workspace's unit tests
+npm run typecheck      # every workspace
+
+# The full stack (Postgres + api + renderer + web), for anything beyond
+# layout-core's own unit tests:
+cp .env.example .env
+docker compose up --build
 ```
+
+Each workspace also has its own `npm run dev` (`apps/web`, `services/api`,
+`services/renderer`) for iterating on just that piece against the others already
+running — see each workspace's own README.
 
 ## Validation lives in one place
 
@@ -155,9 +140,9 @@ nginx.
 > against this stack.
 
 The static v1 pipeline this replaced (`tools/build-index.mjs`, `build-site.mjs`,
-`serve.mjs`, the old root `Dockerfile`/`nginx.conf`) is retired in
-[#18](https://github.com/NNTin/pixel-index/issues/18), which also moves the seed
-layouts below from `layouts/` into the database on first boot.
+`serve.mjs`, the old root `Dockerfile`/`nginx.conf`) was retired in
+[#18](https://github.com/NNTin/pixel-index/issues/18), which also added the first-boot
+seeding from `seed/` above.
 
 ## Contributing
 

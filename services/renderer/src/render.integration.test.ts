@@ -2,9 +2,13 @@
  * The real thing: a browser, upstream's dev server, and actual PNGs.
  *
  * Slow (a Vite boot plus a Chromium launch), so it is excluded from the default
- * `npm test` and run by `npm run test:integration`. It is also the only place
- * that can prove the port did not change what a preview looks like, which is the
- * single most important property of this service.
+ * `npm test` and run by `npm run test:integration`. It is the only place that
+ * exercises a real render rather than a stub — determinism, concurrency limits,
+ * timeouts, cache behaviour, and the HTTP surface, all against actual output.
+ *
+ * Used to also assert byte-parity against the v1 static build script's own
+ * renders (`tools/render-previews.mjs`) — removed in #18 along with that
+ * script, since there is no v1 output left to diff against once it's gone.
  */
 
 import * as fs from 'node:fs';
@@ -21,20 +25,19 @@ import { buildServer } from './server.js';
 import { loadConfig } from './config.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const LAYOUTS_DIR = path.join(REPO_ROOT, 'layouts');
-const V1_PREVIEWS = path.join(REPO_ROOT, 'dist/previews');
+const SEED_DIR = path.join(REPO_ROOT, 'seed');
 
 const BOOT_TIMEOUT = 240_000;
 const RENDER_TIMEOUT = 120_000;
 
 const slugs = fs
-  .readdirSync(LAYOUTS_DIR, { withFileTypes: true })
+  .readdirSync(SEED_DIR, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name)
   .sort();
 
 const readLayout = (slug: string) =>
-  JSON.parse(fs.readFileSync(path.join(LAYOUTS_DIR, slug, 'layout.json'), 'utf-8'));
+  JSON.parse(fs.readFileSync(path.join(SEED_DIR, slug, 'layout.json'), 'utf-8'));
 
 let devServer: DevServer;
 let renderer: Renderer;
@@ -48,23 +51,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await renderer?.close();
   devServer?.stop();
-});
-
-describe('parity with the v1 build script', () => {
-  const haveReference = fs.existsSync(V1_PREVIEWS);
-
-  it.runIf(haveReference).each(slugs)(
-    '%s renders byte-identically to tools/render-previews.mjs',
-    async (slug) => {
-      // If this fails, the port changed what users see. Regenerate the
-      // reference with `npm run previews` from the repo root and compare the
-      // images before touching this assertion.
-      const expected = fs.readFileSync(path.join(V1_PREVIEWS, `${slug}.png`));
-      const actual = await renderer.render(readLayout(slug));
-      expect(sha256(actual)).toBe(sha256(expected));
-    },
-    RENDER_TIMEOUT,
-  );
 });
 
 describe('rendering', () => {

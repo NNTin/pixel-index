@@ -8,10 +8,13 @@ autotiling, carpet marching-squares, per-tile colorize and z-sorting therefore m
 what a user will actually see, and a preview can never drift from its layout or from the
 pinned upstream.
 
-Ported from v1's `tools/render-previews.mjs`
-([#4](https://github.com/NNTin/pixel-index/issues/4)). The port is verified
-**byte-identical**: an integration test renders every layout in the index and compares
-sha256 against what the v1 build script produced.
+Ported from v1's `tools/render-previews.mjs` ([#4](https://github.com/NNTin/pixel-index/issues/4),
+since deleted along with the rest of the v1 pipeline in [#18](https://github.com/NNTin/pixel-index/issues/18)).
+At the time, the port was verified **byte-identical** against the v1 build script's own
+output — that parity check is gone now that there is no v1 output left to diff against,
+but `render.integration.test.ts` keeps everything else it proved: determinism,
+concurrency limits, timeouts, cache behaviour, and the HTTP surface, all against a real
+render.
 
 ## How it works
 

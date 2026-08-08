@@ -43,6 +43,12 @@ COPY --from=builder --chown=pixelindex:pixelindex /app/services/api/migrations .
 COPY --chown=pixelindex:pixelindex services/api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# The git-versioned seed (#18) — loaded into the database on first boot
+# (docker-entrypoint.sh, after migrations) so a fresh install is never an
+# empty page. seed.ts resolves its path relative to this copy, four levels
+# up from services/api/dist/db/ — see SEED_DIR there.
+COPY --chown=pixelindex:pixelindex seed ./seed
+
 # GET /api/v1/meta (#6) reads the pinned upstream's version, bundled
 # layoutRevision and (once #8 exists) furniture catalog via
 # @pixel-index/layout-core. Only package.json and the asset JSON are needed —

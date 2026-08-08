@@ -22,8 +22,8 @@ jobs:
       - name: Install index tooling
         run: npm ci
 
-      # Builds @pixel-index/layout-core, then runs its CLI over layouts/.
-      - name: Validate layouts against the pinned Pixel Agents
+      # Builds @pixel-index/layout-core, then runs its CLI over seed/.
+      - name: Validate the seed layouts against the pinned Pixel Agents
         run: npm run validate
 
   test:
@@ -90,11 +90,13 @@ jobs:
         run: npm run test:e2e --workspace @pixel-index/api
 
   renderer:
-    name: Renderer parity
+    name: Renderer integration tests
     runs-on: ubuntu-latest
-    # Proves the renderer still draws exactly what the v1 build script drew.
-    # If this fails, previews changed for users — look at the images before
-    # touching the assertion.
+    # The only place a real render is exercised rather than a stub —
+    # determinism, concurrency limits, timeouts, cache behaviour, and the
+    # HTTP surface, all against actual PNGs from a real browser. Used to
+    # also assert byte-parity against the v1 static build script's own
+    # renders; removed in #18 along with that script.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -115,44 +117,5 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      # The reference the parity test compares against.
-      - name: Render the v1 previews
-        run: npm run previews
-
       - name: Renderer integration tests
         run: npm run test:integration --workspace @pixel-index/renderer
-
-  previews:
-    name: Render previews
-    runs-on: ubuntu-latest
-    # Proves every layout still renders. The images are build output, never
-    # committed — the deployed site is the only place they live.
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install index tooling
-        run: npm ci
-
-      - name: Install upstream webview dependencies
-        run: npm ci
-        working-directory: vendor/pixel-agents
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-
-      - run: node tools/build-index.mjs
-      - run: node tools/render-previews.mjs
-      - run: node tools/build-site.mjs
-
-      - name: Upload gallery for review
-        uses: actions/upload-artifact@v4
-        with:
-          name: gallery
-          path: dist/
-          retention-days: 7
