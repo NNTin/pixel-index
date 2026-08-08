@@ -98,9 +98,13 @@ deterministic, so a cold entry costs one render, while an eviction policy costs
 correctness bugs. Writes go through a temp file and a rename, so a crash mid-write cannot
 leave a truncated PNG to be served forever as a cache hit.
 
-## Thumbnails scale dimensions, not bytes
+## `scale` exists, but the API never asks for less than `1`
 
-Measured across every layout in the index:
+`POST /render` still accepts `scale: 0.5 | 0.25` — downscaling happens on the canvas
+already open, with `imageSmoothingEnabled = false`, sampling every Nth source pixel
+exactly (verified against a manual pixel-stride decimation: zero-byte difference). As
+a resize algorithm in isolation it is genuinely lossless nearest-neighbour, not the
+blur `imageSmoothingEnabled` might suggest, and byte size scales as measured:
 
 | layout | full | `scale: 0.5` | `scale: 0.25` |
 |---|---|---|---|
@@ -109,15 +113,24 @@ Measured across every layout in the index:
 | four-rooms | 640×704, 24.6 kB | 320×352, 24.9 kB | 160×176, 10.2 kB |
 | severance-office | 640×416, 4.6 kB | 320×208, 4.9 kB | 160×104, 2.1 kB |
 
-**`scale: 0.5` is larger on disk than the full image, every time.** Halving pixel art
-destroys the long runs of identical pixels that PNG's filters exploit, and the in-page
-encoder is less aggressive than Playwright's. Only `0.25` actually saves bytes (~57%).
-[#13](https://github.com/NNTin/pixel-index/issues/13) should pick `0.25` knowingly, or
-scale the full image with CSS `image-rendering: pixelated` and send nothing extra.
+(`scale: 0.5` is larger on disk than the full image, every time — halving pixel art
+destroys the long runs of identical pixels PNG's filters exploit.)
 
-Downscaling happens on the canvas already open, with `imageSmoothingEnabled = false`.
-Pixel art must never be resampled, and doing it in the page avoids adding a native image
-library to an image that is already 400 MB of browser.
+[#13](https://github.com/NNTin/pixel-index/issues/13) used to have `services/api`
+request `thumbnail.png` at `scale: 0.25` for the byte savings above. That was reverted:
+`apps/web`'s gallery card stretches the PNG to a responsive, non-integer container width
+with CSS `image-rendering: pixelated`, so a pre-shrunk 0.25 render is downscaled *twice*
+— once here, server-side, to a fixed 200×104-ish grid, and again by the browser to
+whatever the card actually measures. Each step is individually lossless, but the second
+step can only choose from the ~1-in-16 pixels the first step kept, not the source
+image's full detail — a genuinely different (and, compared side-by-side, visibly
+softer) result than scaling the full render straight to the card's width in one step.
+Measured on `blue-office` at a representative card width: 12% of pixels differ between
+the double-hop and a direct single-hop scale, mean channel error ~6/255. `services/api`
+now always requests `scale: 1` for both `preview.png` and `thumbnail.png` — same bytes,
+one resize, done by the browser at the one size that actually matters. The `scale`
+parameter stays in this service because it is a correct, generic capability; it's just
+not the right tool for *this* API's thumbnail problem.
 
 ## Five fixes not to lose
 

@@ -209,7 +209,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
         // coupling "can I submit" to "is the renderer up" would make a
         // secondary feature able to take down the core one. The next request
         // for this slug's preview (#6) tries the renderer fresh regardless.
-        const preview = await requestPreview(config.rendererUrl, parsedLayout, 1);
+        const preview = await requestPreview(config.rendererUrl, parsedLayout);
         if (!preview.ok) {
           request.log.warn(
             { err: preview.error, slug: created.slug },
@@ -272,7 +272,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
         const validation = validator.validateLayout(parsedLayout);
         if (!validation.valid) throw ApiError.validation(validation.issues);
 
-        const preview = await requestPreview(config.rendererUrl, parsedLayout, 1);
+        const preview = await requestPreview(config.rendererUrl, parsedLayout);
         if (!preview.ok) {
           if (preview.error.kind === 'invalid_layout') {
             throw new ApiError(500, 'internal_error', 'This layout could not be rendered.');

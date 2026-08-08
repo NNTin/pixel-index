@@ -23,17 +23,18 @@ export type PreviewFailure =
 export async function requestPreview(
   rendererUrl: string,
   layout: unknown,
-  scale: 1 | 0.25,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ ok: true; result: PreviewResult } | { ok: false; error: PreviewFailure }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), RENDER_TIMEOUT_MS);
 
   try {
+    // Always scale 1: a full, un-shrunk render. See routes.ts's thumbnail.png
+    // handler for why nothing here ever asks the renderer for a smaller scale.
     const response = await fetchImpl(new URL('/render', rendererUrl), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ layout, scale }),
+      body: JSON.stringify({ layout, scale: 1 }),
       signal: controller.signal,
     });
 

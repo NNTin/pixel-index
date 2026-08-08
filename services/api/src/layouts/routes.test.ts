@@ -297,17 +297,19 @@ describe('GET /api/v1/layouts/:slug/preview.png', () => {
 });
 
 describe('GET /api/v1/layouts/:slug/thumbnail.png', () => {
-  it('requests scale 0.25 from the renderer, not 0.5', async () => {
-    // Measured in services/renderer: a 0.5-scale PNG is LARGER than the full
-    // image for every layout (halving pixel art destroys the runs its
-    // filters exploit). 0.25 is the only scale that actually saves bytes.
+  it('requests scale 1 from the renderer, same as preview.png', async () => {
+    // Not a separately rendered 0.25-scale PNG: pre-shrinking server-side and
+    // then letting the gallery grid's CSS scale that already-shrunk bitmap
+    // again to fit a responsive card width measurably threw away real pixel
+    // information a single direct scale from the full render would have kept.
+    // `image-rendering: pixelated` (apps/web) does the one and only resize now.
     const fetchSpy = fakeRenderer('ok');
     vi.stubGlobal('fetch', fetchSpy);
     await insertLayout(harness.db, { slug: 'route-thumbnail' });
 
     await app.inject({ method: 'GET', url: '/api/v1/layouts/route-thumbnail/thumbnail.png' });
     const [, init] = fetchSpy.mock.calls[0]!;
-    expect(JSON.parse((init as RequestInit).body as string).scale).toBe(0.25);
+    expect(JSON.parse((init as RequestInit).body as string).scale).toBe(1);
   });
 });
 

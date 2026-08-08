@@ -282,7 +282,7 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
           return row!;
         });
 
-        const preview = await requestPreview(config.rendererUrl, parsedLayout, 1);
+        const preview = await requestPreview(config.rendererUrl, parsedLayout);
         if (!preview.ok) {
           request.log.warn(
             { err: preview.error, slug: updated.slug },

@@ -165,16 +165,11 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
     },
   );
 
-  async function servePreview(
-    request: FastifyRequest,
-    reply: FastifyReply,
-    slug: string,
-    scale: 1 | 0.25,
-  ) {
+  async function servePreview(request: FastifyRequest, reply: FastifyReply, slug: string) {
     const layout = await getLayoutBySlug(db, slug);
     if (!layout) throw ApiError.notFound(`No public layout "${slug}".`);
 
-    const outcome = await requestPreview(config.rendererUrl, layout.layout, scale);
+    const outcome = await requestPreview(config.rendererUrl, layout.layout);
     if (!outcome.ok) {
       request.log.warn({ err: outcome.error, slug }, 'preview render failed');
       if (outcome.error.kind === 'invalid_layout') {
@@ -189,7 +184,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
     // revalidated policy applies — never the renderer's own "immutable",
     // which is only true for its content-addressed cache key, not for this URL.
     reply.header('cache-control', 'public, max-age=60, must-revalidate');
-    const etag = outcome.result.etag ?? `"${layout.sha256}-${scale}"`;
+    const etag = outcome.result.etag ?? `"${layout.sha256}"`;
     if (respondNotModifiedIfMatching(request, reply, etag)) return;
 
     return reply.header('content-type', outcome.result.contentType).send(outcome.result.body);
@@ -197,7 +192,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
 
   app.get('/api/v1/layouts/:slug/preview.png', { schema: { params: slugParamsSchema } }, (request, reply) => {
     const { slug } = request.params as { slug: string };
-    return servePreview(request, reply, slug, 1);
+    return servePreview(request, reply, slug);
   });
 
   app.get(
@@ -205,11 +200,15 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
     { schema: { params: slugParamsSchema } },
     (request, reply) => {
       const { slug } = request.params as { slug: string };
-      // 0.25, not 0.5: measured across every seed layout, a 0.5-scale PNG is
-      // LARGER than the full image every time (halving pixel art destroys the
-      // runs its filters exploit) — see services/renderer/README.md. 0.25 is
-      // the only scale that actually saves bytes.
-      return servePreview(request, reply, slug, 0.25);
+      // Same bytes as preview.png, not a separately rendered 0.25-scale PNG:
+      // measured (see services/renderer/README.md) that pre-shrinking on the
+      // server and then letting the gallery grid's CSS scale that already-
+      // shrunk bitmap again to fit a responsive card width throws away real
+      // pixel information a single direct scale from the full render would
+      // have kept — 12% of pixels differed from a one-step resize in testing.
+      // `image-rendering: pixelated` (apps/web) does the one and only resize,
+      // at the one size that actually matters: however big the card is.
+      return servePreview(request, reply, slug);
     },
   );
 }

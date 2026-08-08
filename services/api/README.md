@@ -279,7 +279,7 @@ would confirm something is there to hide.
 | `GET /api/v1/layouts/:slug` | Full record, including the parsed layout |
 | `GET /api/v1/layouts/:slug/download` | The raw bytes, verbatim — `Content-Disposition: attachment` |
 | `GET /api/v1/layouts/:slug/preview.png` | Proxied from the renderer (#4), scale 1 |
-| `GET /api/v1/layouts/:slug/thumbnail.png` | Proxied from the renderer, scale **0.25** — see below |
+| `GET /api/v1/layouts/:slug/thumbnail.png` | Proxied from the renderer, scale **1** — same bytes as `preview.png`, see below |
 | `GET /openapi.json` | The OpenAPI 3.1 document, generated from the same schemas below |
 | `GET /docs` | Swagger UI over the same document |
 
@@ -325,13 +325,19 @@ and deliberately weaker than, the renderer's own cache — that one *is* keyed o
 and can be immutable forever, because a given (layout, upstream pin, scale) tuple can
 only ever render one way.
 
-### Why `thumbnail.png` asks the renderer for scale `0.25`, not `0.5`
+### Why `thumbnail.png` asks the renderer for scale `1`, same as `preview.png`
 
-Measured in `services/renderer`: a `scale: 0.5` PNG is **larger** than the full image for
-every layout in the seed set, because halving pixel art destroys the long runs of
-identical pixels PNG's own filters exploit. `0.25` is the only scale that actually saves
-bytes. This route makes that choice on the caller's behalf rather than exposing `scale`
-as a parameter — see `services/renderer/README.md` for the numbers.
+It used to ask for `0.25` — smaller on the wire, and `services/renderer/README.md` has
+the byte numbers for anyone weighing that trade-off again. It was reverted because
+`apps/web`'s gallery card stretches whatever PNG it's given to a responsive, non-integer
+container width with CSS `image-rendering: pixelated`. A `0.25` render is downscaled
+*twice* before anyone sees it — once here, to a fixed small grid, and again by the
+browser to the card's actual width — and the second step can only draw from the ~1-in-16
+pixels the first step kept. Two lossless nearest-neighbour resizes chained like that are
+not equivalent to one: measured on a seed layout at a representative card width, 12% of
+pixels differed from scaling the full render straight to the card in a single step. This
+route now makes the opposite choice on the caller's behalf: send the full render, let the
+browser do the one resize that has the actual target size available.
 
 ### The OpenAPI document is generated, not maintained by hand
 
