@@ -12,19 +12,20 @@ An npm workspace. The `v1` column is what runs today; the `v2` column is where t
 in [epic #19](https://github.com/NNTin/pixel-index/issues/19) lands.
 
 ```
-# v1 — the static index, currently live
+# v1 — the static-site pipeline; retiring in #18, superseded by v2 below
 layouts/<slug>/
 ├── layout.json          the artifact people download, exactly as exported
-└── meta.json            title, author, description, tags
+└── meta.json             title, author, description, tags
 tools/                   preview rendering, index + site build
 
-# v2
+# v2 — what docker-compose.yml (root) actually builds and runs now
 packages/layout-core/    validation, stats, JSON Schemas — shared by all of the below
-apps/web/                static gallery SPA           -> GitHub Pages  (#12–#16)
-services/api/            Fastify + Postgres           -> container     (#5–#10)
-services/renderer/       Playwright + pinned upstream -> container     (#4)
+apps/web/                gallery SPA          -> GitHub Pages (#12–#16) or self-hosted (#17)
+services/api/            Fastify + Postgres   -> container (#5–#10)
+services/renderer/       Playwright + pinned upstream -> container (#4)
 
 docs/adr/                architecture decisions
+docs/deployment.md       self-hosting: TLS, reverse proxies (#17)
 vendor/pixel-agents/     pinned upstream (git submodule) — build-time only
 dist/                    generated: previews, index.json, the gallery (gitignored)
 ```
@@ -133,27 +134,30 @@ bumps its bundled default, affected layouts have to be re-exported.
 
 ## Deployment
 
-The gallery is served at <https://pixel-index.nntin.xyz> from a container built
-by `Dockerfile`: a Playwright builder stage runs the same `npm run build` used
-locally, and the resulting `dist/` is served by nginx. The image is therefore
-self-contained — previews are rendered during the build, so a deployed preview
-can never disagree with the layout beside it.
-
 ```bash
-docker network create pixel-index-network   # once
-cp .env.example .env
-docker compose up -d --build
+cp .env.example .env    # fill in the REQUIRED values — see the file itself
+docker compose up --build
 ```
 
-Routing is by Traefik label (`Host(pixel-index.nntin.xyz)`, `websecure`,
-Let's Encrypt DNS-01), reached through the Cloudflare Tunnel like the other
-`*.nntin.xyz` services. Publishing a new layout means rebuilding the image.
+Brings up a complete, self-hostable index on a clean checkout: Postgres, the API
+(`services/api`), the renderer (`services/renderer`), and the built frontend
+(`apps/web`), all talking to each other over the compose network — no external
+network, reverse proxy, or pre-existing infrastructure required (#17). Putting a real
+domain and TLS in front of it is a deliberately separate step with no single required
+answer — [`docs/deployment.md`](docs/deployment.md) covers Traefik, Caddy and plain
+nginx.
 
-> **Keep the healthcheck passing.** Traefik drops unhealthy containers from its
-> load balancer, so a failing healthcheck takes the site off the internet with a
-> bare 404 and no error anywhere in the Traefik logs. The check talks to
-> `127.0.0.1` rather than `localhost` on purpose: `localhost` resolves to `::1`
-> first inside the container, which an IPv4-only nginx listener refuses.
+> **`localhost` inside a container resolves to `::1` first.** Every health check in
+> this repo's images probes `127.0.0.1`, never `localhost`, for exactly that reason — an
+> IPv4-only listener fails a `localhost` check it should pass, gets marked unhealthy, and
+> a reverse proxy quietly drops it with nothing more informative than a bare 404 and
+> nothing in any application log. Worth knowing if you write your own health check
+> against this stack.
+
+The static v1 pipeline this replaced (`tools/build-index.mjs`, `build-site.mjs`,
+`serve.mjs`, the old root `Dockerfile`/`nginx.conf`) is retired in
+[#18](https://github.com/NNTin/pixel-index/issues/18), which also moves the seed
+layouts below from `layouts/` into the database on first boot.
 
 ## Contributing
 

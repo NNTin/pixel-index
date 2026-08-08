@@ -1,46 +1,119 @@
+# Brings up a complete, working Pixel Index from a clean checkout:
+#   cp .env.example .env   # fill in the REQUIRED values
+#   docker compose up --build
+#
+# No external network, reverse proxy, or pre-existing infrastructure is
+# required — everything here is self-contained. Putting a real domain and
+# TLS in front of this is deliberately a separate step: see
+# docs/deployment.md, which covers several reverse-proxy options — this
+# file has no opinion about which one you use, or whether you use one at
+# all.
+#
+# Where the official index actually runs is a deployment decision outside
+# this repository, not a default this file encodes — see docs/deployment.md.
+
 services:
-  pixel-index:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ${PIXEL_INDEX_IMAGE:-pixel-index:local}
-    container_name: ${SERVICE_NAME:-pixel-index}
+  postgres:
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      - SERVICE_NAME=${SERVICE_NAME:-pixel-index}
-    networks:
-      - pixel-index-network
-      - lair-network
-    labels:
-      - "traefik.enable=true"
-      # First-level subdomain: the Cloudflare universal cert only covers one
-      # label of *.nntin.xyz, so deeper names would need ACM.
-      - "traefik.http.routers.pixel-index.rule=Host(`${PIXEL_INDEX_DOMAIN:-pixel-index.nntin.xyz}`)"
-      - "traefik.http.routers.pixel-index.entrypoints=websecure"
-      - "traefik.http.routers.pixel-index.tls.certresolver=letsencrypt"
-      - "traefik.http.services.pixel-index.loadbalancer.server.port=80"
-      - "traefik.docker.network=lair-network"
+      POSTGRES_USER: "${POSTGRES_USER:-pixel_index}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}"
+      POSTGRES_DB: "${POSTGRES_DB:-pixel_index}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/index.json > /dev/null || exit 1"]
-      interval: 30s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pixel_index}"]
+      interval: 5s
       timeout: 5s
-      retries: 3
-      start_period: 5s
-    logging:
-      driver: "loki"
-      options:
-        loki-url: "http://localhost:3100/loki/api/v1/push"
-        loki-retries: "3"
-        loki-batch-size: "102400"
-        loki-external-labels: "service=${SERVICE_NAME:-pixel-index},component=pixel-index,environment=production"
-        max-size: "10m"
-        max-file: "3"
-        mode: "non-blocking"
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
-networks:
-  pixel-index-network:
-    external: true
-    name: pixel-index-network
-  lair-network:
-    external: true
-    name: lair-network
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+      args:
+        # Optional: set in the shell environment (not .env) if you want the
+        # image to report the real pinned commit — see services/api/Dockerfile.
+        # An empty build falls back to reporting the version alone.
+        PIXEL_AGENTS_COMMIT: ${PIXEL_AGENTS_COMMIT:-}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-pixel_index}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}@postgres:5432/${POSTGRES_DB:-pixel_index}"
+      RENDERER_URL: "${RENDERER_URL:-http://renderer:3000}"
+      PUBLIC_WEB_ORIGIN: "${PUBLIC_WEB_ORIGIN:?PUBLIC_WEB_ORIGIN is required, see .env.example}"
+      PUBLIC_API_ORIGIN: "${PUBLIC_API_ORIGIN:?PUBLIC_API_ORIGIN is required, see .env.example}"
+      DISCORD_CLIENT_ID: "${DISCORD_CLIENT_ID:?DISCORD_CLIENT_ID is required, see .env.example}"
+      DISCORD_CLIENT_SECRET: "${DISCORD_CLIENT_SECRET:?DISCORD_CLIENT_SECRET is required, see .env.example}"
+      SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET is required, generate one with openssl rand -base64 48}"
+      INITIAL_ADMIN_DISCORD_ID: "${INITIAL_ADMIN_DISCORD_ID:-}"
+      # This compose file has no reverse proxy of its own in front of the
+      # api — see docs/deployment.md once you add one, and flip this to
+      # true so rate limiting keys on the real client, not the proxy.
+      API_TRUST_PROXY: "false"
+    ports:
+      - '${API_PORT_HOST:-3000}:3000'
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  renderer:
+    build:
+      context: .
+      dockerfile: services/renderer/Dockerfile
+      args:
+        PIXEL_AGENTS_COMMIT: ${PIXEL_AGENTS_COMMIT:-}
+    restart: unless-stopped
+    # No `ports:` — deliberately unreachable from the host or a browser (no
+    # CORS is configured on it). Only the api service talks to it, over the
+    # compose network. See services/api/README.md's note on preview-check.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+    deploy:
+      resources:
+        # A real browser, rendering user-controlled input — the one service
+        # here where an unbounded limit is a real risk, not just tidiness.
+        limits:
+          memory: 2G
+          cpus: '2'
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:?VITE_API_BASE_URL is required, see .env.example}"
+    restart: unless-stopped
+    ports:
+      - '${WEB_PORT:-8080}:80'
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  postgres-data:
