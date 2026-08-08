@@ -6,6 +6,6 @@ export default defineConfig({
     // One Vite dev server and one browser, shared by the whole file.
     fileParallelism: false,
     testTimeout: 120_000,
-    hookTimeout: 240_000,
+    hookTimeout: 300_000,
   },
 });

@@ -23,7 +23,10 @@ import { resolveUpstreamDir } from '@pixel-index/layout-core';
 // whole webview-ui. Found live: this job never got far enough to hit this
 // path before #18 (it always failed earlier, on the v1 pipeline's own
 // missing dist/), so the real cold-start cost was never measured until now.
-const DEV_STARTUP_TIMEOUT_MS = 240_000;
+// Kept below vitest.integration.config.ts's hookTimeout so this timeout's
+// own (more informative) error fires first, instead of vitest's generic
+// "Hook timed out" with none of the child process's captured output.
+const DEV_STARTUP_TIMEOUT_MS = 200_000;
 
 export interface DevServer {
   url: string;
@@ -96,11 +99,11 @@ export async function startDevServer(upstreamDir?: string): Promise<DevServer> {
   );
 
   const url = await new Promise<string>((resolve, reject) => {
+    let buffer = '';
     const timer = setTimeout(
-      () => reject(new Error('Vite dev server did not start in time')),
+      () => reject(new Error(`Vite dev server did not start in time. Output so far:\n${buffer}`)),
       DEV_STARTUP_TIMEOUT_MS,
     );
-    let buffer = '';
     const onData = (chunk: Buffer) => {
       buffer += chunk.toString();
       const match = /(http:\/\/127\.0\.0\.1:\d+)\/?/.exec(buffer);
