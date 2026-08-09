@@ -100,6 +100,38 @@ describe('retained Discord OAuth grants', () => {
     expect(decryptDiscordToken(row!.encryptedRefreshToken, KEY)).toBe('rotated-refresh');
   });
 
+  it('serializes concurrent refreshes so a rotating refresh token is spent once', async () => {
+    const user = await insertUser(harness.db);
+    const now = new Date('2026-08-09T12:01:00.000Z');
+    await saveDiscordGrant(harness.db, user.id, {
+      access_token: 'expired-concurrent-access',
+      refresh_token: 'single-use-refresh',
+      expires_in: 0,
+      token_type: 'Bearer',
+      scope: 'identify guilds.members.read',
+    }, KEY, new Date('2026-08-09T12:00:00.000Z'));
+    const refresh = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return Response.json({
+        access_token: 'concurrent-fresh-access',
+        refresh_token: 'concurrent-rotated-refresh',
+        expires_in: 3600,
+        token_type: 'Bearer',
+        scope: 'identify guilds.members.read',
+      });
+    });
+    vi.stubGlobal('fetch', refresh);
+    const results = await Promise.all([
+      usableDiscordAccessToken(harness.db, user.id, config, KEY, { now }),
+      usableDiscordAccessToken(harness.db, user.id, config, KEY, { now }),
+    ]);
+    expect(results).toEqual([
+      { status: 'ok', accessToken: 'concurrent-fresh-access' },
+      { status: 'ok', accessToken: 'concurrent-fresh-access' },
+    ]);
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
   it('deletes a grant Discord rejects during refresh and requires new consent', async () => {
     const user = await insertUser(harness.db);
     await saveDiscordGrant(harness.db, user.id, {
