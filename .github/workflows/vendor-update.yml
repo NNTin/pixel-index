@@ -288,6 +288,48 @@ jobs:
             cp gate/seed-manifest.json apps/web/public/vendor-preview/manifest.json
           fi
 
+      # The candidate-preview swap only engages when the web app can prove the
+      # API is on a *different* pin than the manifest — it fails safe, because a
+      # live image that might be slightly stale beats a static one that is
+      # certainly stale. An API that reports `commit: null` (no
+      # PIXEL_AGENTS_COMMIT: a containerised vendor/ has no .git to read one
+      # from) and a bump that does not change the version number are together
+      # enough to make that proof impossible, and the previews then quietly stay
+      # as they were. Quietly is the problem — say it in the PR instead.
+      - name: Check the API can be compared against for previews
+        if: steps.candidate.outputs.moved == 'true' && vars.PRODUCTION_API_BASE_URL != ''
+        env:
+          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+          CANDIDATE: ${{ steps.candidate.outputs.sha }}
+          BASELINE: ${{ steps.baseline.outputs.sha }}
+        run: |
+          mkdir -p gate
+          meta="$(curl -fsS --max-time 20 "$API_BASE_URL/api/v1/meta" 2>/dev/null || true)"
+          commit="$(printf '%s' "$meta" | jq -r '.pixelAgents.commit // empty' 2>/dev/null || true)"
+          version="$(printf '%s' "$meta" | jq -r '.pixelAgents.version // empty' 2>/dev/null || true)"
+
+          # Comparable if the API names a commit at all, or if the version alone
+          # already distinguishes the two pins.
+          if [ -n "$commit" ]; then exit 0; fi
+          candidate_version="$(jq -r '.candidate.version // empty' gate/*-manifest.json 2>/dev/null | head -1)"
+          baseline_version="$(jq -r '.baseline.version // empty' gate/*-manifest.json 2>/dev/null | head -1)"
+          if [ -n "$candidate_version" ] && [ "$candidate_version" != "$baseline_version" ]; then exit 0; fi
+
+          {
+            echo "### ⚠️ Candidate previews will not engage on this deployment"
+            echo
+            echo "The preview swap needs to prove the API is on a *different* pin than these"
+            echo "renders, and it cannot: \`/api/v1/meta\` reports \`commit: null\`"
+            echo "(\`PIXEL_AGENTS_COMMIT\` is unset) and this bump does not change the version"
+            echo "(\`${version:-unknown}\`). So it fails safe and leaves previews on the API's own"
+            echo "images — the ones drawn by the pin this PR replaces."
+            echo
+            echo "Set \`PIXEL_AGENTS_COMMIT=$BASELINE\` on the API deployment and the swap works"
+            echo "from the next run. It is worth setting regardless: the renderer keys its"
+            echo "preview cache on it, and warns at boot when it is missing."
+            echo
+          } > gate/preview-warning.md
+
       # ── The PR ────────────────────────────────────────────────────────────
       - name: Compose the pull request body
         id: body
@@ -307,6 +349,7 @@ jobs:
             --repo-url "$upstream" \
             --section gate/seed-report.md \
             --section gate/live-report.md \
+            --section gate/preview-warning.md \
             --preview-url "$PREVIEW_BASE_URL" \
             --out gate/pr-body.md
 

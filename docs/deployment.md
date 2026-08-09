@@ -112,6 +112,18 @@ forever. The PR's preview deployment then shows *those* pictures instead of the 
 because the API is still on the old pin — without it, the one view where seeing a vendor
 bump matters is the one view that cannot show it.
 
+**The swap needs the API to report its pin.** It only engages when the site can prove the
+API is on a *different* Pixel Agents than the renders were made with — otherwise it fails
+safe and leaves previews on the API's own images, because a live image that might be
+slightly stale beats a static one that is certainly stale. A containerised
+`vendor/pixel-agents` has no `.git`, so `/api/v1/meta` reports `commit: null` unless
+**`PIXEL_AGENTS_COMMIT`** is set on the API, and upstream bumps routinely keep the same
+version number (the pin sits several commits past a tag). With neither signal available
+the proof is impossible and previews quietly stay as they were — so set
+`PIXEL_AGENTS_COMMIT` to the pinned commit on the API deployment. It is worth setting
+anyway: the renderer keys its preview cache on it and warns at boot when it is missing.
+`vendor-update.yml` checks for this and says so in the PR when it is unset.
+
 The default is `https://raw.githubusercontent.com/<owner>/<repo>/vendor-previews`, which
 needs no configuration and is correct the moment the branch is pushed. A CDN in front is
 faster, but pick one that can serve a *newly pushed* path immediately: jsDelivr caches
