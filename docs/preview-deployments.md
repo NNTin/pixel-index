@@ -95,6 +95,91 @@ flowchart LR
 
 ---
 
+## Where the pixels come from: two producers
+
+This is the part that surprises people, so it is worth stating flatly:
+
+- **The old pin's images are rendered by the API**, on demand, per request.
+- **The new pin's images are rendered by the CI pipeline**, once, minutes earlier, and
+  served as static files from a git branch.
+
+The API never draws the new pin. It cannot — the deployed renderer only has the commit
+baked into the image it was built from. That is precisely why the candidate renders have to
+be produced somewhere else.
+
+```mermaid
+flowchart TB
+    subgraph oldPin ["OLD pin — what production serves, always"]
+        direction TB
+        O1["layout JSON in Postgres"] --> O2["API<br/>GET /api/v1/layouts/:slug/thumbnail.png"]
+        O2 --> O3["renderer container<br/>Vite + Chromium<br/>pin baked into the image"]
+        O3 --> O4["PNG rendered on request<br/>content-addressed cache"]
+    end
+
+    subgraph newPin ["NEW pin — only on a vendor-update PR"]
+        direction TB
+        N1["layout JSON<br/>GET /api/v1/export/layouts.ndjson"] --> N2["GitHub Actions runner<br/>Vite + Chromium<br/>candidate pin, checked out fresh"]
+        N2 --> N3["PNG written to gate/png/"]
+        N3 --> N4["force-pushed to the<br/>orphan branch vendor-previews"]
+        N4 --> N5["static file on<br/>raw.githubusercontent.com"]
+    end
+```
+
+Note where the two pipelines *do* meet: the API supplies the layout JSON to both. It acts
+as the **data source** for the CI render, never as its renderer. Rendering and data are
+split, which is what lets the gate draw your real layouts against a pin your API has never
+seen.
+
+### The browser just picks a URL
+
+Nothing clever happens client-side. `previewSource.resolve(slug)` returns one of three
+answers and the image element points wherever it says.
+
+```mermaid
+flowchart LR
+    IMG["an image on a layout card"] --> R{"previewSource.resolve(slug)"}
+    R -->|"kind: api"| A["PRODUCTION_API_BASE_URL<br/>/api/v1/layouts/:slug/thumbnail.png<br/>rendered on demand — OLD pin"]
+    R -->|"kind: candidate"| C["raw.githubusercontent.com<br/>/vendor-previews/SHA/:slug.png<br/>rendered in CI — NEW pin"]
+    R -->|"kind: failed"| F["a placeholder — the new pin<br/>cannot draw this layout at all"]
+```
+
+### It is the same renderer, not a lookalike
+
+`services/renderer/src/harness/run.ts` imports `startDevServer` and `Renderer` from
+`services/renderer/src/` directly. There is no second implementation to drift. The gate has
+to measure what production does, and the only honest way to do that is to run production's
+code against a different pin.
+
+Measured on one layout, from three independent machines:
+
+| Producer | Pin | Bytes | SHA-256 |
+|---|---|---|---|
+| CI (GitHub Actions) | `0f823e2` | 15009 | `f1d320ffae60…` |
+| The deployed renderer | `9794e07` | 15009 | `f1d320ffae60…` |
+| A developer laptop | `9794e07` | 15009 | `f1d320ffae60…` |
+
+Byte-identical. Two things follow. Renders are **deterministic** — the same layout and the
+same pin give the same PNG anywhere — which is what makes comparing PNG hashes a usable
+signal for *"this layout renders differently now"*. And this particular bump changed nothing
+visually, which is why its report listed no visually-changed layouts.
+
+Do not read that last part as the general case. When upstream changes sprites, the CI image
+and the API image differ — that is the entire point, and it is what the banner is warning
+you about.
+
+### Two consequences of being static
+
+**They are a snapshot, not live.** The candidate PNGs are frozen at the moment the workflow
+ran. A layout submitted afterwards is not in the manifest and falls through to the API
+(`kind: 'api'`) — unmeasured, not broken. Re-running the workflow refreshes the set.
+
+**They do not accumulate.** `vendor-previews` is force-pushed as a single commit each run,
+so the previous set becomes unreachable and is eventually collected. Images on an older
+vendor PR's preview will 404 once a newer run lands. That is deliberate: a weekly job that
+kept every render would grow the repository without bound.
+
+---
+
 ## When the banner appears
 
 The banner is:
