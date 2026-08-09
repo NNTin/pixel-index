@@ -3,7 +3,7 @@
 Every pull request gets a Vercel preview of `apps/web`. Almost all of them behave exactly
 like production: the same static site, pointed at the same live API.
 
-**One kind does not.** The weekly vendor-update PR shows preview images the production API
+**One kind does not.** The vendor-update PR shows preview images the production API
 *cannot produce*, behind a banner saying so. This document explains why that exception
 exists, when it applies, and what each environment actually serves — because "the preview
 shows different pictures than production" is alarming if you don't know it's deliberate.
@@ -33,7 +33,7 @@ don't change the pin.
 
 ```mermaid
 flowchart TD
-    T(["weekly cron<br/>or workflow_dispatch"]) --> A
+    T(["daily cron<br/>or workflow_dispatch"]) --> A
 
     A["A. vendor-update.yml<br/>git submodule update --remote<br/>fixed branch chore/vendor-pixel-agents<br/>— reuses the open PR if there is one"]
 
@@ -175,7 +175,7 @@ ran. A layout submitted afterwards is not in the manifest and falls through to t
 
 **They do not accumulate.** `vendor-previews` is force-pushed as a single commit each run,
 so the previous set becomes unreachable and is eventually collected. Images on an older
-vendor PR's preview will 404 once a newer run lands. That is deliberate: a weekly job that
+vendor PR's preview will 404 once a newer run lands. That is deliberate: a daily job that
 kept every render would grow the repository without bound.
 
 ---
@@ -205,7 +205,7 @@ candidate draws a layout exactly as the baseline did, the image the API is alrea
 bytes.
 
 Without this rule the workflow republished the entire index on every bump — at 1,000
-layouts, ~15 MB weekly to convey, in the normal case, nothing. The last real bump rendered
+layouts, ~15 MB per run to convey, in the normal case, nothing. The last real bump rendered
 4 layouts, changed 0, and published 4 images that were byte-identical to what the API was
 already serving.
 

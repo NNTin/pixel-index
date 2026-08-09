@@ -66,7 +66,7 @@ export const PUBLISH_CAP = 50;
  * a laptop). So when the candidate draws a layout exactly as the baseline did,
  * the image the API is already serving *is* the candidate's render. Publishing a
  * copy of it would be duplicating a file the page can already fetch, for every
- * layout in the index, every week.
+ * layout in the index, every run.
  *
  * What is left is small and stays small: the layouts that changed, and the ones
  * that broke. Usually that is nothing at all.

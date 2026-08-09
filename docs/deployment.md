@@ -112,10 +112,10 @@ requests"**. It is off by default, and without it the job pushes its branch and 
 renders successfully and is then refused at the last step, with
 `GitHub Actions is not permitted to create or approve pull requests`. The workflow
 detects that specific failure and prints both the setting and a link to open the PR by
-hand, so nothing is lost either way — but until it is enabled, every weekly run ends red
+hand, so nothing is lost either way — but until it is enabled, every scheduled run ends red
 and needs a click. Nothing else in this repository needs the setting.
 
-**`PRODUCTION_API_BASE_URL` has a second reader: `vendor-update.yml`.** The weekly job
+**`PRODUCTION_API_BASE_URL` has a second reader: `vendor-update.yml`.** The daily job
 that bumps the pinned Pixel Agents (#26) uses it to fetch every public layout from your
 running index — `GET /api/v1/export/layouts.ndjson` — and render them against the
 candidate pin, so the PR can say exactly which of *your* layouts a bump would break.
@@ -124,7 +124,7 @@ reports that it did so rather than passing silently on a corpus of four.
 
 **About `VENDOR_PREVIEW_BASE_URL`.** That same job publishes the candidate renders it
 already produced to an orphan branch, `vendor-previews`, force-pushed as a single commit
-so old renders become unreachable and the repository does not grow a PNG set a week
+so old renders become unreachable and the repository does not grow a PNG set a day
 forever. The PR's preview deployment then shows *those* pictures instead of the API's,
 because the API is still on the old pin — without it, the one view where seeing a vendor
 bump matters is the one view that cannot show it.

@@ -12,18 +12,14 @@ name: Update vendored Pixel Agents
 
 on:
   schedule:
-    # Monday morning UTC. Weekly is the right cadence for a dependency whose
-    # breakages are rare but wide: often enough that a bump is a small diff,
-    # rarely enough that the PR is an event rather than noise.
-    - cron: '0 6 * * 1'
+    # Daily, 06:00 UTC. Daily rather than weekly because the PR is *reused*:
+    # a run that finds no movement opens nothing and costs about a minute, and
+    # a run that finds movement updates the open PR in place rather than
+    # opening another. So the cadence buys a smaller diff per bump and a
+    # shorter gap between an upstream break and hearing about it, without
+    # turning into a stream of pull requests.
+    - cron: '0 6 * * *'
   workflow_dispatch:
-  # TEMPORARY (#26): a cron workflow cannot be exercised from the PR that adds
-  # it — `schedule` only ever runs on the default branch, and a scheduled job
-  # first fires long after review. This trigger lets the branch prove itself
-  # end to end: it opens a real PR, against this branch, carrying a real
-  # verdict. **Remove this once #26 has merged.**
-  push:
-    branches: [feat/26]
 
 permissions:
   contents: write
@@ -146,7 +142,7 @@ jobs:
           echo "slug=$(printf '%s' "$upstream" | sed -E 's#^.*[/:]([^/]+/[^/]+)$#\1#')" >> "$GITHUB_OUTPUT"
 
       # Everything below is conditional on the pin having actually moved, so a
-      # week with no upstream activity costs one cheap run and opens nothing.
+      # day with no upstream activity costs one cheap run and opens nothing.
       - name: Install upstream webview dependencies for the candidate
         if: steps.candidate.outputs.moved == 'true'
         run: npm ci
@@ -280,7 +276,7 @@ jobs:
           # render *differently* under the candidate. A layout that renders
           # identically needs nothing published: renders are deterministic, so
           # the image the API already serves IS the candidate's render, and
-          # copying it here would duplicate the whole index every week to say
+          # copying it here would duplicate the whole index every run to say
           # nothing. Usually this loop copies zero files.
           published=0
           while IFS= read -r file; do
@@ -293,7 +289,7 @@ jobs:
           echo "Publishing $published render(s) of $(jq -r '.changed' "$manifest") changed."
 
           # A fresh single-commit repo, force-pushed: old renders become
-          # unreachable and get collected, so a weekly job cannot grow the
+          # unreachable and get collected, so a daily job cannot grow the
           # repository without bound. No PNG ever lands on main.
           cd "$work"
           git init -q -b "$PREVIEW_BRANCH"

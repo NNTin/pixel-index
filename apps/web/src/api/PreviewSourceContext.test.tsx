@@ -140,7 +140,7 @@ describe('candidate previews end to end', () => {
   });
 
   it('says plainly when nothing changed, rather than implying a swap that did not happen', async () => {
-    // The normal week: nothing published, every card is the API's image. Left
+    // The normal case: nothing published, every card is the API's image. Left
     // unsaid, a reviewer seeing ordinary thumbnails cannot tell the mechanism
     // ran and found nothing from the mechanism being broken — which is a
     // confusion this project has already hit once for real.

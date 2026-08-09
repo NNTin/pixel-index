@@ -34,10 +34,10 @@ const build = (v: Verdict, cap?: number) =>
 
 describe('buildPreviewManifest', () => {
   it('publishes nothing when the candidate draws every layout identically', () => {
-    // The normal week, and the whole reason this scales. Renders are
+    // The normal case, and the whole reason this scales. Renders are
     // deterministic, so an unchanged layout is already being served correctly
-    // by the API — publishing a copy would duplicate the entire index weekly
-    // to say nothing at all.
+    // by the API — publishing a copy would duplicate the entire index on
+    // every run to say nothing at all.
     const manifest = build(verdict());
     expect(manifest.layouts).toEqual({});
     expect(manifest.shown).toBe(0);
