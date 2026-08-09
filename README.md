@@ -69,10 +69,10 @@ keyset-paginated, documented at `/openapi.json` and `/docs` on a running instanc
 
 ## The pinned upstream
 
-`vendor/pixel-agents` is a submodule, needed by the renderer (to actually draw a
-preview) and by `packages/layout-core` (to validate against a known furniture catalog
-and the bundled `layoutRevision`). Pinning it is what makes a given layout's preview
-reproducible.
+`vendor/pixel-agents` is a submodule, needed by the renderer (to draw static previews),
+the web build (to package the live detail-page viewer), and `packages/layout-core` (to
+validate against a known furniture catalog and bundled `layoutRevision`). Pinning it is
+what makes both forms of preview reproducible.
 
 ```bash
 git submodule update --init --recursive

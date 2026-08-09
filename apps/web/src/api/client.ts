@@ -47,7 +47,7 @@ export interface RequestOptions {
   accessToken?: string;
   headers?: Record<string, string>;
   /** Set for endpoints that return bytes (preview-check) rather than JSON. */
-  parseAs?: 'json' | 'blob' | 'none';
+  parseAs?: 'json' | 'blob' | 'text' | 'none';
 }
 
 async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -92,6 +92,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
 
   if (parseAs === 'none') return undefined as T;
   if (parseAs === 'blob') return (await response.blob()) as T;
+  if (parseAs === 'text') return (await response.text()) as T;
   return (await response.json()) as T;
 }
 
@@ -107,6 +108,11 @@ export function listLayouts(params: ListLayoutsParams = {}): Promise<ListLayouts
 
 export function getLayout(slug: string): Promise<LayoutDetail> {
   return apiRequest(`/api/v1/layouts/${encodeURIComponent(slug)}`);
+}
+
+/** Exact uploaded layout.json text; callers may format it for presentation. */
+export function getLayoutJson(slug: string): Promise<string> {
+  return apiRequest(`/api/v1/layouts/${encodeURIComponent(slug)}/download`, { parseAs: 'text' });
 }
 
 export function getMeta(): Promise<MetaResponse> {

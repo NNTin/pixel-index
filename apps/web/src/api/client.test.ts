@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, listLayouts } from './client';
+import { ApiError, getLayoutJson, listLayouts } from './client';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -33,5 +33,19 @@ describe('listLayouts', () => {
       }),
     );
     await expect(listLayouts()).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('getLayoutJson', () => {
+  it('returns the exact download text without parsing it', async () => {
+    const source = '{"version":1,"spacing":"is preserved"}\n';
+    const fetch = vi.fn(async () => new Response(source, { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(getLayoutJson('office / one')).resolves.toBe(source);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/v1\/layouts\/office%20%2F%20one\/download$/),
+      expect.any(Object),
+    );
   });
 });

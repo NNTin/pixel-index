@@ -61,6 +61,12 @@ jobs:
       - name: Test
         run: npm test
 
+      # The detail page's live office is a second Vite entry which compiles
+      # selected modules and decoded sprites from the pinned submodule. Unit
+      # tests cannot prove that multi-page production bundle still assembles.
+      - name: Build the web SPA
+        run: npm run build --workspace @pixel-index/web
+
   api-e2e:
     name: API end-to-end (real Postgres + renderer + API)
     runs-on: ubuntu-latest

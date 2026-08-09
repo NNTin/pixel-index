@@ -1,18 +1,20 @@
 import { Link, useParams } from 'react-router-dom';
 
-import { apiUrl, getLayout, getMeta } from '../api/client';
+import { getLayout, getLayoutJson, getMeta } from '../api/client';
 import { previewImageProps, usePreviewSource } from '../api/PreviewSourceContext';
 import { useApi } from '../api/useApi';
 import { AuthorLink } from '../components/AuthorLink';
 import { ErrorNotice } from '../components/ErrorNotice';
 import { factsFor, FactsRow } from '../components/FactsRow';
-import { PreviewImage } from '../components/PreviewImage';
+import { LayoutJsonPanel, type LayoutJsonState } from '../components/LayoutJsonPanel';
+import { LiveOfficePreview } from '../components/LiveOfficePreview';
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 
 export function LayoutDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const layoutState = useApi(() => getLayout(slug!), [slug]);
+  const layoutJsonState = useApi(() => getLayoutJson(slug!), [slug]);
   // Meta is used only for the layoutRevision warning below — its own
   // failure is not this page's failure, so it gets no error branch here.
   const metaState = useApi(() => getMeta(), []);
@@ -31,6 +33,12 @@ export function LayoutDetailPage() {
   const layout = layoutState.data;
   const currentPinRevision = metaState.status === 'ready' ? metaState.data.pixelAgents.layoutRevision : null;
   const isAheadOfPin = currentPinRevision !== null && layout.layoutRevision > currentPinRevision;
+  const jsonState: LayoutJsonState =
+    layoutJsonState.status === 'ready'
+      ? { status: 'ready', source: layoutJsonState.data }
+      : layoutJsonState.status === 'error'
+        ? { status: 'error', message: layoutJsonState.error.message }
+        : { status: 'loading' };
 
   return (
     <article>
@@ -40,10 +48,10 @@ export function LayoutDetailPage() {
         {dateFormatter.format(new Date(layout.createdAt))}
       </p>
 
-      <div className="mt-6 max-w-2xl">
-        <PreviewImage
-          {...previewImageProps(previewSource, layout.slug, layout.files.preview)}
-          alt={`${layout.title} office layout`}
+      <div className="max-w-3xl">
+        <LiveOfficePreview
+          layout={layout}
+          staticPreview={previewImageProps(previewSource, layout.slug, layout.files.thumbnail)}
         />
       </div>
 
@@ -79,13 +87,11 @@ export function LayoutDetailPage() {
         </div>
       )}
 
-      <a
-        href={apiUrl(layout.files.layout)}
-        download={`${layout.slug}.json`}
-        className="mt-6 inline-block border-2 border-accent px-4 py-2 text-accent hover:bg-accent hover:text-accent-solid-ink"
-      >
-        Download layout.json
-      </a>
+      <LayoutJsonPanel
+        state={jsonState}
+        slug={layout.slug}
+        downloadPath={layout.files.layout}
+      />
       <p className="mt-2 text-sm text-subtle">
         In Pixel Agents: <strong>Layout → Import</strong>.
       </p>
