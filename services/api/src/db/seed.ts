@@ -6,9 +6,9 @@
  * silent no-op once any layout exists, seeded or not: this only ever fills
  * an empty table, never reconciles one that already has content.
  *
- * Ownership: seed layouts point at the synthetic system user (#3), with the
- * human credit carried in `authorDisplay` — schema.ts's own documented
- * design for exactly this case, not a new decision made here.
+ * Bundled layouts carry their author's Discord id (#23) and therefore have
+ * the same real, clickable owner as a submitted layout. Custom/legacy seeds
+ * may omit it and retain the synthetic-user + `authorDisplay` fallback.
  */
 
 import * as fs from 'node:fs';
@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createValidator, layoutStats, sha256, upstreamPin, type Layout } from '@pixel-index/layout-core';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { validateTagNames } from '../layouts/metadata.js';
 import { attachTags } from '../layouts/query.js';
@@ -31,6 +31,7 @@ export const SEED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 interface SeedMeta {
   title: string;
   author: string;
+  authorDiscordId?: string;
   description?: string;
   tags?: string[];
 }
@@ -82,14 +83,33 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
     const tags = validateTagNames(meta.tags ?? []);
 
     await db.transaction(async (tx: AnyDatabase) => {
+      let authorUserId = SYSTEM_USER_ID;
+      let authorDisplay: string | null = meta.author;
+      if (meta.authorDiscordId) {
+        const [known] = await tx
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.discordId, meta.authorDiscordId));
+        if (known) {
+          authorUserId = known.id;
+        } else {
+          const [created] = await tx
+            .insert(schema.users)
+            .values({ discordId: meta.authorDiscordId, username: meta.author })
+            .returning({ id: schema.users.id });
+          authorUserId = created!.id;
+        }
+        authorDisplay = null;
+      }
+
       const [row] = await tx
         .insert(schema.layouts)
         .values({
           slug,
           title: meta.title,
           description: meta.description ?? '',
-          authorUserId: SYSTEM_USER_ID,
-          authorDisplay: meta.author,
+          authorUserId,
+          authorDisplay,
           raw,
           layout: parsedLayout,
           sha256: sha256(raw),

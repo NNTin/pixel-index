@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 import { getStoredRefreshToken } from './storage';
 
 function authUser(overrides: Record<string, unknown> = {}) {
-  return { id: 'user-1', username: 'someone', avatarUrl: null, role: 'user', ...overrides };
+  return { id: 'user-1', username: 'someone', displayName: 'someone', avatarUrl: null, role: 'user', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null }, ...overrides };
 }
 
 function Probe() {
@@ -153,5 +153,36 @@ describe('AuthProvider — login and logout', () => {
     expect(screen.getByTestId('token')).toHaveTextContent('none');
     expect(getStoredRefreshToken()).toBeNull();
     expect(loggedOutWith).toEqual(['refresh-3']);
+  });
+});
+
+describe('AuthProvider — Discord capability freshness', () => {
+  it('refreshes /me when the window regains focus', async () => {
+    location.hash = '#pixelIndexLoginCode=focus-code';
+    let meCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/auth/token')) {
+          return Response.json({
+            accessToken: 'focus-access',
+            refreshToken: 'focus-refresh',
+            expiresInMs: 900_000,
+            user: authUser({ username: 'before-focus' }),
+          });
+        }
+        if (url.includes('/api/v1/me')) {
+          meCalls += 1;
+          return Response.json(authUser({ username: 'after-focus', role: 'moderator' }));
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() => expect(meCalls).toBe(1));
+    expect(screen.getByTestId('user')).toHaveTextContent('after-focus');
   });
 });

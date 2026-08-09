@@ -13,7 +13,6 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
-import type { Role } from './context.js';
 import { generateOpaqueToken, hashToken, signAccessToken } from './tokens.js';
 
 export interface SessionConfig {
@@ -32,7 +31,7 @@ export interface TokenPair {
 /** A brand new login: a fresh token family. */
 export async function createSession(
   db: AnyDatabase,
-  user: Pick<schema.User, 'id' | 'role'>,
+  user: Pick<schema.User, 'id'>,
   config: SessionConfig,
 ): Promise<TokenPair> {
   const familyId = randomUUID();
@@ -41,7 +40,7 @@ export async function createSession(
 
 async function issueTokenPair(
   db: AnyDatabase,
-  user: { id: string; role: Role },
+  user: { id: string },
   familyId: string,
   config: SessionConfig,
 ): Promise<TokenPair> {
@@ -56,7 +55,7 @@ async function issueTokenPair(
   });
 
   const accessToken = await signAccessToken(
-    { sub: user.id, role: user.role },
+    { sub: user.id },
     config.sessionSecret,
     config.accessTokenTtlMs,
   );
@@ -68,7 +67,6 @@ export type RefreshOutcome =
   | { status: 'ok'; tokens: TokenPair }
   | { status: 'invalid' }
   | { status: 'reused' }
-  | { status: 'blocked' };
 
 /**
  * Spend a refresh token for a new pair.
@@ -99,10 +97,6 @@ export async function rotateRefreshToken(
 
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, row.userId));
   if (!user) return { status: 'invalid' };
-  if (user.blockedAt !== null) {
-    await revokeFamily(db, row.familyId);
-    return { status: 'blocked' };
-  }
 
   const tokens = await issueTokenPair(db, user, row.familyId, config);
   // Link the spent token to its successor by hash lookup, since issueTokenPair

@@ -18,7 +18,9 @@ requires a pull request.
 | [#7](https://github.com/NNTin/pixel-index/issues/7) | Discord OAuth, sessions, roles | done |
 | [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | done |
 | [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service: edit, replace, delete | done |
-| [#10](https://github.com/NNTin/pixel-index/issues/10) | moderation: visibility, roles, blocking, audit log | done |
+| [#10](https://github.com/NNTin/pixel-index/issues/10) | layout moderation and audit log | done |
+| [#21](https://github.com/NNTin/pixel-index/issues/21) | Discord membership and role capabilities | done |
+| [#23](https://github.com/NNTin/pixel-index/issues/23) | Discord authors and public author pages | done |
 
 ## The HTTP surface today
 
@@ -32,9 +34,11 @@ src/meta.ts              GET /api/v1/meta
 
 src/auth/context.ts     request.user — wired up, verifies the bearer access token
 src/auth/tokens.ts       sign/verify the access JWT; generate/hash opaque tokens
-src/auth/discord.ts      Discord's HTTP API: authorize URL, code exchange, profile, PKCE
+src/auth/discord.ts      Discord OAuth/profile/current guild-member HTTP API
+src/auth/discordGrant.ts encrypted user OAuth grant persistence and refresh
+src/auth/capability.ts   cached Discord membership + Basic/Moderator/Admin resolution
 src/auth/sessions.ts     issue/rotate/revoke refresh tokens; login codes
-src/auth/users.ts        upsert on login; the admin-bootstrap promotion
+src/auth/users.ts        profile upsert on login
 src/auth/routes.ts       /auth/discord/login, /callback, /auth/token, /refresh, /logout, /me
 
 src/layouts/query.ts     SQL: filter, sort, keyset-paginate, tag/author lookups
@@ -52,8 +56,8 @@ src/layouts/manage.ts    PATCH/PUT/DELETE /layouts/:slug, GET /me/layouts — #9
 src/moderation/audit.ts  recordModerationAction() — the one insert path into the append-only audit log
 src/moderation/routes.ts GET /moderation/layouts — #15's moderation console browse endpoint
 
-src/users/routes.ts      GET /users, PATCH /users/:id/role, /block — admin/moderator account actions
-src/auth/freshRole.ts    requireFreshRole() — shared by users/routes.ts and moderation/routes.ts
+src/users/routes.ts      GET /admin/users — read-only interacted-user directory
+src/authors/routes.ts    GET /authors/:id — public author identity/count
 ```
 
 ```bash
@@ -83,8 +87,13 @@ is ever compiled in; see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#wha
 | `DISCORD_CLIENT_SECRET` | yes | — | Same |
 | `PUBLIC_API_ORIGIN` | yes | — | This API's own externally-reachable origin. `${this}/callback` **must exactly match** the redirect URI registered in the Discord Developer Portal — Discord rejects a mismatch, and mismatches fail late and confusingly |
 | `SESSION_SECRET` | yes | — | Signs access tokens. `openssl rand -base64 48`. ≥32 characters, checked at boot |
-| `INITIAL_ADMIN_DISCORD_ID` | | — | Your own Discord user id, to bootstrap the first admin with no SQL — see below |
-| `ACCESS_TOKEN_TTL_MS` | | `900000` (15 min) | How stale a role/block check can be — see ADR decision 10 |
+| `DISCORD_ADMIN_IDS` | | — | Comma-separated Discord user IDs that receive Admin |
+| `DISCORD_GUILD_ID` | | — | Enables official-guild membership gating and role checks; omit for a fully functional unguilded instance |
+| `DISCORD_MODERATOR_ROLE_IDS` | with guild | — | Comma-separated guild role IDs that receive Moderator |
+| `DISCORD_INVITE_URL` | with guild | — | HTTPS invite shown to authenticated outsiders |
+| `DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY` | with guild | — | API-only, base64 32-byte AES-256-GCM key for retained user grants |
+| `DISCORD_MEMBERSHIP_CACHE_TTL_MS` | | `60000` | Maximum membership/capability observation age |
+| `ACCESS_TOKEN_TTL_MS` | | `900000` (15 min) | Access JWT lifetime; JWTs carry a user ID, not a role |
 | `REFRESH_TOKEN_TTL_MS` | | `2592000000` (30 days) | |
 | `LOGIN_CODE_TTL_MS` | | `60000` | Window for the post-`/callback` handoff to the SPA |
 | `API_HOST` | | `::` | Dual-stack — see the healthcheck note below |
@@ -168,12 +177,12 @@ which overrides just that route — the general bucket for everything else is un
 
 ## The auth seam
 
-`request.user: AuthUser | null` is decorated on every request, resolved by one hook
-(`src/auth/context.ts`) — exactly the seam #5 left, now wired up: it verifies the
-`Authorization: Bearer` access token and sets `{ id, role }` with **no database hit**.
-`requireAuth(request)` throws a 401 in the shared envelope; `requireRole(request, role)`
-throws a 403 unless the caller's role is at least `role` on a strict ladder
-(`user < moderator < admin` — an admin satisfies a moderator check).
+`request.user: AuthUser | null` is decorated on every request by verifying the bearer
+access token and contains only `{ id }`. JWTs intentionally carry no role claim.
+`requireAuth` is the authentication seam. `resolveCapability` loads the user and, when
+its one-minute cache is stale, revalidates the retained user OAuth grant and guild member
+directly with Discord. Protected routes use that result on a strict Basic < Moderator <
+Admin ladder; Admin inherits Moderator.
 
 ## Discord auth
 
@@ -220,7 +229,7 @@ the part that actually crosses origins — and carries no cookie at all.
 | `POST /api/v1/auth/token` `{code}` | — | Exchanges a login code for a session. Single-use; a replay is a 401 |
 | `POST /api/v1/auth/refresh` `{refreshToken}` | — | Rotates to a new pair. A reused (already-rotated) token revokes the whole session family — see below |
 | `POST /api/v1/auth/logout` `{refreshToken}` | — | Revokes the family. Always 204, whether or not the token was valid — logout never leaks validity |
-| `GET /api/v1/me` | bearer | `{ id, username, avatarUrl, role }` for the caller |
+| `GET /api/v1/me` | bearer | Profile, current capability/cache age, and submission eligibility/invite for the caller |
 
 ### Refresh token rotation and theft detection
 
@@ -228,28 +237,12 @@ Every refresh **spends** the presented token and issues a new one in its place
 (`auth_refresh_tokens.rotatedToId`). Presenting a token a second time — because it was
 copied by an attacker, or because a client retried a request it thought had failed —
 means neither the original holder's copy nor the replayer's can be trusted to be the
-real one, so the **entire family is revoked**, not just that token. `#10`'s "block a
-user" reaches for the same mechanism (`revokeAllSessionsForUser`) to take effect
-immediately rather than waiting for tokens to individually expire.
+real one, so the **entire family is revoked**, not just that token.
 
-Refresh also re-checks `users.blockedAt` on every call — the one place staleness from
-the stateless access token doesn't apply, because refreshing is exactly when the API
-has the user row in hand anyway.
-
-### Bootstrapping the first admin
-
-Set `INITIAL_ADMIN_DISCORD_ID` to your own Discord user id (right-click your name in
-Discord with Developer Mode on → Copy User ID) and log in once. `upsertDiscordUser`
-promotes that account to `admin` on every login where the id matches — idempotent, no
-UI, no SQL. It only ever promotes, never demotes: an admin who was deliberately demoted
-by another admin stays demoted even if `INITIAL_ADMIN_DISCORD_ID` still points at them.
-
-The deliberate documented alternative, for someone who forgot to set it before their
-first login:
-
-```sql
-UPDATE users SET role = 'admin' WHERE discord_id = '<your discord user id>';
-```
+Admin is configured with comma-separated Discord **user IDs** in `DISCORD_ADMIN_IDS`.
+There is no local bootstrap promotion and no database role editor. With a guild enabled,
+the user must also be a verified guild member; without one, the configured ID is enough
+and normal self-hosted functionality stays available.
 
 ### Setting up the Discord application
 
@@ -262,8 +255,10 @@ UPDATE users SET role = 'admin' WHERE discord_id = '<your discord user id>';
    `invalid_client` for a reason that has nothing to do with whether your client secret
    is correct — a mismatch here and a wrong secret produce the *same* error from
    Discord, which is exactly the "fails late and confusingly" the issue warned about.
-4. The `identify` scope (username, avatar, id) is all this needs — no bot, no
-   `guilds`/email access.
+4. With guild integration, Discord consent includes `guilds.members.read`; the API calls
+   `/users/@me/guilds/{guild.id}/member` for role IDs and nickname. No bot, Pico, bot
+   token, `guilds`, or email scope is used. See
+   [`docs/discord-integration.md`](../../docs/discord-integration.md).
 
 **A live credential fails the same way a wrong one does, and both look like an `invalid_client`
 from Discord's side**, so if login rejects immediately: verify the pairing independently
@@ -423,11 +418,9 @@ test proving `/api/v1/auth/token` still receives a normally-parsed body.
 Everything cheap runs before anything expensive, so a bad request is rejected as early
 as possible:
 
-1. **Auth.** `requireAuth` (401 if absent), then a **fresh** `blockedAt` check
-   (`getUserById`) — not `resolveUser`'s job (auth/context.ts is deliberately
-   stateless), but a write this abuse-sensitive is exactly the path where the access
-   token's staleness trade-off (ADR decision 10) stops being acceptable, so this route
-   checks the real row instead of trusting the token's claims.
+1. **Auth and capability.** `requireSubmissionCapability` verifies the bearer user and
+   requires configured-guild membership from the short Discord cache or a direct API
+   revalidation. An unguilded self-hosted instance accepts every authenticated user.
 2. **Size.** `MAX_LAYOUT_BYTES`, checked on the raw string's byte length before
    `JSON.parse` ever runs — `413`.
 3. **Is it JSON at all** — `400`.
@@ -511,9 +504,8 @@ end-to-end: a real login-free JWT signed with the container's own `SESSION_SECRE
 was confirmed byte-identical to the exact bytes sent, a resubmission of the same content
 correctly `409`'d, and `/api/v1/meta`'s count incremented by one.
 
-Three of this route's own guards are mutation-tested — dedupe (both the public and the
-non-public case), the blocked-user check, and the daily cap — deleted and confirmed to
-fail the specific test built to catch it, then restored.
+The route tests cover dedupe (both public and non-public cases), Discord submission
+capability, and the daily cap.
 
 That #8 check, and the #9/#10 one below, started as one-off manual sessions run by
 hand. `services/api/e2e/` turns the same check into something CI runs on every push —
@@ -583,54 +575,27 @@ no visibility filter — instead of a second, parallel pagination implementation
 `OwnerLayoutView`: the public shape plus `visibility`, `visibilityReason` and
 `visibilityChangedAt`, so an owner can see *why* something of theirs is hidden.
 
-## Account moderation: roles and blocking
+## Discord capabilities and the user directory
+
+Pixel Index does not grant/revoke roles or block accounts locally. Discord is the source
+of membership and capability: guild membership grants Basic, configured moderator role
+IDs grant Moderator, and configured Discord user IDs grant Admin. Removing/banning a
+member stops new submissions, edits, replacements, and privileged actions after the
+short cache expires. Existing public layouts stay public; layout visibility remains a
+separate moderation decision.
 
 ```
-GET   /api/v1/users?q=<text>     admin-only: find a user by username, before promoting or blocking them
-PATCH /api/v1/users/:id/role     admin-only: promote/demote user|moderator|admin
-PATCH /api/v1/users/:id/block    moderator+: block/unblock an account
+GET /api/v1/admin/users?q=<text>&capability=user|moderator|admin
 ```
 
-Deliberately narrow — there is no general `PATCH /users/:id`. Role and block are two
-specific, heavily-audited powers, not an account-edit surface. `GET /api/v1/users` exists
-only as a lookup step before one of those two calls — #15's admin console needed a way to
-turn a username into an id, which nothing previously provided.
+This Admin-only endpoint is a read-only directory of non-system users that already have a
+Pixel Index row. It never enumerates the guild. Each result contains the public profile,
+last cached Basic/Moderator/Admin capability, observation timestamp, and layout count
+across all visibilities. Raw Discord IDs, role IDs, and membership are not returned.
 
-For *when* to reach for hide vs. remove vs. block, and the rest of the judgment calls
-around using these endpoints, see the repo root's
-[CONTENT_POLICY.md](../../CONTENT_POLICY.md) and [MODERATORS.md](../../MODERATORS.md) —
-this section is the "how", those are the "when" and "why".
-
-Both routes fetch a **fresh** actor row from the database rather than trusting the
-access token's `{id, role}` claim (`requireFreshRole`, `users/routes.ts`). The
-stateless-access-token trade-off (see `docs/ARCHITECTURE.md`) is explicit that this is
-acceptable because nothing critical depends on the claim staying fresh — role changes
-and blocking are exactly the "path that matters most" that framing names, so these two
-routes close that gap rather
-than living with it: a moderator demoted a second ago cannot use their old token to keep
-demoting, promoting, or blocking for the rest of its TTL.
-
-- **Role changes are admin-only.** Nobody can change their own role. The system user
-  (#3's seed-layout owner) cannot be modified at all.
-- **Blocking is moderator-minimum**, but blocking a moderator or admin account —
-  de-privileging a privileged one — requires admin, the same boundary role changes
-  already draw. Nobody can block themselves. A `reason` is required to block (not to
-  unblock).
-- **Blocking hides every currently-public layout the account owns**, in the same
-  transaction as the block itself (`hideAllPublicLayoutsForUser`), each with its own
-  `layout.hide` audit entry alongside the `user.block` one — a blocked account's content
-  disappears from every public read path (#6 has no cache layer, so this is true by
-  construction, not by invalidation) at the same moment the block takes effect, not just
-  going forward. This was a direct decision, not the default: **unblocking does not
-  restore them.** An account back in good standing does not retroactively re-validate
-  everything it published while blocked — restoring individual layouts, if warranted, is
-  a separate `PATCH .../visibility` call.
-- Blocking also revokes every active session (`revokeAllSessionsForUser`, #7) so a
-  blocked user cannot refresh their way back in; existing access tokens still expire
-  naturally rather than being invalidated mid-flight, the same TTL trade-off as everywhere
-  else, but every *write* route re-checks `blockedAt` against a fresh row
-  (`requireUnblockedUser`, `manage.ts`) so a still-valid token cannot be used to publish or
-  edit while blocked.
+The implementation and frontend rights table live in
+[`docs/discord-integration.md`](../../docs/discord-integration.md); moderation judgment
+lives in [MODERATORS.md](../../MODERATORS.md).
 
 ### What #10 dropped, and why
 
@@ -660,13 +625,12 @@ removed: every author, every visibility, optionally narrowed to exactly one
 pagination, same sort keys as the public list — a moderator's browse experience is not a
 different tool, just an unfiltered one.
 
-### Mutation-tested
+### Security regression coverage
 
-Five of #9/#10's guards were deleted and confirmed to fail the specific test built to
-catch each one, then restored: the owner-or-moderator gate on `PATCH`, the self-block
-guard, the self-role-change guard, the dedupe-excludes-`deleted` fix (both `POST
-/layouts` and `PUT .../layout`), and the admin-required-to-block-a-privileged-account
-guard.
+The owner-or-moderator gate on `PATCH` and the dedupe-excludes-`deleted` fix (both `POST
+/layouts` and `PUT .../layout`) have direct regression coverage. Discord capability
+tests additionally cover encrypted grants, role precedence, cache age, nonmembership,
+reauthorization, and outage behavior.
 
 One of those mutation passes caught a real bug, not just proved a test's anchoring: the
 first version of the dedupe-excludes-`deleted` fix excluded a `deleted` match
@@ -715,7 +679,7 @@ the default `def-0`/`def-1` — see "two subtleties" above.
 
 ```
 services/api/e2e/docker-compose.yml   Postgres + the real renderer + API images
-services/api/e2e/run.ts               the assertions — one full owner+moderator session
+services/api/e2e/run.ts               the assertions — one full owner+admin session
 services/api/e2e/e2e.sh               build, bring the stack up, run run.ts, always tear down
 ```
 
@@ -732,8 +696,8 @@ renderer) as something that runs unattended, on every push and PR (`api-e2e` job
 `.github/workflows/ci.yml`), instead of only when someone remembers to run it. `run.ts`
 inserts test users directly via `pg` (no Discord OAuth needed — access tokens are just
 HS256 JWTs, signed with the same `signAccessToken` the API itself uses) and drives the
-full #9/#10 flow over real HTTP: submit, edit, moderate, replace, delete, the
-cross-owner dedupe fix from the section above, and the block-cascade. It is deliberately
+full flow over real HTTP: submit, edit, moderate, replace, delete, the cross-owner
+dedupe fix, the read-only Admin directory, and removal of stale account-action routes. It is deliberately
 a plain top-to-bottom script rather than vitest — nothing in it is an independent unit,
 it all shares one running stack, and unit coverage of the same individual guards already
 lives in `manage.test.ts` and `users/routes.test.ts`; this suite exists to prove the
@@ -916,16 +880,12 @@ covered — real HTTP handlers, PGlite, a stubbed renderer — and #8 goes one s
 the **actual, built renderer image** rendered a real submission end-to-end (a genuine
 736×768 PNG, not a stub) against the live API and a real Postgres container — see
 "Submitting a layout" above for what that checked. Dedupe (both the public and the
-non-public/laundering case), the blocked-user check and the daily cap are
-mutation-tested.
+non-public/laundering case), the Discord submission gate and the daily cap are covered by route tests.
 
-`layouts/manage.test.ts` and `users/routes.test.ts` cover #9/#10 the same way — real
-HTTP handlers, PGlite, a stubbed renderer for `PUT .../layout` — plus
-`layouts/query.test.ts` gained direct coverage of the owner-scope list and
-`hideAllPublicLayoutsForUser`. Five guards are mutation-tested: the owner-or-moderator
-gate on `PATCH`, the self-block guard, the self-role-change guard, the
-dedupe-excludes-`deleted` fix, and the admin-required-to-block-a-privileged-account
-guard.
+`layouts/manage.test.ts` and `users/routes.test.ts` cover owner/moderator layout actions
+and the read-only Admin directory through real HTTP handlers and migrated PGlite. The
+Discord grant/capability suites cover encryption, refresh, membership, role precedence,
+and stale-cache behavior.
 
 ## A note on `drizzle-kit`
 

@@ -12,9 +12,10 @@ export const publicAuthorSchema = {
   properties: {
     id: { type: ['string', 'null'], format: 'uuid' },
     username: { type: 'string' },
+    displayName: { type: 'string' },
     avatarUrl: { type: ['string', 'null'] },
   },
-  required: ['id', 'username', 'avatarUrl'],
+  required: ['id', 'username', 'displayName', 'avatarUrl'],
 } as const;
 
 const filesSchema = {
@@ -137,8 +138,9 @@ export const metaResponseSchema = {
         required: ['version', 'commit', 'layoutRevision'],
       },
       count: { type: 'integer' },
+      discordInviteUrl: { type: ['string', 'null'] },
     },
-    required: ['schemaVersion', 'generatedAt', 'pixelAgents', 'count'],
+    required: ['schemaVersion', 'generatedAt', 'pixelAgents', 'count', 'discordInviteUrl'],
   },
 } as const;
 

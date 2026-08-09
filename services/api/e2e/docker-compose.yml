@@ -48,6 +48,9 @@ services:
       PUBLIC_API_ORIGIN: http://localhost:18080
       DISCORD_CLIENT_ID: e2e-dummy
       DISCORD_CLIENT_SECRET: e2e-dummy
+      # Unguilded self-host mode: this user-id config is the only privileged
+      # source. The script creates a matching DB user after migrations run.
+      DISCORD_ADMIN_IDS: "999999999999999999"
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required — see e2e.sh}
       API_TRUST_PROXY: "false"
     ports:

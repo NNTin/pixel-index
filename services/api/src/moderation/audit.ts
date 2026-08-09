@@ -1,9 +1,9 @@
 /**
  * One place that writes to `moderation_actions`, so every privileged write —
- * an owner editing their own layout, a moderator hiding someone else's, an
- * admin granting a role — ends up in the same append-only history in the
- * same shape. The table itself refuses `UPDATE`/`DELETE` at the database
- * level (schema.ts migration 0001); this just owns the `INSERT` shape.
+ * an owner editing their own layout, a moderator hiding someone else's —
+ * ends up in the same append-only history in the same shape. The table
+ * itself refuses `UPDATE`/`DELETE` at the database level (schema.ts
+ * migration 0001); this just owns the `INSERT` shape.
  */
 
 import type { AnyDatabase } from '../db/client.js';

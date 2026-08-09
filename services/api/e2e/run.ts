@@ -8,7 +8,7 @@
  * Deliberately not vitest: nothing here is an independent unit, there is no
  * per-test isolation (everything shares one running stack, one database),
  * and a plain top-to-bottom script reads as the story of one full
- * owner-then-moderator session, which is what actually needs proving here —
+ * owner-then-admin session, which is what actually needs proving here —
  * unit coverage of the same guards already lives in manage.test.ts and
  * users/routes.test.ts.
  */
@@ -29,9 +29,12 @@ if (!DATABASE_URL || !SESSION_SECRET) {
 const db = new Client({ connectionString: DATABASE_URL });
 
 let userCounter = 0;
-async function createUser(role: 'user' | 'moderator' | 'admin' = 'user') {
+async function createUser(
+  role: 'user' | 'moderator' | 'admin' = 'user',
+  fixedDiscordId?: string,
+) {
   userCounter += 1;
-  const discordId = `e2e-${Date.now()}-${userCounter}`;
+  const discordId = fixedDiscordId ?? `e2e-${Date.now()}-${userCounter}`;
   const { rows } = await db.query<{ id: string }>(
     `INSERT INTO users (discord_id, username, role) VALUES ($1, $1, $2) RETURNING id`,
     [discordId, role],
@@ -121,8 +124,9 @@ async function main() {
   });
 
   const owner = await createUser('user');
-  const moderator = await createUser('moderator');
-  const admin = await createUser('admin');
+  const admin = await createUser('user', '999999999999999999');
+  // Admin inherits every Moderator capability.
+  const moderator = admin;
   const stranger = await createUser('user');
 
   let slug = '';
@@ -258,78 +262,33 @@ async function main() {
     },
   );
 
-  await step('only an admin can change roles, and never their own', async () => {
-    const modAttempt = await api(`/api/v1/users/${stranger.id}/role`, {
-      method: 'PATCH',
-      token: moderator.accessToken,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ role: 'moderator' }),
-    });
-    assert.equal(modAttempt.status, 403);
+  await step('the admin directory is read-only and contains only interacted users', async () => {
+    const plainAttempt = await api('/api/v1/admin/users', { token: stranger.accessToken });
+    assert.equal(plainAttempt.status, 403);
 
-    const selfAttempt = await api(`/api/v1/users/${admin.id}/role`, {
-      method: 'PATCH',
-      token: admin.accessToken,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ role: 'user' }),
-    });
-    assert.equal(selfAttempt.status, 403);
-
-    const promote = await api(`/api/v1/users/${stranger.id}/role`, {
-      method: 'PATCH',
-      token: admin.accessToken,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ role: 'moderator' }),
-    });
-    assert.equal(promote.status, 200);
-    assert.equal((await json(promote)).role, 'moderator');
+    const directory = await api('/api/v1/admin/users?q=e2e-', { token: admin.accessToken });
+    assert.equal(directory.status, 200);
+    const body = await json(directory);
+    assert.ok(body.users.length >= 2);
+    assert.ok(body.users.every((user: Record<string, unknown>) => !('discordId' in user)));
+    assert.ok(body.users.every((user: Record<string, unknown>) => 'layoutCount' in user));
   });
 
-  await step('blocking requires a reason, hides existing layouts, and a fresh row backs the write check', async () => {
-    const target = await createUser('user');
-    const submitRes = await api('/api/v1/layouts?title=Blockable', {
-      method: 'POST',
-      token: target.accessToken,
-      headers: { 'content-type': 'application/json' },
-      body: layoutJson(4, 4),
-    });
-    const targetSlug = (await json(submitRes)).slug;
-
-    const noReason = await api(`/api/v1/users/${target.id}/block`, {
+  await step('stale local role and block endpoints no longer exist', async () => {
+    const role = await api(`/api/v1/users/${stranger.id}/role`, {
       method: 'PATCH',
-      token: moderator.accessToken,
+      token: admin.accessToken,
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ blocked: true }),
+      body: JSON.stringify({ role: 'moderator' }),
     });
-    assert.equal(noReason.status, 400);
-
-    const block = await api(`/api/v1/users/${target.id}/block`, {
+    const block = await api(`/api/v1/users/${stranger.id}/block`, {
       method: 'PATCH',
-      token: moderator.accessToken,
+      token: admin.accessToken,
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ blocked: true, reason: 'e2e block test' }),
+      body: JSON.stringify({ blocked: true, reason: 'obsolete' }),
     });
-    assert.equal(block.status, 200);
-    assert.equal((await api(`/api/v1/layouts/${targetSlug}`)).status, 404);
-
-    // Same still-valid access token, now failing a write — proves the check
-    // re-fetches the row instead of trusting the token's role/block claim.
-    const blockedWrite = await api('/api/v1/layouts?title=Should+Fail', {
-      method: 'POST',
-      token: target.accessToken,
-      headers: { 'content-type': 'application/json' },
-      body: layoutJson(4, 4),
-    });
-    assert.equal(blockedWrite.status, 403);
-
-    const unblock = await api(`/api/v1/users/${target.id}/block`, {
-      method: 'PATCH',
-      token: moderator.accessToken,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ blocked: false }),
-    });
-    assert.equal(unblock.status, 200);
-    assert.equal((await api(`/api/v1/layouts/${targetSlug}`)).status, 404); // unblocking does not auto-restore
+    assert.equal(role.status, 404);
+    assert.equal(block.status, 404);
   });
 }
 

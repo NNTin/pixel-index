@@ -39,11 +39,13 @@ function makeUser(overrides: Partial<User> = {}): User {
     id: 'author-id',
     discordId: '123',
     username: 'someone',
+    globalName: null,
+    guildNickname: null,
     avatarUrl: 'https://cdn.discordapp.com/avatars/123/abc.png',
     role: 'user',
     isSystem: false,
-    blockedAt: null,
-    blockedReason: null,
+    discordGuildMember: null,
+    discordMembershipCheckedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -56,15 +58,25 @@ describe('toSummary — author mapping', () => {
     expect(summary.author).toEqual({
       id: 'author-id',
       username: 'someone',
+      displayName: 'someone',
       avatarUrl: 'https://cdn.discordapp.com/avatars/123/abc.png',
     });
   });
 
-  it('authorDisplay overrides everything, and hides the internal owner id', () => {
+  it('authorDisplay remains a fallback for legacy system-owned layouts', () => {
     // The system user's id (#3) is an implementation detail — a seed layout
     // is credited to a person, not to the account that technically owns the row.
-    const summary = toSummary(makeLayout({ authorDisplay: 'pablodelucca' }), makeUser(), []);
-    expect(summary.author).toEqual({ id: null, username: 'pablodelucca', avatarUrl: null });
+    const summary = toSummary(
+      makeLayout({ authorDisplay: 'legacy-credit' }),
+      makeUser({ isSystem: true }),
+      [],
+    );
+    expect(summary.author).toEqual({
+      id: null,
+      username: 'legacy-credit',
+      displayName: 'legacy-credit',
+      avatarUrl: null,
+    });
   });
 
   it('falls back to "unknown" if somehow there is no author row and no display name', () => {

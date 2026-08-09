@@ -1,5 +1,7 @@
 import { Link, Outlet } from 'react-router-dom';
 
+import { getMeta } from '../api/client';
+import { useApi } from '../api/useApi';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import { CandidatePinBanner } from './CandidatePinBanner';
@@ -9,48 +11,61 @@ import { CandidatePinBanner } from './CandidatePinBanner';
  * button is not authorization" (#15's own scope note). Every link this
  * shows is exactly that: a convenience, not a gate — a normal user who
  * guesses `/moderation` still hits the same 403 the API itself would give
- * them, ModerationPage/AdminPage do not trust this any more than the API
- * trusts the access token's role claim for anything that matters.
+ * them. ModerationPage/AdminPage do not trust this any more than the API:
+ * the API revalidates Discord capability for protected actions.
+ *
+ * The Discord invite is the one link here that is not a convenience over a
+ * server-side check — joining the community is the opposite of gated, so it
+ * renders for every visitor, logged in or not, whenever one is configured.
  */
 function Nav() {
   const { status, user, login, logout } = useAuth();
-
-  if (status === 'loading') return null;
-
-  if (status === 'anonymous') {
-    return (
-      <button
-        type="button"
-        onClick={login}
-        className="border-2 border-border px-3 py-1.5 text-sm text-ink hover:border-accent"
-      >
-        Log in with Discord
-      </button>
-    );
-  }
+  const metaState = useApi(() => getMeta(), []);
+  const inviteUrl = metaState.status === 'ready' ? metaState.data.discordInviteUrl : null;
 
   return (
     <nav className="flex items-center gap-4 text-sm">
+      {inviteUrl && (
+        <a href={inviteUrl} target="_blank" rel="noreferrer" className="text-ink hover:text-accent">
+          Discord
+        </a>
+      )}
       <Link to="/submit" className="text-ink hover:text-accent">
         Submit
       </Link>
-      <Link to="/me/layouts" className="text-ink hover:text-accent">
-        My layouts
-      </Link>
-      {user && (user.role === 'moderator' || user.role === 'admin') && (
-        <Link to="/moderation" className="text-ink hover:text-accent">
-          Moderation
-        </Link>
+      {status === 'loading' ? null : status === 'anonymous' ? (
+        <button
+          type="button"
+          onClick={login}
+          className="border-2 border-border px-3 py-1.5 text-sm text-ink hover:border-accent"
+        >
+          Log in with Discord
+        </button>
+      ) : (
+        <>
+          <Link to="/me/layouts" className="text-ink hover:text-accent">
+            My layouts
+          </Link>
+          {user && (user.role === 'moderator' || user.role === 'admin') && (
+            <Link to="/moderation" className="text-ink hover:text-accent">
+              Moderation
+            </Link>
+          )}
+          {user?.role === 'admin' && (
+            <Link to="/admin" className="text-ink hover:text-accent">
+              Admin
+            </Link>
+          )}
+          <span className="text-muted">{user?.displayName}</span>
+          <button
+            type="button"
+            onClick={logout}
+            className="border-2 border-border px-2 py-1 text-ink hover:border-accent"
+          >
+            Log out
+          </button>
+        </>
       )}
-      {user?.role === 'admin' && (
-        <Link to="/admin" className="text-ink hover:text-accent">
-          Admin
-        </Link>
-      )}
-      <span className="text-muted">{user?.username}</span>
-      <button type="button" onClick={logout} className="border-2 border-border px-2 py-1 text-ink hover:border-accent">
-        Log out
-      </button>
     </nav>
   );
 }

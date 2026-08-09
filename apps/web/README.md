@@ -25,7 +25,7 @@ styled with tokens lifted from the office webview and the docs site, not invente
 ```
 src/main.tsx                     mounts <App>, wrapped in BrowserRouter + ThemeProvider +
                                   AuthProvider
-src/App.tsx                      routes, /submit /me/layouts /moderation /admin behind RequireAuth
+src/App.tsx                      routes, public /authors/:id and authenticated dashboard pages
 src/index.css                    design tokens (#16) — see below
 src/theme/ThemeContext.tsx       light/dark toggle, persisted to localStorage
 src/components/Layout.tsx        header, role-aware nav (login/logout, submit, my layouts,
@@ -41,7 +41,7 @@ src/components/LayoutJsonPanel.tsx
                                   auto-formatted download source, copy + download
 src/components/FactsRow.tsx      "25×22 · 59 furniture · 4 areas · 2 pets" — zero-valued
                                   facts omitted, carried over from v1
-src/components/AuthorLink.tsx    "clicking an author name filters to their layouts" — #14
+src/components/AuthorLink.tsx    linked authors open their public profile and layouts
 src/components/FilterBar.tsx     search, sort, size/pets/furniture filters, the tag
                                   multi-select (populated from GET /api/v1/tags),
                                   "N active, clear filters"
@@ -50,7 +50,7 @@ src/api/client.ts                apiRequest() — the one fetch wrapper every ot
                                   hostname; apiUrl() resolves API-relative asset paths
 src/api/authClient.ts            the OAuth code exchange, refresh, logout, /me
 src/api/manageClient.ts          submit, preview-check, my-layouts CRUD (#9/#15)
-src/api/moderationClient.ts      moderation browse + act, admin user search/role/block (#10/#15)
+src/api/moderationClient.ts      moderation browse + read-only admin user directory
 src/api/types.ts                 hand-written against services/api/src/layouts/schemas.ts
 src/api/useApi.ts                loading/error/ready as data, for every screen that calls
                                   the API
@@ -64,6 +64,7 @@ src/routes/Home.tsx              the gallery: FilterBar wired to useSearchParams
                                   empty state
 src/routes/LayoutDetailPage.tsx  live/static office, formatted layout.json, full metadata,
                                   revision warning, clickable tags/author
+src/routes/AuthorPage.tsx        public author identity and all of their public layouts
 src/live-office/                isolated iframe entry: thin wrapper around the pinned
                                   OfficeState/OfficeCanvas/ToolOverlay renderer
 build/liveOfficeAssets.ts       build-time upstream sprite decode, content-addressed by pin
@@ -71,7 +72,7 @@ e2e/live-preview.mjs            production-build Chromium guard for upstream pin
 src/routes/SubmitPage.tsx        paste/upload layout.json, "Check preview" before "Publish"
 src/routes/MyLayoutsPage.tsx     list/edit/replace/delete what you own, visibility + reason
 src/routes/ModerationPage.tsx    every layout, any visibility; hide/remove/restore with a reason
-src/routes/AdminPage.tsx         find a user, grant/revoke a role, block/unblock
+src/routes/AdminPage.tsx         read-only users/capabilities/layout-count directory
 vite.config.ts                   base path, multi-page live-office build + Pages fallback
 index.html                       the matching restore-path script (see the two together)
 ```
@@ -88,9 +89,9 @@ is used to restore a session via `/auth/refresh` then `/me`. The access token li
 React state only — memory, never `localStorage` — while the refresh token is persisted
 (`auth/storage.ts`) so a page reload doesn't force a full Discord round-trip. A timer
 proactively rotates the access token about a minute before it expires; any refresh
-failure (reuse detected, expired, or the account got blocked — `rotateRefreshToken`
-re-checks `blockedAt` on every call) clears the session rather than retrying, since none
-of those are transient.
+failure (reuse detected or expired) clears the session rather than retrying. While the
+page is visible, `/me` is also polled at the Discord capability-cache interval and on
+window focus so a Discord role or membership change reaches navigation promptly.
 
 `RequireAuth` (and the nav links it mirrors) is UX, not authorization: every page it
 gates makes the exact same API calls a logged-out `curl` could make, and gets the exact
@@ -100,7 +101,7 @@ legible; it does nothing for security, which is the API's job alone.
 ### A real preflight bug this found
 
 Adding `PATCH`/`PUT`/`DELETE` calls from the browser (edit, replace, delete, moderate,
-role/block) surfaced a live CORS bug in `services/api`: without an explicit `methods`
+layout moderation) surfaced a live CORS bug in `services/api`: without an explicit `methods`
 list, `@fastify/cors` derived a preflight's `Access-Control-Allow-Methods` header from
 route introspection that only ever produced `GET, HEAD, POST` — every one of #15's write
 calls was silently blocked by the browser before it reached the server. Fixed in

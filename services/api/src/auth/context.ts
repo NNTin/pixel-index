@@ -1,15 +1,10 @@
 /**
  * The auth seam #5 left, now wired up.
  *
- * `request.user` is resolved once per request, from the `Authorization:
- * Bearer <access token>` header alone — verifying the JWT's signature and
- * expiry, with **no database hit**. That is the whole point of making access
- * tokens stateless (see tokens.ts): the cost is that a role change or a
- * block takes up to `accessTokenTtlMs` to be reflected in a token already in
- * a client's hands. That window is a deliberate, documented trade — see ADR
- * 0001, decision 10 — not an oversight. A route that needs more than id and
- * role (username, avatar, blocked status) fetches it itself, keyed by
- * `request.user.id`; `/api/v1/me` is exactly that.
+ * `request.user` is resolved once per request from a signed access token.
+ * Tokens identify an internal user only; Discord capability is deliberately
+ * absent and is resolved through capability.ts so a stale JWT can never keep
+ * moderator/admin authority after Discord removes it.
  */
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -21,7 +16,6 @@ export type Role = 'user' | 'moderator' | 'admin';
 
 export interface AuthUser {
   id: string;
-  role: Role;
 }
 
 declare module 'fastify' {
@@ -45,7 +39,7 @@ async function resolveUser(
 
   const claims = await verifyAccessToken(token, sessionSecret);
   if (!claims) return null;
-  return { id: claims.sub, role: claims.role };
+  return { id: claims.sub };
 }
 
 export function registerAuthContext(app: FastifyInstance, sessionSecret: string): void {
@@ -59,28 +53,4 @@ export function registerAuthContext(app: FastifyInstance, sessionSecret: string)
 export function requireAuth(request: FastifyRequest): AuthUser {
   if (!request.user) throw ApiError.unauthorized();
   return request.user;
-}
-
-const ROLE_RANK: Record<Role, number> = { user: 0, moderator: 1, admin: 2 };
-
-/**
- * Roles are a ladder, not a set of exclusive labels — `admin` satisfies a
- * `moderator` check. Exported for routes that need "is at least X" as a
- * plain boolean rather than a throw (manage.ts: owner-or-moderator, where
- * ownership alone is also sufficient and `requireRole` has no way to say that).
- */
-export function hasAtLeastRole(role: Role, atLeast: Role): boolean {
-  return ROLE_RANK[role] >= ROLE_RANK[atLeast];
-}
-
-/**
- * A logged-in user with at least `role`. `admin` satisfies a `moderator`
- * check — roles are a ladder, not a set of exclusive labels.
- */
-export function requireRole(request: FastifyRequest, role: Role): AuthUser {
-  const user = requireAuth(request);
-  if (!hasAtLeastRole(user.role, role)) {
-    throw ApiError.forbidden(`This action requires the ${role} role.`);
-  }
-  return user;
 }

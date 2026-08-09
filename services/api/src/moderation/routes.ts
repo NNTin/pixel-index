@@ -8,13 +8,15 @@
 
 import type { FastifyInstance } from 'fastify';
 
-import { requireFreshRole } from '../auth/freshRole.js';
+import { requireCapability } from '../auth/capability.js';
+import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import { authorsForLayouts, listLayouts, tagsForLayouts } from '../layouts/query.js';
 import { toOwnerView } from '../layouts/serialize.js';
 
 export interface ModerationRoutesDeps {
+  config: ApiConfig;
   db: AnyDatabase;
 }
 
@@ -42,12 +44,12 @@ interface ListQuery {
   q?: string;
 }
 
-export function registerModerationRoutes(app: FastifyInstance, { db }: ModerationRoutesDeps): void {
+export function registerModerationRoutes(app: FastifyInstance, { config, db }: ModerationRoutesDeps): void {
   app.get(
     '/api/v1/moderation/layouts',
     { schema: { querystring: listQuerySchema } },
     async (request) => {
-      await requireFreshRole(db, request, 'moderator');
+      await requireCapability(db, config, request, 'moderator');
       const query = request.query as ListQuery;
 
       const { rows, total, nextCursor } = await listLayouts(db, {

@@ -2,13 +2,12 @@ import { Link } from 'react-router-dom';
 
 import type { PublicAuthor } from '../api/types';
 
-/** "clicking an author name filters to their layouts" — #14. Plain text if the author has no id to filter by. */
+/** Linked Discord-backed authors get a dedicated public profile (#23). */
 export function AuthorLink({ author }: { author: PublicAuthor }) {
-  if (!author.id) return <>{author.username}</>;
-  const params = new URLSearchParams({ author: author.id, authorLabel: author.username });
+  if (!author.id) return <>{author.displayName}</>;
   return (
-    <Link to={`/?${params.toString()}`} className="text-muted hover:text-accent hover:underline" title={`Layouts by ${author.username}`}>
-      {author.username}
+    <Link to={`/authors/${author.id}`} className="text-muted hover:text-accent hover:underline" title={`Layouts by ${author.displayName}`}>
+      {author.displayName}
     </Link>
   );
 }

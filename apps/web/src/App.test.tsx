@@ -32,7 +32,7 @@ describe('App routing', () => {
         return Response.json({
           slug: 'blue-office',
           title: 'Blue Office',
-          author: { id: null, username: 'someone', avatarUrl: null },
+          author: { id: null, username: 'someone', displayName: 'someone', avatarUrl: null },
           description: '',
           tags: [],
           cols: 4,

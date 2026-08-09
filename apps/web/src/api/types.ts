@@ -12,6 +12,7 @@
 export interface PublicAuthor {
   id: string | null;
   username: string;
+  displayName: string;
   avatarUrl: string | null;
 }
 
@@ -79,6 +80,7 @@ export interface MetaResponse {
     layoutRevision: number;
   };
   count: number;
+  discordInviteUrl: string | null;
 }
 
 export interface TagUsage {
@@ -98,8 +100,16 @@ export type Role = 'user' | 'moderator' | 'admin';
 export interface AuthUser {
   id: string;
   username: string;
+  displayName: string;
   avatarUrl: string | null;
   role: Role;
+  capabilityCheckedAt: string | null;
+  capabilityCacheTtlMs: number;
+  submission: {
+    allowed: boolean;
+    reason: 'discord_membership_required' | 'discord_reauthorization_required' | null;
+    inviteUrl: string | null;
+  };
 }
 
 export interface TokenPair {
@@ -152,10 +162,23 @@ export interface ListModerationLayoutsParams {
   q?: string;
 }
 
-export interface PublicUserView {
+export interface AdminUserView {
   id: string;
   username: string;
-  role: Role;
-  blocked: boolean;
-  blockedReason: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+  capability: Role;
+  capabilityCheckedAt: string | null;
+  layoutCount: number;
+}
+
+export interface ListAdminUsersResponse {
+  users: AdminUserView[];
+  nextCursor: string | null;
+}
+
+export interface PublicAuthorResponse {
+  schemaVersion: number;
+  author: PublicAuthor;
+  publicLayoutCount: number;
 }

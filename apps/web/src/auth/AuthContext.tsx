@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const scheduleRefresh = useCallback(
-    (expiresInMs: number) => {
+    function schedule(expiresInMs: number) {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
       const delay = Math.max(expiresInMs - REFRESH_SAFETY_MARGIN_MS, MIN_REFRESH_DELAY_MS);
       refreshTimer.current = setTimeout(async () => {
@@ -65,11 +65,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           refreshTokenRef.current = pair.refreshToken;
           setStoredRefreshToken(pair.refreshToken);
           setAccessToken(pair.accessToken);
-          scheduleRefresh(pair.expiresInMs);
+          getMe(pair.accessToken).then(setUser).catch(() => {});
+          schedule(pair.expiresInMs);
         } catch {
-          // Rotation reuse, expiry, or a block (rotateRefreshToken re-checks
-          // blockedAt on every call, ADR 0001 decision 10) — any failure
-          // here means the session is over, not retriable.
+          // Rotation reuse or expiry means the session is over rather than
+          // retriable. Discord capability is refreshed separately via /me.
           clearSession();
         }
       }, delay);
@@ -123,6 +123,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // the refresh/token endpoints.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Capability is deliberately not embedded in the JWT. Refresh `/me` on
+  // the server-advertised Discord cache cadence while this page is active,
+  // and immediately when the user returns to it after changing a role.
+  useEffect(() => {
+    if (status !== 'authenticated' || !accessToken || !user) return;
+    let cancelled = false;
+    const refreshUser = () => {
+      if (document.visibilityState === 'hidden') return;
+      getMe(accessToken)
+        .then((next) => { if (!cancelled) setUser(next); })
+        .catch(() => {}); // Temporary Discord/API failure must not destroy the session.
+    };
+    const interval = window.setInterval(refreshUser, Math.max(user.capabilityCacheTtlMs, 5_000));
+    window.addEventListener('focus', refreshUser);
+    document.addEventListener('visibilitychange', refreshUser);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshUser);
+      document.removeEventListener('visibilitychange', refreshUser);
+    };
+  }, [status, accessToken, user]);
 
   const login = useCallback(() => {
     const returnTo = `${window.location.origin}${import.meta.env.BASE_URL}`;

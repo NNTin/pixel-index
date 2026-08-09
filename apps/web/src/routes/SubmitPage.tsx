@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { ApiError } from '../api/client';
+import { ApiError, getMeta } from '../api/client';
 import { previewCheck, submitLayout } from '../api/manageClient';
+import { useApi } from '../api/useApi';
 import { useAuth } from '../auth/AuthContext';
 
 /**
@@ -13,8 +14,12 @@ import { useAuth } from '../auth/AuthContext';
  * publishing would have produced, not a client-side approximation of it.
  */
 export function SubmitPage() {
-  const { accessToken } = useAuth();
+  const { status, accessToken, user, login } = useAuth();
   const navigate = useNavigate();
+  const metaState = useApi(() => getMeta(), []);
+  // Public, not gated behind login — someone deciding whether to join the
+  // community must not need to sign in first just to see the invite.
+  const inviteUrl = metaState.status === 'ready' ? metaState.data.discordInviteUrl : null;
 
   const [raw, setRaw] = useState('');
   const [title, setTitle] = useState('');
@@ -33,6 +38,48 @@ export function SubmitPage() {
     },
     [],
   );
+
+  if (status === 'loading') {
+    return <p className="text-muted">Loading…</p>;
+  }
+
+  if (!user || !user.submission.allowed) {
+    const loggedOut = !user;
+    const reconnect = !loggedOut && user.submission.reason === 'discord_reauthorization_required';
+    return (
+      <div className="max-w-2xl">
+        <h1 className="font-display text-2xl text-ink">Submit a layout</h1>
+        <p className="mt-3 text-muted">
+          {reconnect
+            ? 'Reconnect Discord so Pixel Index can verify your community membership.'
+            : loggedOut
+              ? 'Layout submission is available to members of the official Discord community. Log in with Discord to check your membership.'
+              : 'Layout submission is available to members of the official Discord community.'}
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          {reconnect ? (
+            <button type="button" onClick={login} className="border-2 border-accent px-4 py-2 text-accent">
+              Reconnect Discord
+            </button>
+          ) : loggedOut ? (
+            <button type="button" onClick={login} className="border-2 border-accent px-4 py-2 text-accent">
+              Log in with Discord
+            </button>
+          ) : null}
+          {inviteUrl && (
+            <a
+              href={inviteUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block border-2 border-accent px-4 py-2 text-accent"
+            >
+              Join the Discord server
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   function onFileChosen(file: File) {
     file.text().then(setRaw).catch(() => setError(new ApiError(0, 'Could not read that file.')));

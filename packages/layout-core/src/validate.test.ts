@@ -34,6 +34,10 @@ describe('validateMeta', () => {
     );
   });
 
+  it('accepts an optional Discord author id for linked seed identity', () => {
+    expect(validateMeta({ ...meta, authorDiscordId: '1528094749993599038' }).valid).toBe(true);
+  });
+
   it.each([
     ['missing title', { author: 'a', description: 'd' }],
     ['empty description', { ...meta, description: '' }],
@@ -41,6 +45,7 @@ describe('validateMeta', () => {
     ['uppercase tag', { ...meta, tags: ['Open-Plan'] }],
     ['unknown field', { ...meta, license: 'MIT' }],
     ['non-uri source', { ...meta, source: 'not a url' }],
+    ['invalid Discord author id', { ...meta, authorDiscordId: 'pablodelucca' }],
   ])('rejects %s', (_label, candidate) => {
     const result = validateMeta(candidate);
     expect(result.valid).toBe(false);

@@ -232,7 +232,12 @@ than one restart per missing value.
 | `DISCORD_CLIENT_ID` | **Yes** | `1234567890123456789` | Public, but it lives here because the API is what uses it. |
 | `DISCORD_CLIENT_SECRET` | **Yes** | *(from the Developer Portal)* | **Secret.** Never in GitHub, never in Vercel, never in a `VITE_` variable. |
 | `SESSION_SECRET` | **Yes** | 32+ chars, `openssl rand -base64 48` | **Secret.** Signs access tokens and the OAuth state cookie. Rejected below 32 characters. |
-| `INITIAL_ADMIN_DISCORD_ID` | No | `999888777666555444` | Your own Discord user id, promoted to `admin` on your next login. Unset it once you have an admin. |
+| `DISCORD_ADMIN_IDS` | No | `999888777666555444` | Comma-separated Discord user IDs that receive Admin. Works with or without guild gating. |
+| `DISCORD_GUILD_ID` | No | `1478428628709802166` | Enables membership gating and direct Discord role checks. Leave blank for a fully functional unguilded self-hosted index. |
+| `DISCORD_MODERATOR_ROLE_IDS` | With a guild | `1528065925264445622` | Comma-separated Discord role IDs that receive Moderator. |
+| `DISCORD_INVITE_URL` | With a guild | `https://discord.gg/...` | HTTPS invite shown to authenticated outsiders. |
+| `DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY` | With a guild | `openssl rand -base64 32` | **API-only secret.** Encrypts retained Discord OAuth grants in Postgres. |
+| `DISCORD_MEMBERSHIP_CACHE_TTL_MS` | No | `60000` | Recommended one-minute role/membership cache. |
 | `VITE_API_BASE_URL` | Only if you build the `web` image | `https://api.example.com` | **Build-time**, baked into the bundle by `apps/web/Dockerfile`. `docker compose build web` after a change — restarting is not enough. |
 | `API_TRUST_PROXY` | No (`true` by default in the app) | `true` | Compose ships `false`. Flip it to `true` the moment a reverse proxy is in front — see above. |
 | `WEB_PORT` / `API_PORT_HOST` | No | `8080` / `3000` | Host ports. |
@@ -293,13 +298,12 @@ Comma-separate for more than one. Both the CORS check and the OAuth redirect all
 consult it, so login from a preview works end to end rather than redirecting
 successfully and then failing on the first API call.
 
-#### Discord OAuth (#21)
+#### Discord OAuth, membership, and roles (#21)
 
-The API performs a standard Discord OAuth2 authorization-code flow with PKCE, requesting
-the `identify` scope only. Four variables drive it, all in the backend `.env`:
-
-`DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `PUBLIC_API_ORIGIN`, `SESSION_SECRET`
-(plus optional `INITIAL_ADMIN_DISCORD_ID`).
+The API performs Discord OAuth2 authorization-code flow with PKCE. Without a configured
+guild it requests `identify`; with `DISCORD_GUILD_ID` it requests `identify
+guilds.members.read`, retains the encrypted user grant, and directly calls Discord's
+current-user guild-member endpoint. Pico and a bot token are not involved.
 
 The one that bites people: **the redirect URI is always `${PUBLIC_API_ORIGIN}/callback`**
 — derived from config, never from request input — and Discord matches it byte-for-byte
@@ -309,14 +313,11 @@ Developer Portal, with no trailing slash and the same scheme. A mismatch surface
 Discord's own `invalid_request` error page before your API is ever reached. Registering
 several redirect URIs is fine, so a staging API can coexist with production.
 
-Roles, guild membership and the moderation gating described in #21 are **not
-implemented**. User roles today live in this project's own database
-(`INITIAL_ADMIN_DISCORD_ID` bootstraps the first admin); nothing reads Discord guilds or
-Discord roles. A future integration would need something like a guild id, a bot token, an
-invite URL and role ids — those are named here so the shape is known, but they are
-**deliberately not wired into `config.ts`**: an accepted-but-unused variable reads as a
-feature that exists, and silently does nothing. They will be added with the feature that
-reads them.
+The API alone receives `DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY`; do not add it to Vercel,
+the web image, renderer, Postgres, Pico, or Discord. The deployment operator/secret
+manager and API process are the only parties that know it. Keep it stable and backed up
+or users must reconnect Discord. Full capability and privacy behavior is documented in
+[`docs/discord-integration.md`](discord-integration.md).
 
 ## Setup checklist
 
@@ -367,7 +368,13 @@ PUBLIC_API_ORIGIN=https://api.example.com
 DISCORD_CLIENT_ID=...                 # Discord Developer Portal → OAuth2
 DISCORD_CLIENT_SECRET=...
 SESSION_SECRET=$(openssl rand -base64 48)
-INITIAL_ADMIN_DISCORD_ID=...          # your own Discord user id
+DISCORD_ADMIN_IDS=...                 # comma-separated Discord user IDs
+# Optional official-community integration (omit all for unguilded self-hosting):
+DISCORD_GUILD_ID=...
+DISCORD_MODERATOR_ROLE_IDS=...
+DISCORD_INVITE_URL=https://discord.gg/...
+DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)
+DISCORD_MEMBERSHIP_CACHE_TTL_MS=60000
 VITE_API_BASE_URL=https://api.example.com
 API_TRUST_PROXY=true                  # once a reverse proxy is in front
 # Only if you want Vercel PR previews to work with credentials:

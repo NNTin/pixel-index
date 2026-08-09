@@ -18,6 +18,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { registerAuthContext } from './auth/context.js';
 import { registerAuthRoutes } from './auth/routes.js';
+import { registerAuthorRoutes } from './authors/routes.js';
 import { allowsWebOrigin, type ApiConfig } from './config.js';
 import type { AnyDatabase } from './db/client.js';
 import type { Queryable } from './db/pool.js';
@@ -139,13 +140,14 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
   const upstream = buildUpstreamValidator(config, app.log, 'layout submission and editing');
 
   registerAuthRoutes(app, { config, db });
+  registerAuthorRoutes(app, { db });
   registerMetaRoutes(app, config, db);
   registerLayoutRoutes(app, { config, db });
   registerExportRoutes(app, { config, db });
   registerSubmitRoutes(app, { config, db, upstream });
   registerManageRoutes(app, { config, db, upstream });
-  registerUserAdminRoutes(app, { db });
-  registerModerationRoutes(app, { db });
+  registerUserAdminRoutes(app, { config, db });
+  registerModerationRoutes(app, { config, db });
 
   app.get('/health', { schema: { hide: true } }, async () => ({ status: 'ok' }));
 

@@ -26,6 +26,12 @@ const ENV_KEYS = [
   'RATE_LIMIT_EXPORT_MAX',
   'RATE_LIMIT_EXPORT_WINDOW_MS',
   'INITIAL_ADMIN_DISCORD_ID',
+  'DISCORD_ADMIN_IDS',
+  'DISCORD_GUILD_ID',
+  'DISCORD_INVITE_URL',
+  'DISCORD_MODERATOR_ROLE_IDS',
+  'DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY',
+  'DISCORD_MEMBERSHIP_CACHE_TTL_MS',
   'ACCESS_TOKEN_TTL_MS',
   'REFRESH_TOKEN_TTL_MS',
   'LOGIN_CODE_TTL_MS',
@@ -255,14 +261,56 @@ describe('loadConfig — SESSION_SECRET', () => {
 });
 
 describe('loadConfig — auth extras', () => {
-  it('INITIAL_ADMIN_DISCORD_ID is optional and absent by default', () => {
+  it('community integration is optional for self-hosters', () => {
     setRequired();
-    expect('initialAdminDiscordId' in loadConfig()).toBe(false);
+    const config = loadConfig();
+    expect(config.discordGuild).toBeUndefined();
+    expect(config.discordAdminIds).toEqual([]);
   });
 
-  it('reads INITIAL_ADMIN_DISCORD_ID when set', () => {
+  it('rejects the removed one-off bootstrap variable', () => {
     setRequired({ INITIAL_ADMIN_DISCORD_ID: '123456789012345678' });
-    expect(loadConfig().initialAdminDiscordId).toBe('123456789012345678');
+    expect(() => loadConfig()).toThrow(/INITIAL_ADMIN_DISCORD_ID is no longer supported/);
+  });
+
+  it('loads a Discord guild, admin users, moderator roles and the recommended cache TTL', () => {
+    const key = Buffer.alloc(32, 7).toString('base64');
+    setRequired({
+      DISCORD_GUILD_ID: '1478428628709802166',
+      DISCORD_ADMIN_IDS: '1528094749993599038, 77488778255540224',
+      DISCORD_MODERATOR_ROLE_IDS: '1528065925264445622',
+      DISCORD_INVITE_URL: 'https://discord.gg/pixel-index',
+      DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY: key,
+    });
+    const config = loadConfig();
+    expect(config.discordAdminIds).toEqual(['1528094749993599038', '77488778255540224']);
+    expect(config.discordGuild).toEqual({
+      id: '1478428628709802166',
+      moderatorRoleIds: ['1528065925264445622'],
+      inviteUrl: 'https://discord.gg/pixel-index',
+      oauthTokenEncryptionKey: key,
+    });
+    expect(config.discordMembershipCacheTtlMs).toBe(60_000);
+  });
+
+  it('requires an invite and a 32-byte encryption key when a guild is configured', () => {
+    setRequired({ DISCORD_GUILD_ID: '1478428628709802166' });
+    expect(() => loadConfig()).toThrow(/DISCORD_INVITE_URL is required/);
+    expect(() => loadConfig()).toThrow(/DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY is required/);
+  });
+
+  it('rejects malformed snowflakes and moderator roles without a guild', () => {
+    setRequired({
+      DISCORD_ADMIN_IDS: 'not-an-id',
+      DISCORD_MODERATOR_ROLE_IDS: '1528065925264445622',
+    });
+    expect(() => loadConfig()).toThrow(/DISCORD_ADMIN_IDS/);
+    expect(() => loadConfig()).toThrow(/DISCORD_MODERATOR_ROLE_IDS requires DISCORD_GUILD_ID/);
+  });
+
+  it('rejects an encryption key that is not exactly 32 decoded bytes', () => {
+    setRequired({ DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY: Buffer.alloc(16).toString('base64') });
+    expect(() => loadConfig()).toThrow(/exactly 32 bytes/);
   });
 
   it('has sane token TTL defaults: access shorter than refresh', () => {

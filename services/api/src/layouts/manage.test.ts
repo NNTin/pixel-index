@@ -45,6 +45,9 @@ function validLayoutJson(overrides: Record<string, unknown> = {}): string {
 
 async function tokenFor(overrides: Parameters<typeof insertUser>[1] = {}) {
   const user = await insertUser(harness.db, overrides);
+  if (overrides.role === 'moderator' || overrides.role === 'admin') {
+    config.discordAdminIds.push(user.discordId!);
+  }
   const accessToken = await signAccessToken(
     { sub: user.id, role: user.role },
     config.sessionSecret,
@@ -142,16 +145,6 @@ describe('PATCH /api/v1/layouts/:slug — owner edits', () => {
   it('refuses an owner setting visibility', async () => {
     const { accessToken, layout } = await ownedLayout();
     const response = await patch(layout.slug, { visibility: 'hidden', reason: 'nah' }, accessToken);
-    expect(response.statusCode).toBe(403);
-  });
-
-  it('refuses a blocked owner', async () => {
-    const { accessToken, layout } = await ownedLayout();
-    await harness.db
-      .update(schema.users)
-      .set({ blockedAt: new Date(), blockedReason: 'testing' })
-      .where(eq(schema.users.id, layout.authorUserId));
-    const response = await patch(layout.slug, { title: 'Nope' }, accessToken);
     expect(response.statusCode).toBe(403);
   });
 
