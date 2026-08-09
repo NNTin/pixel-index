@@ -125,7 +125,10 @@ export function renderPullRequestBody(options: {
     );
   }
 
-  lines.push(...sections);
+  // Blank line BETWEEN sections, not merely after each: a `###` heading that
+  // directly follows a table row is not a heading in CommonMark, and each
+  // section arrives trimmed so it cannot supply that separation itself.
+  if (sections.length > 0) lines.push(sections.join('\n\n'));
   lines.push(
     '',
     '---',
