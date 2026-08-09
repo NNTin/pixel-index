@@ -69,10 +69,10 @@ keyset-paginated, documented at `/openapi.json` and `/docs` on a running instanc
 
 ## The pinned upstream
 
-`vendor/pixel-agents` is a submodule, needed by the renderer (to actually draw a
-preview) and by `packages/layout-core` (to validate against a known furniture catalog
-and the bundled `layoutRevision`). Pinning it is what makes a given layout's preview
-reproducible.
+`vendor/pixel-agents` is a submodule, needed by the renderer (to draw static previews),
+the web build (to package the live detail-page viewer), and `packages/layout-core` (to
+validate against a known furniture catalog and bundled `layoutRevision`). Pinning it is
+what makes both forms of preview reproducible.
 
 ```bash
 git submodule update --init --recursive
@@ -83,11 +83,12 @@ git submodule update --init --recursive
 ```bash
 npm ci
 (cd vendor/pixel-agents && npm ci)
-npx playwright install chromium   # needed by services/renderer and its tests
+npx playwright install chromium   # needed by renderer tests and the web live-preview E2E
 
 npm run validate      # seed/ against the pinned Pixel Agents
 npm test              # every workspace's unit tests
 npm run typecheck      # every workspace
+npm run test:e2e --workspace @pixel-index/web  # pinned live viewer in a production build
 
 # The full stack (Postgres + api + renderer + web), for anything beyond
 # layout-core's own unit tests:

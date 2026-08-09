@@ -5,6 +5,9 @@ dist/
 
 node_modules/
 
+# Browser-test diagnostics (screenshots are printed on failure, never committed).
+test-results/
+
 # Scratch markdown written and removed by tools/check-mermaid.test.mjs. Ignored
 # so a crashed run cannot leave a deliberately-broken diagram somewhere the
 # mermaid check would then pick up.

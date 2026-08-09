@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd ../.. && npm ci",
+  "installCommand": "cd ../.. && git submodule update --init --recursive && npm ci",
   "buildCommand": "cd ../.. && npm run build --workspace @pixel-index/web",
   "outputDirectory": "dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]

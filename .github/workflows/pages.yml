@@ -23,6 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The detail page's live office compiles the pinned Pixel Agents
+          # renderer and sprite assets into the otherwise-static SPA.
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:

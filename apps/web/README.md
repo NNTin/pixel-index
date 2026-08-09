@@ -9,7 +9,7 @@ same output for per-pull-request previews.
 ## Status
 
 The shell (#12), gallery/detail (#13), search/filter (#14), the authenticated flows
-(#15), and the visual design (#16) all exist: login with Discord, submit with a real
+(#15), visual design (#16), and live layout detail (#27) all exist: login with Discord, submit with a real
 pre-publish preview, manage your own layouts, a moderation console, an admin console —
 styled with tokens lifted from the office webview and the docs site, not invented.
 
@@ -20,6 +20,7 @@ styled with tokens lifted from the office webview and the docs site, not invente
 | [#14](https://github.com/NNTin/pixel-index/issues/14) | search and filter | done |
 | [#15](https://github.com/NNTin/pixel-index/issues/15) | login, submit, my layouts, moderation console, admin | done |
 | [#16](https://github.com/NNTin/pixel-index/issues/16) | visual alignment with the office and docs site | done |
+| [#27](https://github.com/NNTin/pixel-index/issues/27) | live office, mock agents, formatted/copyable layout.json | done |
 
 ```
 src/main.tsx                     mounts <App>, wrapped in BrowserRouter + ThemeProvider +
@@ -34,6 +35,10 @@ src/components/RequireAuth.tsx   client-side route gate: "log in" / "moderators 
 src/components/LayoutCard.tsx    the gallery grid's card: preview, title, author, facts
 src/components/PreviewImage.tsx  solid bg-canvas backdrop, image-rendering:pixelated,
                                   missing-preview placeholder
+src/components/LiveOfficePreview.tsx
+                                  persisted live/thumbnail toggle + mock-agent controls
+src/components/LayoutJsonPanel.tsx
+                                  auto-formatted download source, copy + download
 src/components/FactsRow.tsx      "25×22 · 59 furniture · 4 areas · 2 pets" — zero-valued
                                   facts omitted, carried over from v1
 src/components/AuthorLink.tsx    "clicking an author name filters to their layouts" — #14
@@ -57,13 +62,17 @@ src/routes/filters.ts            the URL <-> Filters <-> #6 API params translati
 src/routes/Home.tsx              the gallery: FilterBar wired to useSearchParams, keyset
                                   pagination via #6's cursor, "Load more", a filter-aware
                                   empty state
-src/routes/LayoutDetailPage.tsx  full metadata, download, the layoutRevision-ahead-of-pin
-                                  warning, clickable tags/author (into #14's filters)
+src/routes/LayoutDetailPage.tsx  live/static office, formatted layout.json, full metadata,
+                                  revision warning, clickable tags/author
+src/live-office/                isolated iframe entry: thin wrapper around the pinned
+                                  OfficeState/OfficeCanvas/ToolOverlay renderer
+build/liveOfficeAssets.ts       build-time upstream sprite decode, content-addressed by pin
+e2e/live-preview.mjs            production-build Chromium guard for upstream pin changes
 src/routes/SubmitPage.tsx        paste/upload layout.json, "Check preview" before "Publish"
 src/routes/MyLayoutsPage.tsx     list/edit/replace/delete what you own, visibility + reason
 src/routes/ModerationPage.tsx    every layout, any visibility; hide/remove/restore with a reason
 src/routes/AdminPage.tsx         find a user, grant/revoke a role, block/unblock
-vite.config.ts                   base path config + the GitHub Pages 404.html generator
+vite.config.ts                   base path, multi-page live-office build + Pages fallback
 index.html                       the matching restore-path script (see the two together)
 ```
 
@@ -153,10 +162,16 @@ deliberately deferred rather than built speculatively.
 - **The site is only as available as the API.** Loading, empty and error states are
   first-class (`api/useApi.ts`), which the v1 static site never had to consider — an
   unreachable API renders a message, not a blank page.
+- **The live office is build-time pinned.** It is not an iframe to an external service and
+  it never contacts the internal renderer. Vite compiles selected Pixel Agents modules and
+  decodes its sprites into immutable JSON sidecars keyed by `vendor/pixel-agents.commit`.
+  The iframe isolates upstream's Tailwind/base styles from the gallery SPA. Run
+  `npm run test:e2e` in this workspace to build the Pages-subpath bundle and exercise the
+  pinned default layout, canvas pixels, activity panels, controls and persistence in Chromium.
 
 ## Deploys
 
-- **Production**: `.github/workflows/pages.yml` builds this workspace on every push to
+- **Production**: `.github/workflows/pages.yml` checks out the pinned submodule and builds this workspace on every push to
   `main` and deploys it to GitHub Pages. `VITE_BASE_PATH` is set automatically to
   `/<repo-name>/` (a GitHub Pages project site's URL shape); `VITE_API_BASE_URL` comes
   from the repo's `PRODUCTION_API_BASE_URL` Actions variable — unset until the API has a
@@ -191,8 +206,8 @@ tree — no component hand-mixes a colour.
 - **Dark-mode surface tones** (`#1e1e2e`, `#16162a`) are the office webview's own
   (`vendor/pixel-agents/webview-ui/src/index.css`).
 - **`FS Pixel Sans`** is the same bitmap font both the office and the docs site use for
-  headings — copied into `public/fonts/` (MIT, from the pinned submodule) rather than
-  symlinked to it, since `pages.yml` doesn't check out submodules.
+  headings — copied into `public/fonts/` (MIT, from the pinned submodule) so the public
+  asset remains explicit.
 - **Contrast**: every canvas/ink/muted/accent pairing was checked against WCAG AA
   (4.5:1) with the office/docs hexes as fixed points; two of the docs' own tones
   (`muted`, `subtle` in light mode) needed darkening a step to clear it — see the

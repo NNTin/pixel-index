@@ -149,6 +149,49 @@ jobs:
         run: npm ci
         working-directory: vendor/pixel-agents
 
+      # A successful renderer gate does not prove the gallery's separate live
+      # viewer still works: it compiles a focused set of upstream modules into
+      # an iframe and consumes build-time decoded asset payloads. Exercise that
+      # exact production bundle against the candidate pin. Capture the verdict
+      # instead of failing here so the update PR is still opened with the
+      # diagnosis; the final gate step turns the workflow red.
+      - name: Exercise the live layout preview against the candidate
+        id: live-preview
+        if: steps.candidate.outputs.moved == 'true'
+        run: |
+          set +e
+          npm run test:e2e --workspace @pixel-index/web 2>&1 | tee gate/live-preview.log
+          code=${PIPESTATUS[0]}
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          {
+            if [ "$code" = "0" ]; then
+              echo "### ✅ Live web preview: passed"
+              echo
+              echo "The production Pages-subpath bundle rendered the candidate's pinned default"
+              echo "layout in Chromium, including mock activity panels and live/static controls."
+            else
+              echo "### ❌ Live web preview: failed"
+              echo
+              echo "The candidate pin no longer works in the layout-detail live viewer. The"
+              echo "production build and browser test log are in [this workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+              echo
+              echo "This is a merge blocker even if the renderer's static PNG gate passes."
+            fi
+            echo
+          } > gate/live-preview-report.md
+          exit 0
+
+      - name: Upload live-preview failure diagnostics
+        if: steps.candidate.outputs.moved == 'true' && steps.live-preview.outputs.code != '0'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-preview-failure-${{ steps.candidate.outputs.sha }}
+          path: |
+            apps/web/test-results/
+            gate/live-preview.log
+          if-no-files-found: ignore
+
       - name: Render seed/ against the candidate pin
         if: steps.candidate.outputs.moved == 'true'
         run: |
@@ -391,12 +434,13 @@ jobs:
             --repo-url "$UPSTREAM_URL" \
             --section gate/seed-report.md \
             --section gate/live-report.md \
+            --section gate/live-preview-report.md \
             --section gate/preview-warning.md \
             --section gate/token-warning.md \
             --preview-url "$PREVIEW_BASE_URL" \
             --out gate/pr-body.md
 
-          if [ "${{ steps.seed-gate.outputs.code }}" != "0" ] || [ "${{ steps.live-gate.outputs.code || '0' }}" != "0" ]; then
+          if [ "${{ steps.seed-gate.outputs.code }}" != "0" ] || [ "${{ steps.live-gate.outputs.code || '0' }}" != "0" ] || [ "${{ steps.live-preview.outputs.code }}" != "0" ]; then
             echo "labels=vendor-update,vendor-breaking" >> "$GITHUB_OUTPUT"
           else
             echo "labels=vendor-update" >> "$GITHUB_OUTPUT"
@@ -457,6 +501,7 @@ jobs:
         run: |
           cat gate/seed-report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           cat gate/live-report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          cat gate/live-preview-report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           if [ -n "${{ steps.pr.outputs.pull-request-url }}" ]; then
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "PR: ${{ steps.pr.outputs.pull-request-url }}" >> "$GITHUB_STEP_SUMMARY"
@@ -472,6 +517,7 @@ jobs:
         run: |
           seed="${{ steps.seed-gate.outputs.code }}"
           live="${{ steps.live-gate.outputs.code || '0' }}"
+          preview="${{ steps.live-preview.outputs.code }}"
 
           if [ "$seed" = "2" ]; then
             echo "::error::The seed gate could not run — infrastructure, not a vendor verdict."
@@ -479,6 +525,10 @@ jobs:
           fi
           if [ "$seed" != "0" ] || [ "$live" = "1" ]; then
             echo "::error::This upstream bump breaks layouts. See the PR body for which ones."
+            exit 1
+          fi
+          if [ "$preview" != "0" ]; then
+            echo "::error::This upstream bump breaks the web live preview. See the PR body and uploaded diagnostics."
             exit 1
           fi
           echo "No layout that rendered before fails now."

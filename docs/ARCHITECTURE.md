@@ -11,7 +11,7 @@ decisions that got it here.
 
 | Service | What it is | Owns |
 |---|---|---|
-| `web` | A static SPA (Vite + React), served by nginx | Nothing — no state, no secrets. Just the built frontend. |
+| `web` | A static SPA (Vite + React), served by nginx; includes a build-time-pinned live-office viewer | Nothing — no state, no secrets. Just the built frontend. |
 | `api` | A Fastify service | All persistent state: layouts, users, sessions, moderation audit log. The only component with real secrets (Discord client secret, session-signing key). |
 | `renderer` | A real headless Chromium driving the pinned `pixel-agents` webview | Nothing persistent. A pure function: layout JSON in, PNG out. |
 | `postgres` | Postgres 17 | The single source of truth for everything `api` doesn't compute on the fly. |
@@ -41,6 +41,7 @@ flowchart TB
     api -- "all persistent state" --> postgres
     api -- "preview-check, preview.png,<br/>thumbnail.png" --> renderer
     renderer -- "spawns a Vite dev server,<br/>drives it with Playwright" --> upstream
+    web -. "builds isolated live-office<br/>viewer + decoded sprites" .-> upstream
 ```
 
 Two things about this diagram are load-bearing, not incidental:
@@ -76,8 +77,18 @@ maintenance burden against a moving upstream. `renderer` instead runs the *actua
 (`services/renderer/src/devServer.ts`), driven by Playwright with the target layout
 substituted for the bundled default via the webview's own dev-mode browser mock — so a
 preview can never drift from what a user's own Pixel Agents install would actually draw.
-This is also why `renderer` needs the pinned `vendor/pixel-agents` submodule and a full
-Chromium at all, unlike the other three services.
+This is also why `renderer` needs a full Chromium at all, unlike the other three
+services. Both `renderer` and the `web` build consume the pinned
+`vendor/pixel-agents` submodule; only the renderer boots upstream's Vite server and a
+headless browser at runtime.
+
+The layout detail page also offers a **live browser rendering**. That remains entirely
+static: the `web` build compiles a focused iframe entry around the pinned upstream's
+`OfficeState`, `OfficeCanvas` and `ToolOverlay`, with its decoded sprites emitted under
+commit-addressed asset URLs. It does not expose or call the internal renderer service,
+and the iframe boundary prevents upstream's global webview styles from leaking into the
+gallery. The API-supplied layout and local mock-agent state cross that boundary through
+a small same-origin `postMessage` protocol.
 
 ## What each service actually needs
 
@@ -90,7 +101,7 @@ Dockerfile needs files from `packages/layout-core` and, for `api`/`renderer`,
 | `postgres` | `postgres:17-alpine` | — | 512M | Off-the-shelf. |
 | `api` | `node:22-alpine` | `postgres` (healthy) | 512M | Ordinary Node service — no browser, no heavy deps. |
 | `renderer` | `mcr.microsoft.com/playwright` (pinned to the workspace's own Playwright version) | — | 2G / 2 cpu | The one service running a real browser against user-controlled input — the only limit here that isn't just tidiness. |
-| `web` | `node:22-alpine` (build) → `nginx:alpine` (runtime) | — | 128M | Static files behind nginx. |
+| `web` | `node:22-alpine` (build) → `nginx:alpine` (runtime) | pinned webview source/assets at build time | 128M | Static files behind nginx; no browser at runtime. |
 
 `api` waits on `postgres` reporting healthy (`depends_on: condition: service_healthy`)
 before it starts; nothing waits on `renderer` at boot — a preview request simply fails

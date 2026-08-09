@@ -6,8 +6,13 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 
+import { liveOfficeAssets } from './build/liveOfficeAssets.ts';
+
 /** This config is ESM, so `__dirname` does not exist. */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const PIXEL_AGENTS_COMMIT = fs
+  .readFileSync(path.resolve(HERE, '../../vendor/pixel-agents.commit'), 'utf8')
+  .trim();
 
 /**
  * GitHub Pages has no server-side rewrite rules, so a hard refresh (or a
@@ -139,13 +144,27 @@ function vendorPreviewAssets(): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
-    plugins: [tailwindcss(), react(), ghPagesSpaFallback(), vendorPreviewAssets()],
+    plugins: [
+      liveOfficeAssets(HERE),
+      tailwindcss(),
+      react(),
+      ghPagesSpaFallback(),
+      vendorPreviewAssets(),
+    ],
     // Belt as well as braces. A production build cannot contain the manifest at
     // all (see above), so this is redundant today — but it is the guard that
     // would still hold if the file were ever committed into `public/` again,
     // which is precisely the mistake this replaces.
     define: {
       __VENDOR_PREVIEW__: JSON.stringify(isVendorPreviewBuild),
+      __PIXEL_AGENTS_COMMIT__: JSON.stringify(PIXEL_AGENTS_COMMIT),
+    },
+    // The vendor-update workflow installs the submodule's own dependencies
+    // before exercising this build. Without dedupe, source imported across
+    // that package boundary can resolve a second React and fail only in the
+    // exact candidate-pin job this viewer is meant to protect.
+    resolve: {
+      dedupe: ['react', 'react-dom'],
     },
     // GitHub Pages project sites are served from a repo-name subpath
     // (https://<user>.github.io/<repo>/), which has to be baked into every
@@ -157,6 +176,12 @@ export default defineConfig(({ mode }) => {
     base: env.VITE_BASE_PATH || '/',
     build: {
       outDir: 'dist',
+      rollupOptions: {
+        input: {
+          index: path.resolve(HERE, 'index.html'),
+          liveOffice: path.resolve(HERE, 'live-office.html'),
+        },
+      },
     },
   };
 });

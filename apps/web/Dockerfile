@@ -16,6 +16,14 @@ RUN npm ci --workspace @pixel-index/web --include-workspace-root
 
 COPY apps/web ./apps/web
 
+# The live layout-detail preview compiles a small browser-only wrapper around
+# the pinned upstream renderer. Copy only what that build consumes; in
+# particular, do not copy vendor/node_modules from a developer's checkout.
+COPY vendor/pixel-agents.commit ./vendor/pixel-agents.commit
+COPY vendor/pixel-agents/core ./vendor/pixel-agents/core
+COPY vendor/pixel-agents/webview-ui/src ./vendor/pixel-agents/webview-ui/src
+COPY vendor/pixel-agents/webview-ui/public ./vendor/pixel-agents/webview-ui/public
+
 # Baked in at build time, like every other build-time-only config value in
 # this app (vite.config.ts) — there is no server here to inject it at
 # request time the way a real backend could. A self-hoster rebuilds this

@@ -91,6 +91,12 @@ jobs:
       - name: Test
         run: npm test
 
+      # The detail page's live office is a second Vite entry which compiles
+      # selected modules and decoded sprites from the pinned submodule. Unit
+      # tests cannot prove that multi-page production bundle still assembles.
+      - name: Build the web SPA
+        run: npm run build --workspace @pixel-index/web
+
   api-e2e:
     name: API end-to-end (real Postgres + renderer + API)
     runs-on: ubuntu-latest
@@ -129,11 +135,11 @@ jobs:
   renderer:
     name: Renderer integration tests
     runs-on: ubuntu-latest
-    # The only place a real render is exercised rather than a stub —
-    # determinism, concurrency limits, timeouts, cache behaviour, and the
-    # HTTP surface, all against actual PNGs from a real browser. Used to
-    # also assert byte-parity against the v1 static build script's own
-    # renders; removed in #18 along with that script.
+    # The only job that installs a real browser. It proves both browser-backed
+    # render paths: renderer determinism/concurrency/timeouts/cache/HTTP against
+    # actual PNGs, and the web detail page's separate live iframe. The former
+    # used to assert byte-parity against v1's static build script too; that was
+    # removed in #18 along with the script.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -162,3 +168,19 @@ jobs:
 
       - name: Renderer integration tests
         run: npm run test:integration --workspace @pixel-index/renderer
+
+      # This builds the Pages-subpath production SPA, serves a mock API backed
+      # by the pinned upstream default layout, then drives the live iframe in
+      # this job's real Chromium. It guards the browser integration that a
+      # renderer screenshot alone cannot: decoded asset sidecars, OfficeCanvas,
+      # ToolOverlay CSS, postMessage, controls and persisted fallback mode.
+      - name: Live layout preview end-to-end
+        run: npm run test:e2e --workspace @pixel-index/web
+
+      - name: Upload live-preview failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-preview-failure
+          path: apps/web/test-results/
+          if-no-files-found: ignore
