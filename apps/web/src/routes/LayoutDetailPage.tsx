@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 
 import { apiUrl, getLayout, getMeta } from '../api/client';
+import { previewImageProps, usePreviewSource } from '../api/PreviewSourceContext';
 import { useApi } from '../api/useApi';
 import { AuthorLink } from '../components/AuthorLink';
 import { ErrorNotice } from '../components/ErrorNotice';
@@ -15,6 +16,9 @@ export function LayoutDetailPage() {
   // Meta is used only for the layoutRevision warning below — its own
   // failure is not this page's failure, so it gets no error branch here.
   const metaState = useApi(() => getMeta(), []);
+  // Read before the early returns below — hooks cannot be called conditionally,
+  // and resolving the URL needs `layout.files`, which only exists after them.
+  const previewSource = usePreviewSource();
 
   if (layoutState.status === 'loading') {
     return <p className="text-muted">Loading…</p>;
@@ -37,7 +41,10 @@ export function LayoutDetailPage() {
       </p>
 
       <div className="mt-6 max-w-2xl">
-        <PreviewImage src={apiUrl(layout.files.preview)} alt={`${layout.title} office layout`} />
+        <PreviewImage
+          {...previewImageProps(previewSource, layout.slug, layout.files.preview)}
+          alt={`${layout.title} office layout`}
+        />
       </div>
 
       {layout.description && <p className="mt-4 text-ink">{layout.description}</p>}

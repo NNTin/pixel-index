@@ -51,8 +51,9 @@ in logs for no benefit).
 
 | Name | Required | Example shape | Notes |
 |---|---|---|---|
-| `PRODUCTION_API_BASE_URL` | Yes, for a working Pages site | `https://api.example.com` | Origin only, no trailing slash. Baked into the bundle as `VITE_API_BASE_URL`. |
+| `PRODUCTION_API_BASE_URL` | Yes, for a working Pages site | `https://api.example.com` | Origin only, no trailing slash. Baked into the bundle as `VITE_API_BASE_URL`. Also read by `vendor-update.yml` — see below. |
 | `PAGES_BASE_PATH` | No | `/` | Only when Pages serves this site from the **root**. Unset for any `/<repo>/` subpath, including under a user-site custom domain — see below. |
+| `VENDOR_PREVIEW_BASE_URL` | No | `https://cdn.jsdelivr.net/gh/you/pixel-index@vendor-previews` | Where `vendor-update.yml` publishes candidate renders from. Defaults to `raw.githubusercontent.com` — see below. |
 
 **Repository-level, not Environment-level.** `pages.yml`'s `build` job deliberately
 declares no `environment:`, so environment-scoped variables are not in scope for it —
@@ -87,6 +88,28 @@ Pages site the domain belongs to:
 
 If you are unsure which you have, load the deployed page and look at where the `<script
 src>` points: `/pixel-index/assets/…` means keep the subpath, `/assets/…` means root.
+
+**`PRODUCTION_API_BASE_URL` has a second reader: `vendor-update.yml`.** The weekly job
+that bumps the pinned Pixel Agents (#26) uses it to fetch every public layout from your
+running index — `GET /api/v1/export/layouts.ndjson` — and render them against the
+candidate pin, so the PR can say exactly which of *your* layouts a bump would break.
+Leave it unset and the job still runs, but only over the committed `seed/` layouts: it
+reports that it did so rather than passing silently on a corpus of four.
+
+**About `VENDOR_PREVIEW_BASE_URL`.** That same job publishes the candidate renders it
+already produced to an orphan branch, `vendor-previews`, force-pushed as a single commit
+so old renders become unreachable and the repository does not grow a PNG set a week
+forever. The PR's preview deployment then shows *those* pictures instead of the API's,
+because the API is still on the old pin — without it, the one view where seeing a vendor
+bump matters is the one view that cannot show it.
+
+The default is `https://raw.githubusercontent.com/<owner>/<repo>/vendor-previews`, which
+needs no configuration and is correct the moment the branch is pushed. A CDN in front is
+faster, but pick one that can serve a *newly pushed* path immediately: jsDelivr caches
+branch refs for hours, so `…@vendor-previews/<sha>/` may 404 for a while after the job
+runs, which reads as "the preview is broken" rather than "the CDN is warming up". Set
+this only if you have a CDN without that behaviour. Nothing here is secret — the branch
+is as public as the repository.
 
 ### (b) Vercel — Production and Preview
 

@@ -1,0 +1,336 @@
+name: Update vendored Pixel Agents
+
+# The index is only as correct as its pin: `vendor/pixel-agents` decides which
+# furniture ids exist and what the bundled layoutRevision is, so an index that
+# lags upstream lists layouts a real Pixel Agents client would discard (#26).
+#
+# This moves the pin, then proves the move is safe by rendering every layout
+# against BOTH pins and reporting only what the update actually broke. The PR
+# it opens is for a human to merge — a green check means "nothing that rendered
+# before fails now", not "the pixels are still right", and only a person
+# looking at the preview can judge the second one.
+
+on:
+  schedule:
+    # Monday morning UTC. Weekly is the right cadence for a dependency whose
+    # breakages are rare but wide: often enough that a bump is a small diff,
+    # rarely enough that the PR is an event rather than noise.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# A manual dispatch during a scheduled run must not race two force-pushes onto
+# the same branch. Never cancel-in-progress: a half-published preview branch is
+# worse than a late one.
+concurrency:
+  group: vendor-update
+  cancel-in-progress: false
+
+env:
+  PR_BRANCH: chore/vendor-pixel-agents
+  PREVIEW_BRANCH: vendor-previews
+  HARNESS: services/renderer/src/harness/cli.ts
+
+jobs:
+  update:
+    name: Bump the pin and prove it still renders
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install index tooling
+        run: npm ci
+
+      # The harness imports layout-core's dist directly, and it is invoked
+      # workspace-scoped (so the root's pre* hooks never fire).
+      - name: Build layout-core
+        run: npm run build:core
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # ── Baseline: what the index renders TODAY ────────────────────────────
+      #
+      # Always main's pin, never the open PR's. A PR that already advanced
+      # 9794e07 → aaaa111 and now advances to bbbb222 has to report
+      # 9794e07 → bbbb222, because that is the diff a reviewer will merge —
+      # diffing against the intermediate commit would silently hide a layout
+      # the first hop broke.
+      - name: Record the baseline pin
+        id: baseline
+        run: echo "sha=$(git -C vendor/pixel-agents rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install upstream webview dependencies
+        run: npm ci
+        working-directory: vendor/pixel-agents
+
+      - name: Render seed/ against the baseline pin
+        run: npx tsx "$HARNESS" run --source seed --out gate/seed-baseline.json
+
+      - name: Render the live index against the baseline pin
+        id: live-baseline
+        if: vars.PRODUCTION_API_BASE_URL != ''
+        env:
+          # Through env, never interpolated into the command line: a repository
+          # variable is operator-supplied text, and `${{ }}` inside a `run:` is
+          # substituted before bash ever sees it.
+          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+        run: |
+          set +e
+          npx tsx "$HARNESS" run --source api --api-url "$API_BASE_URL" \
+            --out gate/live-baseline.json
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      # ── Move the pin ──────────────────────────────────────────────────────
+      - name: Move the pin to upstream HEAD
+        id: candidate
+        run: |
+          set -euo pipefail
+          git submodule update --remote vendor/pixel-agents
+          sha="$(git -C vendor/pixel-agents rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [ "$sha" = "${{ steps.baseline.outputs.sha }}" ]; then
+            echo "Already at upstream HEAD ($sha). Nothing to do."
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Everything below is conditional on the pin having actually moved, so a
+      # week with no upstream activity costs one cheap run and opens nothing.
+      - name: Install upstream webview dependencies for the candidate
+        if: steps.candidate.outputs.moved == 'true'
+        run: npm ci
+        working-directory: vendor/pixel-agents
+
+      - name: Render seed/ against the candidate pin
+        if: steps.candidate.outputs.moved == 'true'
+        run: |
+          npx tsx "$HARNESS" run --source seed \
+            --out gate/seed-candidate.json --png-dir gate/png/seed
+
+      # Also gated on the baseline having succeeded: without a baseline there is
+      # nothing to compare against, and rendering the whole live index anyway
+      # would spend the run's longest step producing something unusable.
+      - name: Render the live index against the candidate pin
+        id: live-candidate
+        if: steps.candidate.outputs.moved == 'true' && steps.live-baseline.outputs.code == '0'
+        env:
+          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+        run: |
+          set +e
+          npx tsx "$HARNESS" run --source api --api-url "$API_BASE_URL" \
+            --out gate/live-candidate.json --png-dir gate/png/live
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+
+      # ── Verdicts ──────────────────────────────────────────────────────────
+      #
+      # The diffs deliberately do NOT fail the job here. The PR has to be
+      # created carrying the report — a failed gate with no PR to read is the
+      # least useful possible outcome — so the job is failed at the very end
+      # instead, once everything is published.
+      - name: Compare the two pins over seed/
+        id: seed-gate
+        if: steps.candidate.outputs.moved == 'true'
+        run: |
+          set +e
+          npx tsx "$HARNESS" diff \
+            --baseline gate/seed-baseline.json --candidate gate/seed-candidate.json \
+            --gate "Seed gate" --report gate/seed-report.md \
+            --manifest gate/seed-manifest.json --preview-base-url "$PREVIEW_BASE_URL"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+        env:
+          PREVIEW_BASE_URL: ${{ vars.VENDOR_PREVIEW_BASE_URL != '' && format('{0}/{1}', vars.VENDOR_PREVIEW_BASE_URL, steps.candidate.outputs.sha) || format('https://raw.githubusercontent.com/{0}/vendor-previews/{1}', github.repository, steps.candidate.outputs.sha) }}
+
+      - name: Compare the two pins over the live index
+        id: live-gate
+        if: |
+          steps.candidate.outputs.moved == 'true'
+          && steps.live-baseline.outputs.code == '0'
+          && steps.live-candidate.outputs.code == '0'
+        run: |
+          set +e
+          npx tsx "$HARNESS" diff \
+            --baseline gate/live-baseline.json --candidate gate/live-candidate.json \
+            --gate "Live index gate" --report gate/live-report.md \
+            --manifest gate/live-manifest.json --preview-base-url "$PREVIEW_BASE_URL"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+        env:
+          PREVIEW_BASE_URL: ${{ vars.VENDOR_PREVIEW_BASE_URL != '' && format('{0}/{1}', vars.VENDOR_PREVIEW_BASE_URL, steps.candidate.outputs.sha) || format('https://raw.githubusercontent.com/{0}/vendor-previews/{1}', github.repository, steps.candidate.outputs.sha) }}
+
+      # When the live gate could not run — no API URL configured, or the index
+      # was unreachable — say so in the PR rather than letting its absence read
+      # as "nothing to report".
+      - name: Note why the live gate did not run
+        if: |
+          steps.candidate.outputs.moved == 'true'
+          && steps.live-gate.outcome == 'skipped'
+        env:
+          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+        run: |
+          mkdir -p gate
+          {
+            echo "### ⏭️ Live index gate: not run"
+            echo
+            if [ -z "$API_BASE_URL" ]; then
+              echo "No \`PRODUCTION_API_BASE_URL\` repository variable is set, so only the"
+              echo "committed \`seed/\` layouts were checked. Real submissions were not."
+            else
+              echo "The index at \`PRODUCTION_API_BASE_URL\` could not be read, so only the"
+              echo "committed \`seed/\` layouts were checked. **This is an infrastructure"
+              echo "failure, not a verdict about the vendor** — see the job log."
+            fi
+            echo
+          } > gate/live-report.md
+
+      # ── The preview the reviewer will actually look at ────────────────────
+      #
+      # Without this, the PR's web preview calls the production API, whose
+      # renderer is still on the OLD pin — so the one view where seeing the
+      # difference matters shows the vendor this PR is replacing. The PNGs were
+      # already rendered above to produce the verdict; this just publishes them.
+      - name: Publish the candidate renders
+        id: previews
+        if: steps.candidate.outputs.moved == 'true'
+        env:
+          # In the environment, not on the command line: a token in argv is
+          # visible to anything that can read /proc on the runner.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="${{ steps.candidate.outputs.sha }}"
+          # Prefer the live corpus: it is what the gallery actually shows.
+          # Spelled as an `if` rather than `[ … ] && src=…` because under
+          # `set -e` the latter fails the whole step when the directory is
+          # absent, which is the normal case with no API configured.
+          src="gate/png/seed"
+          if [ -d gate/png/live ]; then
+            src="gate/png/live"
+          fi
+
+          work="$RUNNER_TEMP/previews"
+          rm -rf "$work"
+          mkdir -p "$work/$sha"
+          # An empty glob is possible — if the candidate pin cannot draw
+          # anything, every render failed. Publish the (empty) commit anyway so
+          # the manifest's `failed` entries still resolve to a real branch.
+          cp "$src"/*.png "$work/$sha/" 2>/dev/null || true
+
+          # A fresh single-commit repo, force-pushed: old renders become
+          # unreachable and get collected, so a weekly job cannot grow the
+          # repository without bound. No PNG ever lands on main.
+          cd "$work"
+          git init -q -b "$PREVIEW_BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q --allow-empty -m "Renders for pixel-agents $sha"
+          # A credential helper reading the environment, so the token is never
+          # an argument to anything.
+          git config credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+          git push -q --force "https://github.com/${{ github.repository }}.git" "$PREVIEW_BRANCH"
+          echo "count=$(ls -1 "$work/$sha" | wc -l)" >> "$GITHUB_OUTPUT"
+
+      - name: Point the web app at the candidate renders
+        if: steps.candidate.outputs.moved == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p apps/web/public/vendor-preview
+          # The live manifest when there is one — it covers the slugs the
+          # gallery lists. Self-disarming either way: the web app ignores a
+          # manifest whose candidate commit matches the API's own pin.
+          if [ -f gate/live-manifest.json ]; then
+            cp gate/live-manifest.json apps/web/public/vendor-preview/manifest.json
+          else
+            cp gate/seed-manifest.json apps/web/public/vendor-preview/manifest.json
+          fi
+
+      # ── The PR ────────────────────────────────────────────────────────────
+      - name: Compose the pull request body
+        id: body
+        if: steps.candidate.outputs.moved == 'true'
+        run: |
+          set -euo pipefail
+          # From .gitmodules, not hardcoded: the submodule URL is already
+          # declared in exactly one place, and a fork pointing at its own
+          # upstream should get compare links to *that*.
+          upstream="$(git config -f .gitmodules submodule.vendor/pixel-agents.url | sed 's/\.git$//')"
+
+          npx tsx "$HARNESS" body \
+            --baseline-commit "${{ steps.baseline.outputs.sha }}" \
+            --candidate-commit "${{ steps.candidate.outputs.sha }}" \
+            --repo-url "$upstream" \
+            --section gate/seed-report.md \
+            --section gate/live-report.md \
+            --out gate/pr-body.md
+
+          if [ "${{ steps.seed-gate.outputs.code }}" != "0" ] || [ "${{ steps.live-gate.outputs.code || '0' }}" != "0" ]; then
+            echo "labels=vendor-update,vendor-breaking" >> "$GITHUB_OUTPUT"
+          else
+            echo "labels=vendor-update" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update the pull request
+        id: pr
+        if: steps.candidate.outputs.moved == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # A constant branch is what makes this reuse the open PR instead of
+          # opening a second one every time upstream moves. The action force-
+          # pushes a single commit on top of the checked-out base, so the branch
+          # is regenerated from main each run rather than accumulating hops.
+          branch: ${{ env.PR_BRANCH }}
+          base: ${{ github.event.repository.default_branch }}
+          delete-branch: false
+          commit-message: |
+            chore(vendor): pixel-agents ${{ steps.baseline.outputs.sha }} -> ${{ steps.candidate.outputs.sha }}
+
+            Opened by .github/workflows/vendor-update.yml. Refs #26.
+          title: 'chore(vendor): pixel-agents ${{ steps.baseline.outputs.sha }} → ${{ steps.candidate.outputs.sha }}'
+          body-path: gate/pr-body.md
+          labels: ${{ steps.body.outputs.labels }}
+          add-paths: |
+            vendor/pixel-agents
+            apps/web/public/vendor-preview/manifest.json
+
+      - name: Summarise
+        if: always() && steps.candidate.outputs.moved == 'true'
+        run: |
+          cat gate/seed-report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          cat gate/live-report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          if [ -n "${{ steps.pr.outputs.pull-request-url }}" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "PR: ${{ steps.pr.outputs.pull-request-url }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Last, so the PR always exists to be read. Exit 2 from the harness means
+      # "could not tell" — a dev server that would not boot, an index that was
+      # down — and is deliberately NOT reported as a breaking change, because
+      # blaming the vendor for a bad CI minute is how a cron check earns its
+      # reputation for crying wolf.
+      - name: Fail if the update broke something
+        if: steps.candidate.outputs.moved == 'true'
+        run: |
+          seed="${{ steps.seed-gate.outputs.code }}"
+          live="${{ steps.live-gate.outputs.code || '0' }}"
+
+          if [ "$seed" = "2" ]; then
+            echo "::error::The seed gate could not run — infrastructure, not a vendor verdict."
+            exit 1
+          fi
+          if [ "$seed" != "0" ] || [ "$live" = "1" ]; then
+            echo "::error::This upstream bump breaks layouts. See the PR body for which ones."
+            exit 1
+          fi
+          echo "No layout that rendered before fails now."

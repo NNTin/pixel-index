@@ -4,6 +4,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
+import { PreviewSourceProvider } from './api/PreviewSourceContext';
 import { App } from './App';
 import { AuthProvider } from './auth/AuthContext';
 import { ThemeProvider } from './theme/ThemeContext';
@@ -16,7 +17,9 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <ThemeProvider>
         <AuthProvider>
-          <App />
+          <PreviewSourceProvider>
+            <App />
+          </PreviewSourceProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

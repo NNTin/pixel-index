@@ -23,6 +23,8 @@ const ENV_KEYS = [
   'RATE_LIMIT_WINDOW_MS',
   'RATE_LIMIT_WRITE_MAX',
   'RATE_LIMIT_WRITE_WINDOW_MS',
+  'RATE_LIMIT_EXPORT_MAX',
+  'RATE_LIMIT_EXPORT_WINDOW_MS',
   'INITIAL_ADMIN_DISCORD_ID',
   'ACCESS_TOKEN_TTL_MS',
   'REFRESH_TOKEN_TTL_MS',
@@ -338,6 +340,15 @@ describe('loadConfig — defaults', () => {
     const config = loadConfig();
     expect(config.writeRateLimit.max).toBeLessThan(config.rateLimit.max);
   });
+
+  it('gives the bulk export a tighter bucket still', () => {
+    // It is the one read path whose cost scales with the size of the index, so
+    // it must not share the general budget that lets a caller make 300 cheap
+    // requests a minute (#26).
+    setRequired();
+    const config = loadConfig();
+    expect(config.exportRateLimit.max).toBeLessThan(config.rateLimit.max);
+  });
 });
 
 describe('loadConfig — overrides', () => {
@@ -350,6 +361,8 @@ describe('loadConfig — overrides', () => {
       RATE_LIMIT_WINDOW_MS: '5000',
       RATE_LIMIT_WRITE_MAX: '2',
       RATE_LIMIT_WRITE_WINDOW_MS: '1000',
+      RATE_LIMIT_EXPORT_MAX: '3',
+      RATE_LIMIT_EXPORT_WINDOW_MS: '2000',
     });
     const config = loadConfig();
     expect(config.port).toBe(8080);
@@ -357,6 +370,7 @@ describe('loadConfig — overrides', () => {
     expect(config.trustProxy).toBe(false);
     expect(config.rateLimit).toEqual({ max: 10, windowMs: 5000 });
     expect(config.writeRateLimit).toEqual({ max: 2, windowMs: 1000 });
+    expect(config.exportRateLimit).toEqual({ max: 3, windowMs: 2000 });
   });
 
   it('rejects a non-boolean for API_TRUST_PROXY', () => {
