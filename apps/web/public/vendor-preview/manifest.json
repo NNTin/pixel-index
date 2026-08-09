@@ -1,0 +1,26 @@
+{
+  "generatedAt": "2026-08-09T10:22:26.239Z",
+  "candidate": {
+    "commit": "0f823e2842b66e472aab747829fd05b7a5c655c4",
+    "version": "1.4.0"
+  },
+  "baseline": {
+    "commit": "9794e075d3cf1a1407766a93d3cac87813393705",
+    "version": "1.4.0"
+  },
+  "baseUrl": "https://raw.githubusercontent.com/NNTin/pixel-index/vendor-previews/0f823e2842b66e472aab747829fd05b7a5c655c4/",
+  "layouts": {
+    "blue-office": {
+      "file": "blue-office.png"
+    },
+    "default": {
+      "file": "default.png"
+    },
+    "four-rooms": {
+      "file": "four-rooms.png"
+    },
+    "severance-office": {
+      "file": "severance-office.png"
+    }
+  }
+}
