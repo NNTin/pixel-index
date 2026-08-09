@@ -52,7 +52,7 @@ in logs for no benefit).
 | Name | Required | Example shape | Notes |
 |---|---|---|---|
 | `PRODUCTION_API_BASE_URL` | Yes, for a working Pages site | `https://api.example.com` | Origin only, no trailing slash. Baked into the bundle as `VITE_API_BASE_URL`. |
-| `PAGES_BASE_PATH` | No | `/` | Only for a **custom domain**. Unset it for a normal `github.io` project site. |
+| `PAGES_BASE_PATH` | No | `/` | Only when Pages serves this site from the **root**. Unset for any `/<repo>/` subpath, including under a user-site custom domain — see below. |
 
 **Repository-level, not Environment-level.** `pages.yml`'s `build` job deliberately
 declares no `environment:`, so environment-scoped variables are not in scope for it —
@@ -72,9 +72,21 @@ rather than a blank page. That is intentional (#12), not a bug to work around.
 subpath — `https://<user>.github.io/pixel-index/` — and that prefix has to be compiled
 into every asset URL at build time, because there is no way to detect it at runtime.
 `pages.yml` defaults to `/${{ github.event.repository.name }}/`, which is correct for
-`https://<user>.github.io/pixel-index/` today and stays correct through a rename. Set
-`PAGES_BASE_PATH=/` **only** if you point a custom domain at Pages, because a custom
-domain serves from the root and the repo-name prefix would then 404 every asset.
+`https://<user>.github.io/pixel-index/` today and stays correct through a rename.
+
+**A custom domain does not automatically mean the root.** What decides it is *which*
+Pages site the domain belongs to:
+
+- A custom domain on your **user/org site** (`<user>.github.io`) leaves project sites on
+  their subpath — `https://example.com/pixel-index/`. `github.io` URLs then 301 to it,
+  which also means **the redirect target is the origin your API must allowlist**, not the
+  `github.io` one. Keep `PAGES_BASE_PATH` unset here.
+- A custom domain on **this repository's own** Pages site serves from the root —
+  `https://example.com/`. Set `PAGES_BASE_PATH=/`, or the repo-name prefix 404s every
+  asset.
+
+If you are unsure which you have, load the deployed page and look at where the `<script
+src>` points: `/pixel-index/assets/…` means keep the subpath, `/assets/…` means root.
 
 ### (b) Vercel — Production and Preview
 
@@ -202,7 +214,8 @@ authenticated CLI — none of it can be committed.
 
 ```bash
 gh variable set PRODUCTION_API_BASE_URL --body "https://api.example.com"
-# Only if GitHub Pages serves a custom domain (skip for <user>.github.io/<repo>/):
+# Only if Pages serves this site from the ROOT (skip for any /<repo>/ subpath —
+# including under a custom domain on your user site, which keeps the subpath):
 gh variable set PAGES_BASE_PATH --body "/"
 gh variable list   # verify
 ```
@@ -250,6 +263,18 @@ Note that a GitHub Pages site (`https://<user>.github.io`) and a custom-domain s
 **different origins**, and both must be listed in `PUBLIC_WEB_ORIGIN` if you want both to
 work. The origin is the host only — `https://<user>.github.io`, never
 `https://<user>.github.io/pixel-index`.
+
+**Allowlist the origin the browser actually ends up on.** If a custom domain is
+configured, GitHub 301-redirects `github.io` URLs to it, so the page runs — and sends its
+`Origin` header — under the custom domain. Allowlisting only the `github.io` host in that
+setup looks correct and never matches anything, because that host only ever redirects. A
+one-liner that tells you exactly which host to list:
+
+```bash
+curl -sL -o /dev/null -w '%{url_effective}\n' https://<user>.github.io/pixel-index/
+```
+
+The same applies to any other redirect in front of the site.
 
 ## What you're actually proxying
 

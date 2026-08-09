@@ -38,9 +38,10 @@ jobs:
           # A GitHub Pages PROJECT site is served from /<repo-name>/, which
           # has to be baked into every asset path at build time — see
           # vite.config.ts. The repo name is the right default and survives a
-          # rename on its own; a CUSTOM DOMAIN serves from the root instead,
-          # so set the repository variable PAGES_BASE_PATH to `/` in that
-          # case (see docs/deployment.md).
+          # rename on its own. Set the repository variable PAGES_BASE_PATH to
+          # `/` only if Pages serves this site from the ROOT — note a custom
+          # domain on the USER site keeps the /<repo>/ subpath, so it is the
+          # subpath, not the domain, that decides (see docs/deployment.md).
           VITE_BASE_PATH: ${{ vars.PAGES_BASE_PATH || format('/{0}/', github.event.repository.name) }}
           # No default is safe to bake into a production build (unlike the
           # localhost default client.ts falls back to for local dev) — set
