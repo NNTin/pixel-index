@@ -60,7 +60,10 @@ function requireArg(argv: string[], name: string): string {
 
 function writeFile(file: string, contents: string): void {
   fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-  fs.writeFileSync(file, contents);
+  // Trailing newline: the manifest is committed to the PR branch, and a file
+  // without one shows up as "\ No newline at end of file" in every diff of it
+  // forever.
+  fs.writeFileSync(file, contents.endsWith('\n') ? contents : `${contents}\n`);
 }
 
 async function commandRun(argv: string[]): Promise<number> {
