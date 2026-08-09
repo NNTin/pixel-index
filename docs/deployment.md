@@ -137,6 +137,10 @@ commit with no configuration at all (see *The pinned commit ships as a file* bel
 this works out of the box; an API reporting `commit: null` is one that predates that and
 needs redeploying. `vendor-update.yml` checks for exactly this and says so in the PR.
 
+[`preview-deployments.md`](preview-deployments.md) covers what each environment serves,
+including the window after a vendor PR merges but before the API is redeployed — the one
+time this banner appears somewhere other than a vendor PR.
+
 The default is `https://raw.githubusercontent.com/<owner>/<repo>/vendor-previews`, which
 needs no configuration and is correct the moment the branch is pushed. A CDN in front is
 faster, but pick one that can serve a *newly pushed* path immediately: jsDelivr caches

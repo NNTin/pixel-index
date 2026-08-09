@@ -25,6 +25,9 @@ seed/<slug>/
 
 docs/ARCHITECTURE.md    the service stack: what each piece is, how they talk
 docs/deployment.md       self-hosting: TLS, reverse proxies (#17)
+docs/preview-deployments.md
+                        what each PR preview serves, and why the vendor-update
+                        one shows different pictures than production (#26)
 vendor/pixel-agents/     pinned upstream (git submodule) — build/render-time only
 ```
 
