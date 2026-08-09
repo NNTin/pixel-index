@@ -111,6 +111,10 @@ jobs:
           git submodule update --remote vendor/pixel-agents
           sha="$(git -C vendor/pixel-agents rev-parse HEAD)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # The pin also ships as a file, because a container cannot read the
+          # submodule's git (tools/vendor-commit.mjs). It moves in the same
+          # commit as the gitlink or CI's drift check fails on the PR.
+          printf '%s\n' "$sha" > vendor/pixel-agents.commit
           if [ "$sha" = "${{ steps.baseline.outputs.sha }}" ]; then
             echo "Already at upstream HEAD ($sha). Nothing to do."
             echo "moved=false" >> "$GITHUB_OUTPUT"
@@ -319,14 +323,14 @@ jobs:
             echo "### ⚠️ Candidate previews will not engage on this deployment"
             echo
             echo "The preview swap needs to prove the API is on a *different* pin than these"
-            echo "renders, and it cannot: \`/api/v1/meta\` reports \`commit: null\`"
-            echo "(\`PIXEL_AGENTS_COMMIT\` is unset) and this bump does not change the version"
-            echo "(\`${version:-unknown}\`). So it fails safe and leaves previews on the API's own"
-            echo "images — the ones drawn by the pin this PR replaces."
+            echo "renders, and it cannot: \`/api/v1/meta\` reports \`commit: null\` and this bump"
+            echo "does not change the version (\`${version:-unknown}\`). So it fails safe and leaves"
+            echo "previews on the API's own images — the ones drawn by the pin this PR replaces."
             echo
-            echo "Set \`PIXEL_AGENTS_COMMIT=$BASELINE\` on the API deployment and the swap works"
-            echo "from the next run. It is worth setting regardless: the renderer keys its"
-            echo "preview cache on it, and warns at boot when it is missing."
+            echo "A current build reports its commit without any configuration, from the"
+            echo "\`vendor/pixel-agents.commit\` file that ships in the image. Reporting \`null\`"
+            echo "means the API predates that — **redeploy it** and the swap works from the"
+            echo "next run."
             echo
           } > gate/preview-warning.md
 
@@ -423,6 +427,7 @@ jobs:
           labels: ${{ steps.body.outputs.labels }}
           add-paths: |
             vendor/pixel-agents
+            vendor/pixel-agents.commit
             apps/web/public/vendor-preview/manifest.json
 
       - name: Summarise

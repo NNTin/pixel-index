@@ -22,16 +22,6 @@ export interface RendererConfig {
   /** Set to 0 to disable the cache entirely. */
   cacheMaxEntries: number;
   upstreamDir?: string;
-  /**
-   * The pinned upstream commit, when it cannot be read from git.
-   *
-   * In a container `vendor/pixel-agents` is a plain copy with no git linkage, so
-   * `upstreamPin()` reports `commit: null`. The cache key would then fall back to
-   * the version alone — and the pin is routinely several commits past a tag
-   * (v1.4.0-14-g9794e07), so two different renderers would share a key and serve
-   * each other's previews. Pass the commit at build time to close that.
-   */
-  upstreamCommit?: string;
 }
 
 function intFromEnv(name: string, fallback: number): number {
@@ -55,8 +45,5 @@ export function loadConfig(): RendererConfig {
       process.env.RENDERER_CACHE_DIR ?? path.join(os.tmpdir(), 'pixel-index-renderer-cache'),
     cacheMaxEntries: intFromEnv('RENDERER_CACHE_MAX_ENTRIES', 2000),
     ...(process.env.PIXEL_AGENTS_DIR ? { upstreamDir: process.env.PIXEL_AGENTS_DIR } : {}),
-    ...(process.env.PIXEL_AGENTS_COMMIT
-      ? { upstreamCommit: process.env.PIXEL_AGENTS_COMMIT }
-      : {}),
   };
 }

@@ -14,6 +14,7 @@
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { Client } from 'pg';
 
 import { signAccessToken } from '../src/auth/tokens.js';
@@ -99,6 +100,24 @@ async function main() {
   await step('a real pinned upstream is reported at /api/v1/meta', async () => {
     const meta = await json(await api("/api/v1/meta"));
     assert.match(meta.pixelAgents.version, /^\d+\.\d+\.\d+/);
+
+    // The commit, from inside a real container — the one thing no unit test
+    // can prove. A copied vendor/ tree has no usable git (its .git is a
+    // pointer to a gitdir that was never copied), so this can only be
+    // answered by the stamp the Dockerfile copies beside it. It was a
+    // build argument once, nobody passed it, and every deployed image
+    // reported null; this is what makes that regression loud instead of
+    // something you notice months later in a preview that will not update.
+    assert.match(
+      meta.pixelAgents.commit ?? '',
+      /^[0-9a-f]{40}$/,
+      'the image reported no upstream commit — is vendor/pixel-agents.commit copied in?',
+    );
+    assert.equal(
+      meta.pixelAgents.commit,
+      readFileSync(new URL('../../../vendor/pixel-agents.commit', import.meta.url), 'utf-8').trim(),
+      'the image reports a different upstream than this checkout pins',
+    );
   });
 
   const owner = await createUser('user');

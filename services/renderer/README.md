@@ -79,7 +79,6 @@ Environment only. No hostname or path is compiled in.
 | `RENDERER_CACHE_DIR` | tmpdir | Content-addressed PNGs |
 | `RENDERER_CACHE_MAX_ENTRIES` | `2000` | `0` disables the cache |
 | `PIXEL_AGENTS_DIR` | auto-discovered | The pinned upstream |
-| `PIXEL_AGENTS_COMMIT` | read from git | Required in a container — see below |
 
 A bad value fails at boot with a message naming the variable, rather than silently
 falling back to a default.
@@ -186,10 +185,8 @@ it means the port changed what users see.
 ## Container
 
 ```bash
-# Context is the repo root, and the upstream commit must be passed in.
-docker build -f services/renderer/Dockerfile \
-  --build-arg PIXEL_AGENTS_COMMIT=$(git -C vendor/pixel-agents rev-parse HEAD) \
-  -t pixel-index-renderer .
+# Context is the repo root.
+docker build -f services/renderer/Dockerfile -t pixel-index-renderer .
 ```
 
 The build context is the repository root, because the image needs the workspace root, the
@@ -200,11 +197,15 @@ upstream's own work rather than a reimplementation.
 
 Three container-specific things, each of which broke the image once:
 
-- **`PIXEL_AGENTS_COMMIT` must be passed at build time.** A copied `vendor/` tree has no
-  git linkage, so the commit cannot be read at runtime and the cache key would fall back
-  to the upstream *version* alone. The pin is routinely several commits past a tag
+- **The pin ships as a file, because git cannot answer here.** A copied `vendor/` tree's
+  `.git` is a pointer to a gitdir outside the build context, so the commit is unreadable
+  at runtime however much of the tree is copied — and without it the cache key falls back
+  to the upstream *version*, which the pin routinely outruns by several commits
   (`v1.4.0-14-g9794e07`), so two different builds would share cached previews. The
-  service logs a warning at boot if it is missing.
+  Dockerfile copies `vendor/pixel-agents.commit`, kept equal to the gitlink by
+  `npm run vendor:commit` and enforced in CI. This used to be a `PIXEL_AGENTS_COMMIT`
+  build argument; nobody remembered to pass it, so every image reported `commit: null`.
+  The service still logs a warning at boot if the file is somehow missing.
 - **Ownership is set with `COPY --chown` and the vendor install runs as `pwuser`.** Vite
   bundles `vite.config.ts` to a `.timestamp-*.mjs` file *beside itself* at startup, and
   caches optimised deps under `node_modules/.vite`. A root-owned tree gives `EACCES` and

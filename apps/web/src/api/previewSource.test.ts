@@ -35,9 +35,8 @@ describe('shouldOverride', () => {
   });
 
   it('falls back to the version when the API reports no commit', () => {
-    // A containerised vendor/ has no .git, so /meta reports commit: null
-    // unless PIXEL_AGENTS_COMMIT is set — a real configuration, not a
-    // hypothetical.
+    // An API built before the pin shipped as a file in the image reports
+    // commit: null — a real state to handle, not a hypothetical.
     expect(shouldOverride(manifest(), { commit: null, version: '1.4.0' })).toBe(true);
     expect(shouldOverride(manifest(), { commit: null, version: '1.5.0' })).toBe(false);
   });

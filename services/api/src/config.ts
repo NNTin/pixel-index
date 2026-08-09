@@ -59,12 +59,6 @@ export interface ApiConfig {
    * with no ancestor relationship to worry about.
    */
   upstreamDir?: string;
-  /**
-   * A container's copy of `vendor/pixel-agents` has no `.git`, so
-   * `upstreamPin()` cannot read the commit itself — same trap as the
-   * renderer's `PIXEL_AGENTS_COMMIT` (services/renderer/src/config.ts), same fix.
-   */
-  upstreamCommit?: string;
 
   discordClientId: string;
   discordClientSecret: string;
@@ -389,9 +383,6 @@ export function loadConfig(): ApiConfig {
     webOriginPatterns: optionalOriginPatterns('PUBLIC_WEB_ORIGIN_PATTERNS', problems),
 
     ...(optionalEnv('PIXEL_AGENTS_DIR') ? { upstreamDir: optionalEnv('PIXEL_AGENTS_DIR') } : {}),
-    ...(optionalEnv('PIXEL_AGENTS_COMMIT')
-      ? { upstreamCommit: optionalEnv('PIXEL_AGENTS_COMMIT') }
-      : {}),
 
     discordClientId: requireEnv('DISCORD_CLIENT_ID', problems),
     discordClientSecret: requireEnv('DISCORD_CLIENT_SECRET', problems),

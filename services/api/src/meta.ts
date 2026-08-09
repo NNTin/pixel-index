@@ -17,15 +17,15 @@ const SCHEMA_VERSION = 1;
 
 export function registerMetaRoutes(app: FastifyInstance, config: ApiConfig, db: AnyDatabase): void {
   app.get('/api/v1/meta', { schema: { response: metaResponseSchema } }, async (request) => {
-    // A containerised vendor/pixel-agents has no .git to read a commit from —
-    // same trap, same fix, as the renderer (services/renderer/src/server.ts).
+    // A containerised vendor/pixel-agents has no .git to read a commit from;
+    // upstreamPin() falls back to the committed stamp beside the checkout, so
+    // this reports a real commit in a container too (layout-core/upstream.ts).
     let pin;
     try {
-      const gitPin = upstreamPin(config.upstreamDir);
-      pin = { ...gitPin, commit: gitPin.commit ?? config.upstreamCommit ?? null };
+      pin = upstreamPin(config.upstreamDir);
     } catch (error) {
       request.log.warn({ err: error }, 'could not read the pinned upstream for /meta');
-      pin = { version: null, commit: config.upstreamCommit ?? null, layoutRevision: 0 };
+      pin = { version: null, commit: null, layoutRevision: 0 };
     }
 
     const count = await countPublicLayouts(db);

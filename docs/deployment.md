@@ -132,14 +132,10 @@ bump matters is the one view that cannot show it.
 **The swap needs the API to report its pin.** It only engages when the site can prove the
 API is on a *different* Pixel Agents than the renders were made with — otherwise it fails
 safe and leaves previews on the API's own images, because a live image that might be
-slightly stale beats a static one that is certainly stale. A containerised
-`vendor/pixel-agents` has no `.git`, so `/api/v1/meta` reports `commit: null` unless
-**`PIXEL_AGENTS_COMMIT`** is set on the API, and upstream bumps routinely keep the same
-version number (the pin sits several commits past a tag). With neither signal available
-the proof is impossible and previews quietly stay as they were — so set
-`PIXEL_AGENTS_COMMIT` to the pinned commit on the API deployment. It is worth setting
-anyway: the renderer keys its preview cache on it and warns at boot when it is missing.
-`vendor-update.yml` checks for this and says so in the PR when it is unset.
+slightly stale beats a static one that is certainly stale. A current build reports its
+commit with no configuration at all (see *The pinned commit ships as a file* below), so
+this works out of the box; an API reporting `commit: null` is one that predates that and
+needs redeploying. `vendor-update.yml` checks for exactly this and says so in the PR.
 
 The default is `https://raw.githubusercontent.com/<owner>/<repo>/vendor-previews`, which
 needs no configuration and is correct the moment the branch is pushed. A CDN in front is
@@ -207,8 +203,27 @@ than one restart per missing value.
 Tuning knobs with working defaults you can usually ignore: `API_HOST`, `API_PORT`,
 `LOG_LEVEL`, `API_BODY_LIMIT_BYTES`, `MAX_LAYOUT_BYTES`,
 `MAX_SUBMISSIONS_PER_USER_PER_DAY`, `RATE_LIMIT_*`, `ACCESS_TOKEN_TTL_MS`,
-`REFRESH_TOKEN_TTL_MS`, `LOGIN_CODE_TTL_MS`, `PIXEL_AGENTS_DIR`,
-`PIXEL_AGENTS_COMMIT`. `services/api/src/config.ts` is the authoritative list.
+`REFRESH_TOKEN_TTL_MS`, `LOGIN_CODE_TTL_MS`, `PIXEL_AGENTS_DIR`.
+`services/api/src/config.ts` is the authoritative list.
+
+### The pinned commit ships as a file
+
+Nothing to configure — this is here because it used to be a variable, and because the
+failure it causes is quiet.
+
+A container cannot work out which Pixel Agents it holds. `vendor/pixel-agents/.git` is a
+*pointer* to a gitdir outside the Docker build context (under a git worktree, an absolute
+path on the build machine), so a copied vendor tree can never resolve its own commit
+however much of it you copy. Without that commit the renderer's preview cache key falls
+back to the upstream *version*, which the pin routinely outruns by several commits — two
+different builds then serve each other's cached previews — and `/api/v1/meta` cannot say
+which upstream the index is actually serving.
+
+This was once a `PIXEL_AGENTS_COMMIT` build argument. Nobody passed it, so every deployed
+image reported `commit: null`. The pin now travels as `vendor/pixel-agents.commit`, copied
+into both images, kept equal to the gitlink by `npm run vendor:commit`, updated by the
+vendor-update workflow in the same commit as the bump, and verified on every CI run by
+`npm run vendor:commit:check` so it cannot drift from the pin it claims to describe.
 
 #### `PUBLIC_WEB_ORIGIN_PATTERNS`, and its trade-off
 

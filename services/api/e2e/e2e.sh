@@ -7,8 +7,6 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-export PIXEL_AGENTS_COMMIT
-PIXEL_AGENTS_COMMIT=$(git -C ../../../vendor/pixel-agents rev-parse HEAD)
 export SESSION_SECRET
 SESSION_SECRET=$(openssl rand -base64 48)
 

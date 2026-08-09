@@ -25,9 +25,10 @@
  *
  * The comparison fails **safe**: if the API does not report a pin it can be
  * compared on, the override stays off. A live image that might be slightly
- * stale beats a static one that is certainly stale, and a container without
- * `PIXEL_AGENTS_COMMIT` set reports `commit: null` (see the API's meta.ts), so
- * this is a real configuration, not a hypothetical.
+ * stale beats a static one that is certainly stale. A current API always
+ * reports its commit — the pin ships as a file in the image — but one built
+ * before that answers `commit: null`, so this is a real state to handle rather
+ * than a hypothetical.
  */
 
 /**

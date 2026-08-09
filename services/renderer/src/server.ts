@@ -34,15 +34,18 @@ export async function buildServer({
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
   });
 
-  const gitPin = upstreamPin(config.upstreamDir);
-  // A containerised vendor/ copy has no git linkage, so the commit has to be
-  // supplied at build time or the cache key degrades to the version alone.
-  const pin = { ...gitPin, commit: gitPin.commit ?? config.upstreamCommit ?? null };
+  // A containerised vendor/ copy has no git linkage; upstreamPin() falls back to
+  // the committed stamp beside the checkout, which is what keeps the cache key
+  // below pinned to a *commit* rather than degrading to the version alone — the
+  // pin routinely sits several commits past a tag, so two builds of one version
+  // would otherwise serve each other's cached previews.
+  const pin = upstreamPin(config.upstreamDir);
   if (pin.commit === null) {
     app.log.warn(
       'Upstream commit is unknown, so the preview cache key falls back to the ' +
         'version alone. Two builds of the same version would share cached ' +
-        'previews. Set PIXEL_AGENTS_COMMIT.',
+        'previews. Expected vendor/pixel-agents.commit beside the checkout — ' +
+        'run: npm run vendor:commit',
     );
   }
   // Read the furniture catalog once. It walks the whole asset tree, so doing it

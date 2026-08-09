@@ -30,7 +30,6 @@ const ENV_KEYS = [
   'REFRESH_TOKEN_TTL_MS',
   'LOGIN_CODE_TTL_MS',
   'PIXEL_AGENTS_DIR',
-  'PIXEL_AGENTS_COMMIT',
   'MAX_LAYOUT_BYTES',
   'MAX_SUBMISSIONS_PER_USER_PER_DAY',
   'PUBLIC_WEB_ORIGIN_PATTERNS',
@@ -302,22 +301,23 @@ describe('loadConfig — submission limits (#8)', () => {
   });
 });
 
-describe('loadConfig — upstream pin overrides (#6 /meta)', () => {
-  it('are absent by default — auto-discovery is the normal path', () => {
+describe('loadConfig — upstream pin override (#6 /meta)', () => {
+  it('is absent by default — auto-discovery is the normal path', () => {
     setRequired();
-    const config = loadConfig();
-    expect('upstreamDir' in config).toBe(false);
-    expect('upstreamCommit' in config).toBe(false);
+    expect('upstreamDir' in loadConfig()).toBe(false);
   });
 
-  it('reads both when set — a container has no .git to discover a commit from', () => {
-    setRequired({
-      PIXEL_AGENTS_DIR: '/opt/pixel-agents',
-      PIXEL_AGENTS_COMMIT: 'a'.repeat(40),
-    });
-    const config = loadConfig();
-    expect(config.upstreamDir).toBe('/opt/pixel-agents');
-    expect(config.upstreamCommit).toBe('a'.repeat(40));
+  it('reads the directory when set', () => {
+    setRequired({ PIXEL_AGENTS_DIR: '/opt/pixel-agents' });
+    expect(loadConfig().upstreamDir).toBe('/opt/pixel-agents');
+  });
+
+  it('has no commit knob — the pin is read from the checkout, never configured', () => {
+    // A container cannot read the submodule's git, so this used to be a
+    // PIXEL_AGENTS_COMMIT build argument. Nobody passed it and every image
+    // reported commit: null; it is a committed file now (upstream.ts).
+    setRequired();
+    expect('upstreamCommit' in loadConfig()).toBe(false);
   });
 });
 

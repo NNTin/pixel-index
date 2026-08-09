@@ -95,7 +95,6 @@ is ever compiled in; see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#wha
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | | `300` / `60000` | General bucket |
 | `RATE_LIMIT_WRITE_MAX` / `RATE_LIMIT_WRITE_WINDOW_MS` | | `20` / `60000` | Tighter bucket for #8's submission, render-triggering paths, and the auth endpoints |
 | `PIXEL_AGENTS_DIR` | | auto-discovered | Where `vendor/pixel-agents` lives, for `GET /api/v1/meta` and submission validation |
-| `PIXEL_AGENTS_COMMIT` | | — | A container's copy has no `.git` to read a commit from — same trap and fix as the renderer |
 | `MAX_LAYOUT_BYTES` | | `2000000` | Submission size cap (#8), refused before `JSON.parse` even runs — matches the renderer's own default so a layout accepted here is never subsequently rejected there |
 | `MAX_SUBMISSIONS_PER_USER_PER_DAY` | | `20` | Post-moderation means a flood is a real, cheap attack — a real 24h count, not a token bucket |
 
@@ -683,9 +682,7 @@ mutation-tested alongside it.
 
 ```bash
 # Context is the repo root.
-docker build -f services/api/Dockerfile \
-  --build-arg PIXEL_AGENTS_COMMIT=$(git -C vendor/pixel-agents rev-parse HEAD) \
-  -t pixel-index-api .
+docker build -f services/api/Dockerfile -t pixel-index-api .
 ```
 
 `docker-entrypoint.sh` runs `db/migrate.js` **before every start**, not just the first —

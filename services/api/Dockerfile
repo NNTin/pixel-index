@@ -3,8 +3,7 @@
 # (services/renderer).
 #
 # Build context is the REPO ROOT, not this directory:
-#   docker build -f services/api/Dockerfile \
-#     --build-arg PIXEL_AGENTS_COMMIT=$(git -C vendor/pixel-agents rev-parse HEAD) .
+#   docker build -f services/api/Dockerfile .
 
 FROM node:22-alpine AS builder
 
@@ -58,11 +57,14 @@ COPY --chown=pixelindex:pixelindex seed ./seed
 COPY --chown=pixelindex:pixelindex vendor/pixel-agents/package.json ./vendor/pixel-agents/package.json
 COPY --chown=pixelindex:pixelindex vendor/pixel-agents/webview-ui/public/assets ./vendor/pixel-agents/webview-ui/public/assets
 
-# The copied vendor/ tree above has no .git, so upstreamPin() cannot read a
-# commit itself — same trap as the renderer, same fix: pass it at build time.
-ARG PIXEL_AGENTS_COMMIT=""
-ENV PIXEL_AGENTS_COMMIT=${PIXEL_AGENTS_COMMIT} \
-    PIXEL_AGENTS_DIR=/app/vendor/pixel-agents \
+# Which upstream this is. The copied tree above has no usable git — the
+# submodule's .git is a pointer to a gitdir outside the build context — so the
+# pin travels as this file instead, kept equal to the gitlink by
+# `npm run vendor:commit` and enforced in CI. It used to be a build argument the
+# operator had to remember; nobody did, and every image reported commit: null.
+COPY --chown=pixelindex:pixelindex vendor/pixel-agents.commit ./vendor/pixel-agents.commit
+
+ENV PIXEL_AGENTS_DIR=/app/vendor/pixel-agents \
     API_HOST=:: \
     API_PORT=3000
 
