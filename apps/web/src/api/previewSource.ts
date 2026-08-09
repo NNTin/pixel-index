@@ -52,6 +52,21 @@ export interface PreviewManifest {
   baseline: PreviewManifestPin;
   /** Absolute, trailing slash. Layout files resolve against it. */
   baseUrl: string;
+  /**
+   * Totals for the whole index, not for `layouts` — which holds at most `cap`
+   * of them. The page has to be able to say "800 changed, here are 50" rather
+   * than showing 50 and letting a reader assume that was all of them.
+   */
+  changed: number;
+  failed: number;
+  shown: number;
+  cap: number;
+  /**
+   * Only layouts that render *differently* under the candidate, or fail on it.
+   * Everything else is absent on purpose: renders are deterministic, so a
+   * layout that renders identically is already being served correctly by the
+   * API and needs nothing published.
+   */
   layouts: Record<string, { file: string } | { failed: string }>;
 }
 
@@ -113,9 +128,11 @@ export function buildPreviewSource(
     manifest,
     resolve(slug) {
       const entry = manifest.layouts[slug];
-      // A layout the manifest has never heard of is one submitted after the
-      // gate ran. The API's image is the honest answer there — it is not
-      // "broken under the candidate", it is simply unmeasured.
+      // Absent means one of three things, and the API's image is the right
+      // answer to all of them: the candidate renders it identically (so that
+      // image *is* the candidate's render), it was submitted after the gate
+      // ran and is simply unmeasured, or it changed but fell outside the cap —
+      // which the banner says out loud rather than leaving to be inferred.
       if (entry === undefined) return { kind: 'api' };
       if ('failed' in entry) return { kind: 'failed', reason: entry.failed };
       return { kind: 'candidate', src: `${manifest.baseUrl}${entry.file}` };

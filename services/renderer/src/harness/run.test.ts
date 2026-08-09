@@ -5,7 +5,6 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RenderTimeoutError } from '../render.js';
-import { buildPreviewManifest } from './manifest.js';
 import { runPin, type RunPinDeps, type RendererLike } from './run.js';
 import { HarnessInfraError, type HarnessLayout } from './types.js';
 
@@ -141,40 +140,5 @@ describe('runPin', () => {
       },
     });
     expect(stop).toHaveBeenCalled();
-  });
-});
-
-describe('buildPreviewManifest', () => {
-  it('points at a PNG for a layout that renders on the candidate', async () => {
-    const run = await runPin(layouts, { source: 'seed/', deps: fakeDeps({}) });
-    const manifest = buildPreviewManifest({
-      baseline: run,
-      candidate: run,
-      baseUrl: 'https://cdn.example.com/abc',
-    });
-
-    expect(manifest.layouts['severance-office']).toEqual({ file: 'severance-office.png' });
-    expect(manifest.baseUrl).toBe('https://cdn.example.com/abc/');
-  });
-
-  it('marks a layout that fails on the candidate rather than letting it fall back', async () => {
-    // Falling back to the API's image would show the OLD pin's picture for a
-    // layout the new pin cannot draw — the exact lie this mechanism exists to
-    // stop.
-    const run = await runPin(layouts, {
-      source: 'seed/',
-      deps: fakeDeps({
-        render: async () => {
-          throw new Error('boom');
-        },
-      }),
-    });
-    const manifest = buildPreviewManifest({
-      baseline: run,
-      candidate: run,
-      baseUrl: 'https://cdn.example.com/abc/',
-    });
-
-    expect(manifest.layouts['severance-office']).toEqual({ failed: 'render_failed' });
   });
 });

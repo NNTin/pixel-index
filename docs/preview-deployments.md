@@ -180,13 +180,100 @@ kept every render would grow the repository without bound.
 
 ---
 
+## Decision: publish only what changed, capped at 50
+
+This is the rule that keeps the whole mechanism from becoming a problem as the index grows,
+so it is worth stating as a decision rather than leaving it to be inferred from the code.
+
+### What is published
+
+| Layout renders… | Published? | What the page shows |
+|---|---|---|
+| **the same** on both pins | **No** | The API's image — which *is* the candidate's render |
+| **differently** | Yes, up to the cap | The candidate's PNG |
+| **not at all** on the candidate | Yes — a marker, no image | A "cannot be drawn" placeholder |
+| beyond the cap | No | The API's image, with the banner saying how many were left out |
+
+### Why unchanged layouts are not published
+
+Because publishing them would be sending a copy of a file the page can already fetch.
+
+Renders are deterministic — the same layout on the same pin produces the same PNG on any
+machine, [measured across three](#it-is-the-same-renderer-not-a-lookalike). So when the
+candidate draws a layout exactly as the baseline did, the image the API is already serving
+**is** the candidate's render. Showing it is not a compromise or a fallback; it is the same
+bytes.
+
+Without this rule the workflow republished the entire index on every bump — at 1,000
+layouts, ~15 MB weekly to convey, in the normal case, nothing. The last real bump rendered
+4 layouts, changed 0, and published 4 images that were byte-identical to what the API was
+already serving.
+
+### Why there is a cap, and why it is 50
+
+Upstream changing a palette or a shared sprite alters every layout at once. **The 51st
+example of the same recoloured chair teaches a reviewer nothing the 5th did.** The cap
+bounds the published set by *what is worth looking at* rather than by how big the index
+happens to be — so the payload is the same at 100 layouts and at 100,000, and this never
+needs revisiting.
+
+Failures are filled in first: a layout the candidate cannot draw at all is the more urgent
+thing to see, and it costs no bytes because there is no image, only a marker.
+
+### The counts are always the truth
+
+`layouts` in the manifest is a *sample*; `changed`, `failed` and `shown` describe the whole
+population. The banner uses them, so a truncated set announces itself:
+
+> **800 layouts** render differently under candidate Pixel Agents 0f823e2 — too many to
+> show. A sample of 50 is displayed here; the rest keep the API's current images.
+
+A sample that does not admit to being one invites the reader to conclude the other 750 were
+fine. The gate's report and check status count all 800 regardless — the cap governs how many
+*pictures* are published, never what the verdict is measured over.
+
+### What this bounds
+
+| | Before | After |
+|---|---|---|
+| Images per typical bump | = index size | **0** |
+| Images per sprite change | = index size | **≤ 50** |
+| Payload at 10,000 layouts | ~150 MB | **≤ 750 KB** |
+| Requests to `raw.githubusercontent.com` | 100s per *visitor* | ~50 per *reviewer* |
+| Binaries committed to `main` | none | none |
+
+Nothing scales with the index, which is why hosting was left alone: at this size neither
+[GitHub's raw rate limits](https://github.blog/changelog/2025-05-08-updated-rate-limits-for-unauthenticated-requests/)
+nor [Vercel's deployment limits](https://vercel.com/docs/limits) are reachable. Bundling the
+PNGs into the web build was considered and rejected — `add-paths` would commit them, so they
+would merge into `main` and sit in history permanently, trading a fixable problem for an
+unfixable one.
+
+---
+
 ## When the banner appears
 
-The banner is:
+The wording tracks what was actually published, because only *some* previews are candidate
+renders — most weeks, none are. There are three shapes:
 
-> Previews on this deployment are rendered against **candidate Pixel Agents 0f823e2** — the
-> API is still on 9794e07. Layouts the candidate cannot draw are marked rather than shown
-> with their old image.
+> Candidate Pixel Agents 0f823e2 draws every layout exactly as the API's 9794e07 does —
+> **nothing changed visually**, so every preview here is the API's own image.
+
+> **3 layouts** render differently under candidate Pixel Agents 0f823e2 and are shown here.
+> The API is still on 9794e07; every other preview is its image, which is byte-identical to
+> what the candidate draws.
+
+> **800 layouts** render differently under candidate Pixel Agents 0f823e2 — too many to
+> show. A sample of 50 is displayed here; the rest keep the API's current images.
+
+Any of them gains a sentence when layouts fail outright:
+
+> **2 layouts** cannot be drawn by the candidate at all and are marked rather than shown
+> with an old image.
+
+The first shape matters more than it looks. Without it, a reviewer seeing ordinary
+thumbnails cannot tell "the mechanism ran and found nothing" from "the mechanism is broken"
+— a confusion this project has already hit once for real.
 
 It is not dismissible and not optional. Silently swapping in different pictures would only
 be lying in a new direction; the banner is what makes the swap honest.

@@ -251,17 +251,31 @@ jobs:
           # `set -e` the latter fails the whole step when the directory is
           # absent, which is the normal case with no API configured.
           src="gate/png/seed"
+          manifest="gate/seed-manifest.json"
           if [ -d gate/png/live ]; then
             src="gate/png/live"
+            manifest="gate/live-manifest.json"
           fi
 
           work="$RUNNER_TEMP/previews"
           rm -rf "$work"
           mkdir -p "$work/$sha"
-          # An empty glob is possible — if the candidate pin cannot draw
-          # anything, every render failed. Publish the (empty) commit anyway so
-          # the manifest's `failed` entries still resolve to a real branch.
-          cp "$src"/*.png "$work/$sha/" 2>/dev/null || true
+
+          # Only what the manifest asks for — which is only the layouts that
+          # render *differently* under the candidate. A layout that renders
+          # identically needs nothing published: renders are deterministic, so
+          # the image the API already serves IS the candidate's render, and
+          # copying it here would duplicate the whole index every week to say
+          # nothing. Usually this loop copies zero files.
+          published=0
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            cp "$src/$file" "$work/$sha/$file"
+            published=$((published + 1))
+          done <<EOF
+          $(jq -r '.layouts | to_entries[] | select(.value.file) | .value.file' "$manifest")
+          EOF
+          echo "Publishing $published render(s) of $(jq -r '.changed' "$manifest") changed."
 
           # A fresh single-commit repo, force-pushed: old renders become
           # unreachable and get collected, so a weekly job cannot grow the
@@ -276,7 +290,7 @@ jobs:
           # an argument to anything.
           git config credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
           git push -q --force "https://github.com/${{ github.repository }}.git" "$PREVIEW_BRANCH"
-          echo "count=$(ls -1 "$work/$sha" | wc -l)" >> "$GITHUB_OUTPUT"
+          echo "count=$published" >> "$GITHUB_OUTPUT"
 
       - name: Point the web app at the candidate renders
         if: steps.candidate.outputs.moved == 'true'

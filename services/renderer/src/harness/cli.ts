@@ -123,9 +123,17 @@ function commandDiff(argv: string[]): number {
 
   const previewBaseUrl = arg(argv, 'preview-base-url');
   if (arg(argv, 'manifest') && previewBaseUrl) {
-    writeFile(
-      arg(argv, 'manifest')!,
-      JSON.stringify(buildPreviewManifest({ baseline, candidate, baseUrl: previewBaseUrl }), null, 2),
+    const manifest = buildPreviewManifest({
+      baseline,
+      candidate,
+      verdict,
+      baseUrl: previewBaseUrl,
+      ...(arg(argv, 'cap') ? { cap: Number(arg(argv, 'cap')) } : {}),
+    });
+    writeFile(arg(argv, 'manifest')!, JSON.stringify(manifest, null, 2));
+    console.log(
+      `Preview manifest: ${manifest.shown} layout(s) published ` +
+        `(${manifest.changed} changed, ${manifest.failed} failed, cap ${manifest.cap}).`,
     );
   }
 

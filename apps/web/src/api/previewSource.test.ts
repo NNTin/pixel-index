@@ -18,6 +18,10 @@ const manifest = (overrides: Partial<PreviewManifest> = {}): PreviewManifest => 
   candidate: { commit: 'b'.repeat(40), version: '1.5.0' },
   baseline: { commit: 'a'.repeat(40), version: '1.4.0' },
   baseUrl: 'https://renders.example.com/bbb/',
+  changed: 1,
+  failed: 0,
+  shown: 1,
+  cap: 50,
   layouts: { 'blue-office': { file: 'blue-office.png' } },
   ...overrides,
 });

@@ -21,6 +21,10 @@ const manifest: PreviewManifest = {
   candidate: { commit: CANDIDATE, version: '1.5.0' },
   baseline: { commit: BASELINE, version: '1.4.0' },
   baseUrl: 'https://renders.example.com/bbb/',
+  changed: 1,
+  failed: 1,
+  shown: 2,
+  cap: 50,
   layouts: {
     'blue-office': { file: 'blue-office.png' },
     'four-rooms': { failed: 'invalid' },
@@ -105,6 +109,49 @@ describe('candidate previews end to end', () => {
     // The swap is only honest if the page admits to it.
     expect(screen.getByRole('status')).toHaveTextContent(/candidate Pixel Agents bbbbbbb/);
     expect(screen.getByRole('status')).toHaveTextContent(/API is still on aaaaaaa/);
+  });
+
+  it('says plainly when nothing changed, rather than implying a swap that did not happen', async () => {
+    // The normal week: nothing published, every card is the API's image. Left
+    // unsaid, a reviewer seeing ordinary thumbnails cannot tell the mechanism
+    // ran and found nothing from the mechanism being broken — which is a
+    // confusion this project has already hit once for real.
+    stubFetch({
+      manifest: { ...manifest, changed: 0, failed: 0, shown: 0, layouts: {} },
+      apiCommit: BASELINE,
+    });
+    renderWithProvider(['blue-office']);
+
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent(/nothing changed visually/);
+    expect(screen.getByRole('img', { name: /blue-office/ })).toHaveAttribute(
+      'src',
+      'http://localhost:3000/api/v1/layouts/blue-office/thumbnail.png',
+    );
+  });
+
+  it('admits to being a sample when the cap truncated the set', async () => {
+    // 800 changed, 50 shown. A sample that does not say so invites the reader
+    // to conclude the other 750 were fine.
+    stubFetch({
+      manifest: { ...manifest, changed: 800, failed: 0, shown: 50, cap: 50 },
+      apiCommit: BASELINE,
+    });
+    renderWithProvider(['blue-office']);
+
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    const banner = screen.getByRole('status');
+    expect(banner).toHaveTextContent(/800 layouts render differently/);
+    expect(banner).toHaveTextContent(/sample of 50/);
+    expect(banner).toHaveTextContent(/the rest keep the API's current images/);
+  });
+
+  it('mentions layouts the candidate cannot draw at all', async () => {
+    stubFetch({ manifest, apiCommit: BASELINE });
+    renderWithProvider(['four-rooms']);
+
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent(/1 layout cannot be drawn/);
   });
 
   it('marks a layout the candidate cannot draw instead of showing its old image', async () => {
