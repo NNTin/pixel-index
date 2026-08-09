@@ -103,10 +103,6 @@ export const auditAction = pgEnum('audit_action', [
   'report.create',
   'report.resolve',
   'report.dismiss',
-  'user.role_grant',
-  'user.role_revoke',
-  'user.block',
-  'user.unblock',
 ]);
 
 // ── Tables ────────────────────────────────────────────────────────────────
