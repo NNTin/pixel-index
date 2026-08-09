@@ -4,7 +4,7 @@
 # on the host (run.ts inserts test users directly) and uses throwaway
 # credentials that must never be reused anywhere real.
 #
-# Usage: services/api/e2e/e2e.sh, which sets PIXEL_AGENTS_COMMIT and
+# Usage: services/api/e2e/e2e.sh, which sets
 # SESSION_SECRET and runs `docker compose up --wait` before executing run.ts.
 
 services:
@@ -26,8 +26,6 @@ services:
     build:
       context: ../../..
       dockerfile: services/renderer/Dockerfile
-      args:
-        PIXEL_AGENTS_COMMIT: ${PIXEL_AGENTS_COMMIT:-}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 2s
@@ -38,8 +36,6 @@ services:
     build:
       context: ../../..
       dockerfile: services/api/Dockerfile
-      args:
-        PIXEL_AGENTS_COMMIT: ${PIXEL_AGENTS_COMMIT:-}
     depends_on:
       postgres:
         condition: service_healthy

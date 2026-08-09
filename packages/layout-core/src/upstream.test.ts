@@ -1,6 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { bundledLayoutRevision, furnitureCatalog, knownFurnitureIds, upstreamPin } from './upstream.js';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import {
+  bundledLayoutRevision,
+  furnitureCatalog,
+  knownFurnitureIds,
+  upstreamCommitFile,
+  upstreamPin,
+} from './upstream.js';
 
 /**
  * These run against the real pinned submodule rather than a fixture, on purpose:
@@ -65,6 +77,83 @@ describe('upstreamPin', () => {
 
   it('carries the revision every published layout is measured against', () => {
     expect(pin.layoutRevision).toBe(bundledLayoutRevision());
+  });
+});
+
+/**
+ * The path every deployed image takes.
+ *
+ * A container's `vendor/pixel-agents/.git` is a pointer to a gitdir that was
+ * never copied into it, so git cannot answer there however much of the tree is
+ * copied. The pin travels as a sibling file instead. These build a checkout
+ * with no git at all, which is exactly the shape a container has.
+ */
+describe('upstreamPin without a readable git', () => {
+  const temporary: string[] = [];
+  afterEach(() => {
+    for (const dir of temporary.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  function detachedCheckout(commit: string | null): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'upstream-stamp-'));
+    temporary.push(root);
+    const dir = path.join(root, 'pixel-agents');
+    fs.mkdirSync(path.join(dir, 'webview-ui/public/assets'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ version: '4.5.6' }));
+    fs.writeFileSync(
+      path.join(dir, 'webview-ui/public/assets/default-layout-7.json'),
+      JSON.stringify({ layoutRevision: 7 }),
+    );
+    if (commit !== null) fs.writeFileSync(`${dir}.commit`, `${commit}\n`);
+    return dir;
+  }
+
+  it('reads the commit from the stamp beside the checkout', () => {
+    const dir = detachedCheckout('b'.repeat(40));
+    expect(upstreamPin(dir).commit).toBe('b'.repeat(40));
+  });
+
+  it('resolves the stamp as a sibling, never a file inside the checkout', () => {
+    // Inside, it would show as dirty in the submodule and untracked in the
+    // parent — permanent noise in every `git status`.
+    const dir = detachedCheckout('b'.repeat(40));
+    expect(upstreamCommitFile(dir)).toBe(`${dir}.commit`);
+    expect(fs.existsSync(path.join(dir, '.commit'))).toBe(false);
+  });
+
+  it('reports null rather than a guess when there is no stamp', () => {
+    expect(upstreamPin(detachedCheckout(null)).commit).toBeNull();
+  });
+
+  it('ignores a malformed stamp instead of reporting rubbish as a commit', () => {
+    const dir = detachedCheckout(null);
+    fs.writeFileSync(`${dir}.commit`, 'not-a-sha\n');
+    expect(upstreamPin(dir).commit).toBeNull();
+  });
+
+  it('still carries the version and revision from the checkout itself', () => {
+    const pin = upstreamPin(detachedCheckout('b'.repeat(40)));
+    expect(pin.version).toBe('4.5.6');
+    expect(pin.layoutRevision).toBe(7);
+  });
+});
+
+describe('the shipped stamp', () => {
+  it('equals the submodule pin, so an image reports the upstream the repo pins', () => {
+    // The same assertion `npm run vendor:commit:check` makes in CI. Here too
+    // because a stale stamp is invisible until something deployed reports the
+    // wrong upstream, and by then it has been wrong for a while.
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+    const gitlink = execFileSync('git', ['ls-tree', 'HEAD', 'vendor/pixel-agents'], {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+    });
+    const pinned = /^160000 commit ([0-9a-f]{40})\t/.exec(gitlink.trim())?.[1];
+
+    expect(pinned).toBeDefined();
+    expect(fs.readFileSync(path.join(repoRoot, 'vendor/pixel-agents.commit'), 'utf-8').trim()).toBe(
+      pinned,
+    );
   });
 });
 

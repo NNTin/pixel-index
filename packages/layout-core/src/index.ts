@@ -36,6 +36,7 @@ export {
   resolveUpstreamDir,
   UPSTREAM_ENV_VAR,
   upstreamAssetsDir,
+  upstreamCommitFile,
   upstreamPin,
 } from './upstream.js';
 export {

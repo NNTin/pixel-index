@@ -59,12 +59,6 @@ export interface ApiConfig {
    * with no ancestor relationship to worry about.
    */
   upstreamDir?: string;
-  /**
-   * A container's copy of `vendor/pixel-agents` has no `.git`, so
-   * `upstreamPin()` cannot read the commit itself — same trap as the
-   * renderer's `PIXEL_AGENTS_COMMIT` (services/renderer/src/config.ts), same fix.
-   */
-  upstreamCommit?: string;
 
   discordClientId: string;
   discordClientSecret: string;
@@ -111,6 +105,14 @@ export interface ApiConfig {
   rateLimit: RateLimitBucket;
   /** Tighter bucket for #8's submission and #4's render-triggering paths. */
   writeRateLimit: RateLimitBucket;
+  /**
+   * Its own bucket for the bulk export (#26), because it is the one read
+   * path whose cost per request scales with the size of the index rather than
+   * being constant. A caller that wants the whole index should take it in
+   * one streamed request — which is cheap — instead of the several hundred
+   * per-slug requests the general bucket would happily allow.
+   */
+  exportRateLimit: RateLimitBucket;
 }
 
 export class ConfigError extends Error {
@@ -381,9 +383,6 @@ export function loadConfig(): ApiConfig {
     webOriginPatterns: optionalOriginPatterns('PUBLIC_WEB_ORIGIN_PATTERNS', problems),
 
     ...(optionalEnv('PIXEL_AGENTS_DIR') ? { upstreamDir: optionalEnv('PIXEL_AGENTS_DIR') } : {}),
-    ...(optionalEnv('PIXEL_AGENTS_COMMIT')
-      ? { upstreamCommit: optionalEnv('PIXEL_AGENTS_COMMIT') }
-      : {}),
 
     discordClientId: requireEnv('DISCORD_CLIENT_ID', problems),
     discordClientSecret: requireEnv('DISCORD_CLIENT_SECRET', problems),
@@ -406,6 +405,10 @@ export function loadConfig(): ApiConfig {
     writeRateLimit: {
       max: intFromEnv('RATE_LIMIT_WRITE_MAX', 20, problems),
       windowMs: intFromEnv('RATE_LIMIT_WRITE_WINDOW_MS', 60_000, problems),
+    },
+    exportRateLimit: {
+      max: intFromEnv('RATE_LIMIT_EXPORT_MAX', 6, problems),
+      windowMs: intFromEnv('RATE_LIMIT_EXPORT_WINDOW_MS', 60_000, problems),
     },
   };
 

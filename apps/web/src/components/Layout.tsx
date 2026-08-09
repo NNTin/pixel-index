@@ -2,6 +2,7 @@ import { Link, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
+import { CandidatePinBanner } from './CandidatePinBanner';
 
 /**
  * "Role-aware navigation — but every check re-enforced server-side; hiding a
@@ -81,6 +82,7 @@ export function Layout() {
           <ThemeToggle />
         </div>
       </header>
+      <CandidatePinBanner />
       <main className="mx-auto max-w-5xl px-6 py-8">
         <Outlet />
       </main>

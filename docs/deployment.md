@@ -51,7 +51,7 @@ in logs for no benefit).
 
 | Name | Required | Example shape | Notes |
 |---|---|---|---|
-| `PRODUCTION_API_BASE_URL` | Yes, for a working Pages site | `https://api.example.com` | Origin only, no trailing slash. Baked into the bundle as `VITE_API_BASE_URL`. |
+| `PRODUCTION_API_BASE_URL` | Yes, for a working Pages site | `https://api.example.com` | Origin only, no trailing slash. Baked into the bundle as `VITE_API_BASE_URL`. Also read by `vendor-update.yml` — see below. |
 | `PAGES_BASE_PATH` | No | `/` | Only when Pages serves this site from the **root**. Unset for any `/<repo>/` subpath, including under a user-site custom domain — see below. |
 
 **`PRODUCTION_API_BASE_URL` is the shared name for every workflow that builds the SPA**,
@@ -101,6 +101,59 @@ Pages site the domain belongs to:
 
 If you are unsure which you have, load the deployed page and look at where the `<script
 src>` points: `/pixel-index/assets/…` means keep the subpath, `/assets/…` means root.
+
+**`VENDOR_UPDATE_TOKEN` — a repository *secret*, and the only one this repo has.** Without
+it the vendor-update PR opens but arrives with **no checks at all**: GitHub never triggers
+`pull_request` workflows for anything `GITHUB_TOKEN` creates, so `ci.yml` simply does not
+run on the bot's PR. The gate's own verdict is unaffected — it runs inside the workflow,
+not as a check on the PR — but nothing else is verified.
+
+Create it as a **classic** PAT on a machine account that is a collaborator here
+(`nntin-bot`), with the **`repo`** scope and nothing else. Not `workflow`: the PR's
+`add-paths` never touches `.github/workflows`, and granting it would let the token rewrite
+CI. A *fine-grained* token cannot be used for this — they do not work for collaborators on
+a repository owned by another account, which is exactly what a machine account is here.
+
+PATs expire. When this one does, the run pushes its branch and renders as usual and then
+fails on the last step with a 401 or 403; the workflow prints both that possibility and
+the settings one, so the log says which. Mint a replacement on the same account and re-set
+the secret — nothing else changes.
+
+**One repository setting `vendor-update.yml` cannot work without.** Settings → Actions →
+General → Workflow permissions → **"Allow GitHub Actions to create and approve pull
+requests"**. It is off by default, and without it the job pushes its branch and its
+renders successfully and is then refused at the last step, with
+`GitHub Actions is not permitted to create or approve pull requests`. The workflow
+detects that specific failure and prints both the setting and a link to open the PR by
+hand, so nothing is lost either way — but until it is enabled, every scheduled run ends red
+and needs a click. Nothing else in this repository needs the setting.
+
+**`PRODUCTION_API_BASE_URL` has a second reader: `vendor-update.yml`.** The daily job
+that bumps the pinned Pixel Agents (#26) uses it to fetch every public layout from your
+running index — `GET /api/v1/export/layouts.ndjson` — and render them against the
+candidate pin, so the PR can say exactly which of *your* layouts a bump would break.
+Leave it unset and the job still runs, but only over the committed `seed/` layouts: it
+reports that it did so rather than passing silently on a corpus of four.
+
+**Candidate previews need no configuration at all.** That same job publishes the renders
+it already produced to an orphan branch, `vendor-previews`, force-pushed as a single
+commit so old sets become unreachable and the repository does not grow a PNG set a day
+forever. A Vercel **preview** build then pulls them into its own `dist/`, keyed on the
+pinned commit, and serves them from its own origin — see
+[`preview-deployments.md`](preview-deployments.md).
+
+Nothing to set. The mechanism is gated on `VERCEL_ENV === 'preview'`, a Vercel system
+variable, so a production build and a GitHub Pages build cannot show candidate renders
+whatever else is true. It also means visitors never fetch from
+`raw.githubusercontent.com`: the build downloads once, and the site serves the copies.
+
+**The swap needs the API to report its pin.** It only engages when the site can prove the
+API is on a *different* Pixel Agents than the renders were made with — otherwise it fails
+safe and leaves previews on the API's own images, because a live image that might be
+slightly stale beats a static one that is certainly stale. A current build reports its
+commit with no configuration at all (see *The pinned commit ships as a file* below), so
+this works out of the box; an API reporting `commit: null` is one that predates that and
+needs redeploying. `vendor-update.yml` checks for exactly this and says so in the PR.
 
 ### (b) Vercel — Production and Preview
 
@@ -180,8 +233,27 @@ than one restart per missing value.
 Tuning knobs with working defaults you can usually ignore: `API_HOST`, `API_PORT`,
 `LOG_LEVEL`, `API_BODY_LIMIT_BYTES`, `MAX_LAYOUT_BYTES`,
 `MAX_SUBMISSIONS_PER_USER_PER_DAY`, `RATE_LIMIT_*`, `ACCESS_TOKEN_TTL_MS`,
-`REFRESH_TOKEN_TTL_MS`, `LOGIN_CODE_TTL_MS`, `PIXEL_AGENTS_DIR`,
-`PIXEL_AGENTS_COMMIT`. `services/api/src/config.ts` is the authoritative list.
+`REFRESH_TOKEN_TTL_MS`, `LOGIN_CODE_TTL_MS`, `PIXEL_AGENTS_DIR`.
+`services/api/src/config.ts` is the authoritative list.
+
+### The pinned commit ships as a file
+
+Nothing to configure — this is here because it used to be a variable, and because the
+failure it causes is quiet.
+
+A container cannot work out which Pixel Agents it holds. `vendor/pixel-agents/.git` is a
+*pointer* to a gitdir outside the Docker build context (under a git worktree, an absolute
+path on the build machine), so a copied vendor tree can never resolve its own commit
+however much of it you copy. Without that commit the renderer's preview cache key falls
+back to the upstream *version*, which the pin routinely outruns by several commits — two
+different builds then serve each other's cached previews — and `/api/v1/meta` cannot say
+which upstream the index is actually serving.
+
+This was once a `PIXEL_AGENTS_COMMIT` build argument. Nobody passed it, so every deployed
+image reported `commit: null`. The pin now travels as `vendor/pixel-agents.commit`, copied
+into both images, kept equal to the gitlink by `npm run vendor:commit`, updated by the
+vendor-update workflow in the same commit as the bump, and verified on every CI run by
+`npm run vendor:commit:check` so it cannot drift from the pin it claims to describe.
 
 #### `PUBLIC_WEB_ORIGIN_PATTERNS`, and its trade-off
 

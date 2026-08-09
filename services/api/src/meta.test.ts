@@ -1,3 +1,7 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -62,27 +66,37 @@ describe('GET /api/v1/meta', () => {
     }
   });
 
-  it('falls back to the configured commit when the upstream has no .git to read one from', async () => {
-    // A container's copy of vendor/pixel-agents has no .git — same trap as
-    // the renderer service, same PIXEL_AGENTS_COMMIT fix. Simulated here by
-    // pointing at a directory with a valid package.json/assets but asserting
-    // the override still applies even when discovery itself fails outright.
-    const brokenApp = await buildServer({
-      config: testConfig({
-        upstreamDir: '/nonexistent/pixel-agents',
-        upstreamCommit: 'a'.repeat(40),
-      }),
+  it('reports the commit from the stamp beside a checkout with no readable git', async () => {
+    // What a container actually is: a copied vendor/ tree whose .git points at
+    // a gitdir that was never copied. The pin travels as a sibling file, so
+    // this is the path every deployed image takes — it used to be a
+    // PIXEL_AGENTS_COMMIT build argument nobody remembered to pass, and every
+    // image reported commit: null as a result.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-stamp-'));
+    const upstreamDir = path.join(dir, 'pixel-agents');
+    fs.mkdirSync(path.join(upstreamDir, 'webview-ui/public/assets'), { recursive: true });
+    fs.writeFileSync(path.join(upstreamDir, 'package.json'), JSON.stringify({ version: '9.9.9' }));
+    fs.writeFileSync(
+      path.join(upstreamDir, 'webview-ui/public/assets/default-layout-3.json'),
+      JSON.stringify({ layoutRevision: 3 }),
+    );
+    fs.writeFileSync(`${upstreamDir}.commit`, `${'a'.repeat(40)}\n`);
+
+    const stampedApp = await buildServer({
+      config: testConfig({ upstreamDir }),
       pool: fakePool,
       db: harness.db,
     });
     try {
-      const response = await brokenApp.inject({ method: 'GET', url: '/api/v1/meta' });
-      // Discovery still fails wholesale for a nonexistent dir (version stays
-      // null), but the explicit commit override is honoured regardless —
-      // it never depends on a successful upstreamPin() call.
-      expect(response.json().pixelAgents.commit).toBe('a'.repeat(40));
+      const response = await stampedApp.inject({ method: 'GET', url: '/api/v1/meta' });
+      expect(response.json().pixelAgents).toEqual({
+        version: '9.9.9',
+        commit: 'a'.repeat(40),
+        layoutRevision: 3,
+      });
     } finally {
-      await brokenApp.close();
+      await stampedApp.close();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

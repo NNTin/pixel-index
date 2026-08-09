@@ -10,12 +10,28 @@ import { useState } from 'react';
  * intentional convention it was. `image-rendering: pixelated` keeps the
  * renderer's pixel art crisp instead of browser-smoothed.
  */
-export function PreviewImage({ src, alt }: { src: string; alt: string }) {
+export function PreviewImage({
+  src,
+  alt,
+  unavailable,
+}: {
+  src: string;
+  alt: string;
+  /**
+   * Renders this instead of the image, without attempting a fetch. Used when
+   * the candidate Pixel Agents pin cannot draw this layout at all (#26): the
+   * API's image would load perfectly well, and showing it would be the exact
+   * lie the candidate-preview mechanism exists to prevent.
+   */
+  unavailable?: string;
+}) {
   const [failed, setFailed] = useState(false);
 
   return (
     <div className="flex items-center justify-center bg-canvas p-3">
-      {failed ? (
+      {unavailable !== undefined ? (
+        <p className="py-12 text-center text-xs leading-relaxed text-subtle">{unavailable}</p>
+      ) : failed ? (
         <p className="py-12 text-center text-xs leading-relaxed text-subtle">no preview</p>
       ) : (
         <img

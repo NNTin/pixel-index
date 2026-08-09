@@ -36,11 +36,6 @@ services:
     build:
       context: .
       dockerfile: services/api/Dockerfile
-      args:
-        # Optional: set in the shell environment (not .env) if you want the
-        # image to report the real pinned commit — see services/api/Dockerfile.
-        # An empty build falls back to reporting the version alone.
-        PIXEL_AGENTS_COMMIT: ${PIXEL_AGENTS_COMMIT:-}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -78,8 +73,6 @@ services:
     build:
       context: .
       dockerfile: services/renderer/Dockerfile
-      args:
-        PIXEL_AGENTS_COMMIT: ${PIXEL_AGENTS_COMMIT:-}
     restart: unless-stopped
     # No `ports:` — deliberately unreachable from the host or a browser (no
     # CORS is configured on it). Only the api service talks to it, over the

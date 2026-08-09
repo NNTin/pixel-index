@@ -13,6 +13,7 @@ import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import { ApiError } from '../errors.js';
 import { requestPreview } from '../renderer/client.js';
+import { PUBLIC_REVALIDATED, respondNotModifiedIfMatching } from './caching.js';
 import {
   authorForLayout,
   authorsForLayouts,
@@ -60,16 +61,6 @@ interface ListQuery {
 function range(min: number | undefined, max: number | undefined): NumericRange | undefined {
   if (min === undefined && max === undefined) return undefined;
   return { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) };
-}
-
-/** `true` means "send 304, stop" — the caller should return immediately. */
-function respondNotModifiedIfMatching(request: FastifyRequest, reply: FastifyReply, etag: string): boolean {
-  reply.header('etag', etag);
-  if (request.headers['if-none-match'] === etag) {
-    reply.code(304).send();
-    return true;
-  }
-  return false;
 }
 
 export function registerLayoutRoutes(app: FastifyInstance, { config, db }: LayoutRoutesDeps): void {
@@ -134,7 +125,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
       // Slug-addressed, and a layout's content can change under it (#9), so
       // this is short-lived + revalidated, not "immutable" — unlike the
       // renderer's own content-addressed cache.
-      reply.header('cache-control', 'public, max-age=60, must-revalidate');
+      reply.header('cache-control', PUBLIC_REVALIDATED);
       if (respondNotModifiedIfMatching(request, reply, `"${layout.sha256}"`)) return;
 
       const [author, tags] = await Promise.all([
@@ -153,7 +144,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
       const layout = await getLayoutBySlug(db, slug);
       if (!layout) throw ApiError.notFound(`No public layout "${slug}".`);
 
-      reply.header('cache-control', 'public, max-age=60, must-revalidate');
+      reply.header('cache-control', PUBLIC_REVALIDATED);
       if (respondNotModifiedIfMatching(request, reply, `"${layout.sha256}"`)) return;
 
       // The exact bytes as uploaded, verbatim — see schema.ts on why this is
@@ -183,7 +174,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
     // Slug-addressed like the routes above, so the same short-lived,
     // revalidated policy applies — never the renderer's own "immutable",
     // which is only true for its content-addressed cache key, not for this URL.
-    reply.header('cache-control', 'public, max-age=60, must-revalidate');
+    reply.header('cache-control', PUBLIC_REVALIDATED);
     const etag = outcome.result.etag ?? `"${layout.sha256}"`;
     if (respondNotModifiedIfMatching(request, reply, etag)) return;
 

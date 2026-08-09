@@ -22,6 +22,7 @@ import { allowsWebOrigin, type ApiConfig } from './config.js';
 import type { AnyDatabase } from './db/client.js';
 import type { Queryable } from './db/pool.js';
 import { registerErrorHandling } from './errors.js';
+import { registerExportRoutes } from './layouts/export.js';
 import { registerManageRoutes } from './layouts/manage.js';
 import { registerLayoutRoutes } from './layouts/routes.js';
 import { registerSubmitRoutes } from './layouts/submit.js';
@@ -140,6 +141,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
   registerAuthRoutes(app, { config, db });
   registerMetaRoutes(app, config, db);
   registerLayoutRoutes(app, { config, db });
+  registerExportRoutes(app, { config, db });
   registerSubmitRoutes(app, { config, db, upstream });
   registerManageRoutes(app, { config, db, upstream });
   registerUserAdminRoutes(app, { db });

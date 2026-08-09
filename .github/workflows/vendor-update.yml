@@ -1,0 +1,506 @@
+name: Update vendored Pixel Agents
+
+# The index is only as correct as its pin: `vendor/pixel-agents` decides which
+# furniture ids exist and what the bundled layoutRevision is, so an index that
+# lags upstream lists layouts a real Pixel Agents client would discard (#26).
+#
+# This moves the pin, then proves the move is safe by rendering every layout
+# against BOTH pins and reporting only what the update actually broke. The PR
+# it opens is for a human to merge — a green check means "nothing that rendered
+# before fails now", not "the pixels are still right", and only a person
+# looking at the preview can judge the second one.
+
+on:
+  schedule:
+    # Daily, 06:00 UTC. Daily rather than weekly because the PR is *reused*:
+    # a run that finds no movement opens nothing and costs about a minute, and
+    # a run that finds movement updates the open PR in place rather than
+    # opening another. So the cadence buys a smaller diff per bump and a
+    # shorter gap between an upstream break and hearing about it, without
+    # turning into a stream of pull requests.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# A manual dispatch during a scheduled run must not race two force-pushes onto
+# the same branch. Never cancel-in-progress: a half-published preview branch is
+# worse than a late one.
+concurrency:
+  group: vendor-update
+  cancel-in-progress: false
+
+env:
+  PR_BRANCH: chore/vendor-pixel-agents
+  PREVIEW_BRANCH: vendor-previews
+  HARNESS: services/renderer/src/harness/cli.ts
+
+jobs:
+  update:
+    name: Bump the pin and prove it still renders
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install index tooling
+        run: npm ci
+
+      # The harness imports layout-core's dist directly, and it is invoked
+      # workspace-scoped (so the root's pre* hooks never fire).
+      - name: Build layout-core
+        run: npm run build:core
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # ── Baseline: what the index renders TODAY ────────────────────────────
+      #
+      # Always main's pin, never the open PR's. A PR that already advanced
+      # 9794e07 → aaaa111 and now advances to bbbb222 has to report
+      # 9794e07 → bbbb222, because that is the diff a reviewer will merge —
+      # diffing against the intermediate commit would silently hide a layout
+      # the first hop broke.
+      - name: Record the baseline pin
+        id: baseline
+        run: echo "sha=$(git -C vendor/pixel-agents rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install upstream webview dependencies
+        run: npm ci
+        working-directory: vendor/pixel-agents
+
+      - name: Render seed/ against the baseline pin
+        run: npx tsx "$HARNESS" run --source seed --out gate/seed-baseline.json
+
+      - name: Render the live index against the baseline pin
+        id: live-baseline
+        if: vars.PRODUCTION_API_BASE_URL != ''
+        env:
+          # Through env, never interpolated into the command line: a repository
+          # variable is operator-supplied text, and `${{ }}` inside a `run:` is
+          # substituted before bash ever sees it.
+          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+        run: |
+          set +e
+          # Captured, not just printed: when this fails the PR has to be able to
+          # say WHY, and "could not be read" sends someone hunting for a broken
+          # variable that is fine. PIPESTATUS because `tee` would otherwise be
+          # the exit code we read.
+          npx tsx "$HARNESS" run --source api --api-url "$API_BASE_URL" \
+            --out gate/live-baseline.json 2>&1 | tee gate/live-baseline.log
+          echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      # ── Move the pin ──────────────────────────────────────────────────────
+      - name: Move the pin to upstream HEAD
+        id: candidate
+        run: |
+          set -euo pipefail
+          git submodule update --remote vendor/pixel-agents
+          sha="$(git -C vendor/pixel-agents rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # The pin also ships as a file, because a container cannot read the
+          # submodule's git (tools/vendor-commit.mjs). It moves in the same
+          # commit as the gitlink or CI's drift check fails on the PR.
+          printf '%s\n' "$sha" > vendor/pixel-agents.commit
+          if [ "$sha" = "${{ steps.baseline.outputs.sha }}" ]; then
+            echo "Already at upstream HEAD ($sha). Nothing to do."
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Every URL the report, the manifest and the title need, resolved once.
+      # Two copies of the preview expression would be two chances for the seed
+      # gate and the live gate to publish manifests pointing at different
+      # places, and the upstream URL is wanted by three separate steps.
+      - name: Resolve the URLs the report and manifest need
+        id: urls
+        if: steps.candidate.outputs.moved == 'true'
+        env:
+          SHA: ${{ steps.candidate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # Where a reader can go and look at what was published. The web build
+          # derives this same path itself from the pinned commit, so it is a
+          # link for humans, not configuration.
+          echo "preview-base=https://github.com/${{ github.repository }}/tree/${{ env.PREVIEW_BRANCH }}/$SHA" >> "$GITHUB_OUTPUT"
+
+          # From .gitmodules, never hardcoded: the submodule URL is declared in
+          # exactly one place, and a fork pointing at its own upstream should
+          # get compare links, commit links and a title naming *that* one.
+          upstream="$(git config -f .gitmodules submodule.vendor/pixel-agents.url | sed 's/\.git$//')"
+          echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
+          # owner/repo, from either an https or an SSH remote.
+          echo "slug=$(printf '%s' "$upstream" | sed -E 's#^.*[/:]([^/]+/[^/]+)$#\1#')" >> "$GITHUB_OUTPUT"
+
+      # Everything below is conditional on the pin having actually moved, so a
+      # day with no upstream activity costs one cheap run and opens nothing.
+      - name: Install upstream webview dependencies for the candidate
+        if: steps.candidate.outputs.moved == 'true'
+        run: npm ci
+        working-directory: vendor/pixel-agents
+
+      - name: Render seed/ against the candidate pin
+        if: steps.candidate.outputs.moved == 'true'
+        run: |
+          npx tsx "$HARNESS" run --source seed \
+            --out gate/seed-candidate.json --png-dir gate/png/seed
+
+      # Also gated on the baseline having succeeded: without a baseline there is
+      # nothing to compare against, and rendering the whole live index anyway
+      # would spend the run's longest step producing something unusable.
+      - name: Render the live index against the candidate pin
+        id: live-candidate
+        if: steps.candidate.outputs.moved == 'true' && steps.live-baseline.outputs.code == '0'
+        env:
+          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+        run: |
+          set +e
+          npx tsx "$HARNESS" run --source api --api-url "$API_BASE_URL" \
+            --out gate/live-candidate.json --png-dir gate/png/live 2>&1 | tee gate/live-candidate.log
+          echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      # ── Verdicts ──────────────────────────────────────────────────────────
+      #
+      # The diffs deliberately do NOT fail the job here. The PR has to be
+      # created carrying the report — a failed gate with no PR to read is the
+      # least useful possible outcome — so the job is failed at the very end
+      # instead, once everything is published.
+      - name: Compare the two pins over seed/
+        id: seed-gate
+        if: steps.candidate.outputs.moved == 'true'
+        run: |
+          set +e
+          npx tsx "$HARNESS" diff \
+            --baseline gate/seed-baseline.json --candidate gate/seed-candidate.json \
+            --gate "Seed gate" --report gate/seed-report.md \
+            --manifest gate/seed-manifest.json \
+            --upstream-url "$UPSTREAM_URL"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+        env:
+          UPSTREAM_URL: ${{ steps.urls.outputs.upstream }}
+
+      - name: Compare the two pins over the live index
+        id: live-gate
+        if: |
+          steps.candidate.outputs.moved == 'true'
+          && steps.live-baseline.outputs.code == '0'
+          && steps.live-candidate.outputs.code == '0'
+        run: |
+          set +e
+          npx tsx "$HARNESS" diff \
+            --baseline gate/live-baseline.json --candidate gate/live-candidate.json \
+            --gate "Live index gate" --report gate/live-report.md \
+            --manifest gate/live-manifest.json \
+            --upstream-url "$UPSTREAM_URL"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+        env:
+          UPSTREAM_URL: ${{ steps.urls.outputs.upstream }}
+
+      # When the live gate could not run — no API URL configured, or the index
+      # was unreachable — say so in the PR rather than letting its absence read
+      # as "nothing to report".
+      - name: Note why the live gate did not run
+        if: |
+          steps.candidate.outputs.moved == 'true'
+          && steps.live-gate.outcome == 'skipped'
+        env:
+          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+        run: |
+          mkdir -p gate
+          # The harness already wrote a precise diagnosis; repeat it verbatim
+          # rather than paraphrasing it into something vaguer.
+          reason="$(cat gate/live-*.log 2>/dev/null \
+            | sed -n 's/^Infrastructure failure (not a vendor verdict): //p' | head -1)"
+          {
+            echo "### ⏭️ Live index gate: not run"
+            echo
+            if [ -z "$API_BASE_URL" ]; then
+              echo "No \`PRODUCTION_API_BASE_URL\` repository variable is set, so only the"
+              echo "committed \`seed/\` layouts were checked. Real submissions were not."
+            else
+              echo "Only the committed \`seed/\` layouts were checked — real submissions were not."
+              echo
+              echo "\`PRODUCTION_API_BASE_URL\` **is** set (\`$API_BASE_URL\`) and was used; the"
+              echo "index behind it could not be read:"
+              echo
+              echo "> ${reason:-see the job log}"
+              echo
+              echo "**This is an infrastructure failure, not a verdict about the vendor.**"
+            fi
+            echo
+          } > gate/live-report.md
+
+      # ── The preview the reviewer will actually look at ────────────────────
+      #
+      # Without this, the PR's web preview calls the production API, whose
+      # renderer is still on the OLD pin — so the one view where seeing the
+      # difference matters shows the vendor this PR is replacing. The PNGs were
+      # already rendered above to produce the verdict; this just publishes them.
+      - name: Publish the candidate renders
+        id: previews
+        if: steps.candidate.outputs.moved == 'true'
+        env:
+          # In the environment, not on the command line: a token in argv is
+          # visible to anything that can read /proc on the runner.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="${{ steps.candidate.outputs.sha }}"
+          # Prefer the live corpus: it is what the gallery actually shows.
+          # Spelled as an `if` rather than `[ … ] && src=…` because under
+          # `set -e` the latter fails the whole step when the directory is
+          # absent, which is the normal case with no API configured.
+          src="gate/png/seed"
+          manifest="gate/seed-manifest.json"
+          if [ -d gate/png/live ]; then
+            src="gate/png/live"
+            manifest="gate/live-manifest.json"
+          fi
+
+          work="$RUNNER_TEMP/previews"
+          rm -rf "$work"
+          mkdir -p "$work/$sha"
+
+          # Only what the manifest asks for — which is only the layouts that
+          # render *differently* under the candidate. A layout that renders
+          # identically needs nothing published: renders are deterministic, so
+          # the image the API already serves IS the candidate's render, and
+          # copying it here would duplicate the whole index every run to say
+          # nothing. Usually this loop copies zero files.
+          published=0
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            cp "$src/$file" "$work/$sha/$file"
+            published=$((published + 1))
+          done <<EOF
+          $(jq -r '.layouts | to_entries[] | select(.value.file) | .value.file' "$manifest")
+          EOF
+          # The manifest ships WITH the renders, not in the repository. Putting
+          # it in apps/web/public/ meant it merged to main with the pin and
+          # shipped to production until the API caught up; a preview build now
+          # fetches it from here instead (apps/web/vite.config.ts).
+          cp "$manifest" "$work/$sha/manifest.json"
+          echo "Publishing $published render(s) of $(jq -r '.changed' "$manifest") changed."
+
+          # A fresh single-commit repo, force-pushed: old renders become
+          # unreachable and get collected, so a daily job cannot grow the
+          # repository without bound. No PNG ever lands on main.
+          cd "$work"
+          git init -q -b "$PREVIEW_BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q --allow-empty -m "Renders for pixel-agents $sha"
+          # A credential helper reading the environment, so the token is never
+          # an argument to anything.
+          git config credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+          git push -q --force "https://github.com/${{ github.repository }}.git" "$PREVIEW_BRANCH"
+          echo "count=$published" >> "$GITHUB_OUTPUT"
+
+      # The candidate-preview swap only engages when the web app can prove the
+      # API is on a *different* pin than the manifest — it fails safe, because a
+      # live image that might be slightly stale beats a static one that is
+      # certainly stale. An API that reports `commit: null` (no
+      # PIXEL_AGENTS_COMMIT: a containerised vendor/ has no .git to read one
+      # from) and a bump that does not change the version number are together
+      # enough to make that proof impossible, and the previews then quietly stay
+      # as they were. Quietly is the problem — say it in the PR instead.
+      - name: Check the API can be compared against for previews
+        if: steps.candidate.outputs.moved == 'true' && vars.PRODUCTION_API_BASE_URL != ''
+        env:
+          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+          CANDIDATE: ${{ steps.candidate.outputs.sha }}
+          BASELINE: ${{ steps.baseline.outputs.sha }}
+        run: |
+          mkdir -p gate
+          meta="$(curl -fsS --max-time 20 "$API_BASE_URL/api/v1/meta" 2>/dev/null || true)"
+          commit="$(printf '%s' "$meta" | jq -r '.pixelAgents.commit // empty' 2>/dev/null || true)"
+          version="$(printf '%s' "$meta" | jq -r '.pixelAgents.version // empty' 2>/dev/null || true)"
+
+          # Comparable if the API names a commit at all, or if the version alone
+          # already distinguishes the two pins.
+          if [ -n "$commit" ]; then exit 0; fi
+          candidate_version="$(jq -r '.candidate.version // empty' gate/*-manifest.json 2>/dev/null | head -1)"
+          baseline_version="$(jq -r '.baseline.version // empty' gate/*-manifest.json 2>/dev/null | head -1)"
+          if [ -n "$candidate_version" ] && [ "$candidate_version" != "$baseline_version" ]; then exit 0; fi
+
+          {
+            echo "### ⚠️ Candidate previews will not engage on this deployment"
+            echo
+            echo "The preview swap needs to prove the API is on a *different* pin than these"
+            echo "renders, and it cannot: \`/api/v1/meta\` reports \`commit: null\` and this bump"
+            echo "does not change the version (\`${version:-unknown}\`). So it fails safe and leaves"
+            echo "previews on the API's own images — the ones drawn by the pin this PR replaces."
+            echo
+            echo "A current build reports its commit without any configuration, from the"
+            echo "\`vendor/pixel-agents.commit\` file that ships in the image. Reporting \`null\`"
+            echo "means the API predates that — **redeploy it** and the swap works from the"
+            echo "next run."
+            echo
+          } > gate/preview-warning.md
+
+      # `secrets` is not available in a step-level `if:`, so this is a shell
+      # check rather than a condition. The token is only ever tested for
+      # emptiness — never echoed.
+      - name: Note if the pull request will arrive without CI
+        if: steps.candidate.outputs.moved == 'true'
+        env:
+          VENDOR_UPDATE_TOKEN: ${{ secrets.VENDOR_UPDATE_TOKEN }}
+        run: |
+          mkdir -p gate
+          if [ -n "$VENDOR_UPDATE_TOKEN" ]; then exit 0; fi
+          {
+            echo "### ⚠️ No checks will run on this pull request"
+            echo
+            echo "It was opened with \`GITHUB_TOKEN\`, and GitHub does not trigger"
+            echo "\`pull_request\` workflows for anything that token creates — so \`ci.yml\` is"
+            echo "not running here, however green it looks. The gate's own verdict above is"
+            echo "unaffected: it ran inside the workflow, not as a check on this PR."
+            echo
+            echo "Set a \`VENDOR_UPDATE_TOKEN\` repository secret (a PAT on a machine account"
+            echo "with \`repo\`) to get real checks — see docs/deployment.md."
+            echo
+          } > gate/token-warning.md
+
+      # ── The PR ────────────────────────────────────────────────────────────
+      - name: Compose the pull request body
+        id: body
+        if: steps.candidate.outputs.moved == 'true'
+        env:
+          PREVIEW_BASE_URL: ${{ steps.urls.outputs.preview-base }}
+          UPSTREAM_URL: ${{ steps.urls.outputs.upstream }}
+          SLUG: ${{ steps.urls.outputs.slug }}
+        run: |
+          set -euo pipefail
+          short="$(printf '%s' "${{ steps.candidate.outputs.sha }}" | cut -c1-7)"
+          echo "title=chore(vendor): update pixel-agents to ${SLUG}@${short}" >> "$GITHUB_OUTPUT"
+
+          npx tsx "$HARNESS" body \
+            --baseline-commit "${{ steps.baseline.outputs.sha }}" \
+            --candidate-commit "${{ steps.candidate.outputs.sha }}" \
+            --repo-url "$UPSTREAM_URL" \
+            --section gate/seed-report.md \
+            --section gate/live-report.md \
+            --section gate/preview-warning.md \
+            --section gate/token-warning.md \
+            --preview-url "$PREVIEW_BASE_URL" \
+            --out gate/pr-body.md
+
+          if [ "${{ steps.seed-gate.outputs.code }}" != "0" ] || [ "${{ steps.live-gate.outputs.code || '0' }}" != "0" ]; then
+            echo "labels=vendor-update,vendor-breaking" >> "$GITHUB_OUTPUT"
+          else
+            echo "labels=vendor-update" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Not fatal on its own. By the time this runs the branch has already been
+      # pushed and the renders published, so a refused PR creation costs a click,
+      # not a rerun — and swallowing the step here lets the run explain itself
+      # (see the last step) instead of ending on a raw API error.
+      - name: Open or update the pull request
+        id: pr
+        continue-on-error: true
+        if: steps.candidate.outputs.moved == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # A constant branch is what makes this reuse the open PR instead of
+          # opening a second one every time upstream moves. The action force-
+          # pushes a single commit on top of the checked-out base, so the branch
+          # is regenerated from main each run rather than accumulating hops.
+          # A PR opened with GITHUB_TOKEN never triggers `pull_request`
+          # workflows — GitHub's loop protection — so the bot's PR would arrive
+          # with no CI at all. VENDOR_UPDATE_TOKEN (a PAT on the bot account)
+          # is not subject to that, so ci.yml runs on the PR like any other.
+          #
+          # Falls back to GITHUB_TOKEN so a fork, or this repo before the secret
+          # exists, still gets a PR — just one without checks, which the step
+          # below says out loud rather than leaving as a mystery.
+          token: ${{ secrets.VENDOR_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
+          branch: ${{ env.PR_BRANCH }}
+          # The branch this run checked out, which for `schedule` is the default
+          # branch — the same thing hardcoding `main` would give, without the
+          # hardcoding. It also keeps the temporary `push` trigger above honest:
+          # the test PR targets the feature branch, so its diff is the vendor
+          # bump alone rather than the whole branch replayed against main.
+          base: ${{ github.ref_name }}
+          delete-branch: false
+          # Subject matches the PR title; the full range lives in the body,
+          # where `git log` on the default branch still has it but a one-line
+          # summary is not 90 characters of hex.
+          commit-message: |
+            ${{ steps.body.outputs.title }}
+
+            ${{ steps.baseline.outputs.sha }} -> ${{ steps.candidate.outputs.sha }}
+
+            Opened by .github/workflows/vendor-update.yml. Refs #26.
+          title: ${{ steps.body.outputs.title }}
+          body-path: gate/pr-body.md
+          labels: ${{ steps.body.outputs.labels }}
+          # Only the pin. The preview manifest deliberately does NOT appear
+          # here: it used to, and merging it put a manifest on main that
+          # production then served.
+          add-paths: |
+            vendor/pixel-agents
+            vendor/pixel-agents.commit
+
+      - name: Summarise
+        if: always() && steps.candidate.outputs.moved == 'true'
+        run: |
+          cat gate/seed-report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          cat gate/live-report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          if [ -n "${{ steps.pr.outputs.pull-request-url }}" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "PR: ${{ steps.pr.outputs.pull-request-url }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Last, so the PR always exists to be read. Exit 2 from the harness means
+      # "could not tell" — a dev server that would not boot, an index that was
+      # down — and is deliberately NOT reported as a breaking change, because
+      # blaming the vendor for a bad CI minute is how a cron check earns its
+      # reputation for crying wolf.
+      - name: Fail if the update broke something
+        if: steps.candidate.outputs.moved == 'true'
+        run: |
+          seed="${{ steps.seed-gate.outputs.code }}"
+          live="${{ steps.live-gate.outputs.code || '0' }}"
+
+          if [ "$seed" = "2" ]; then
+            echo "::error::The seed gate could not run — infrastructure, not a vendor verdict."
+            exit 1
+          fi
+          if [ "$seed" != "0" ] || [ "$live" = "1" ]; then
+            echo "::error::This upstream bump breaks layouts. See the PR body for which ones."
+            exit 1
+          fi
+          echo "No layout that rendered before fails now."
+
+      # `GITHUB_TOKEN` can push a branch but may not be allowed to open a PR
+      # with it: that is a repository setting, off by default, and the API's
+      # refusal ("GitHub Actions is not permitted to create or approve pull
+      # requests") arrives 100 lines into a log with no hint of where to fix it.
+      # Everything else has already succeeded by this point, so say what to do
+      # and where the work went, rather than making the next person read the log.
+      - name: Explain a pull request that could not be opened
+        if: always() && steps.pr.outcome == 'failure'
+        run: |
+          {
+            echo "::error::The branch and the renders were pushed, but opening the PR was refused."
+            echo "Two things cause this, and the job log says which:"
+            echo "  * \"not permitted to create or approve pull requests\" — enable Settings →"
+            echo "    Actions → General → Workflow permissions → \"Allow GitHub Actions to"
+            echo "    create and approve pull requests\"."
+            echo "  * 401 or 403 — VENDOR_UPDATE_TOKEN has expired or lost access. PATs expire;"
+            echo "    mint a new one on the same account and re-set the secret."
+            echo "Either way the work is already on the branch, so this opens by hand:"
+            echo "  https://github.com/${{ github.repository }}/compare/${{ github.ref_name }}...${{ env.PR_BRANCH }}?expand=1"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1

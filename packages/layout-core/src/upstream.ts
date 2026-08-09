@@ -180,6 +180,49 @@ export function knownFurnitureIds(upstreamDir?: string): Set<string> {
   return new Set(furnitureCatalog(upstreamDir).keys());
 }
 
+/**
+ * The committed record of which upstream commit `vendor/pixel-agents` pins.
+ *
+ * A sibling of the checkout, not a file inside it: anything written *into* the
+ * submodule shows up as dirty in the submodule and untracked in the parent,
+ * which is exactly the kind of permanent noise nobody thanks you for.
+ * `/app/vendor/pixel-agents` -> `/app/vendor/pixel-agents.commit`, the same
+ * rule in the repo and in a container, so there is one path to reason about.
+ */
+export function upstreamCommitFile(upstreamDir?: string): string {
+  return `${resolveUpstreamDir(upstreamDir)}.commit`;
+}
+
+/**
+ * Read that record. `null` if absent or malformed — never a guess.
+ */
+function stampedCommit(dir: string): string | null {
+  try {
+    const raw = fs.readFileSync(`${dir}.commit`, 'utf-8').trim();
+    return /^[0-9a-f]{40}$/.test(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which upstream this is: version, commit, and the bundled layout revision.
+ *
+ * The commit is resolved from git when git can answer, and from the stamp file
+ * when it cannot. That second path is not a nicety — it is the *only* one that
+ * works in a container. `vendor/pixel-agents/.git` is a gitdir *pointer* whose
+ * target lives outside the Docker build context (and, under a git worktree, at
+ * an absolute path belonging to another machine entirely), so a copied vendor
+ * tree can never resolve its own commit however much of it you copy.
+ *
+ * This used to be a `PIXEL_AGENTS_COMMIT` build argument the operator had to
+ * remember to pass. Nobody remembered, so every deployed image reported
+ * `commit: null` — which silently degraded the renderer's cache key to the
+ * version alone (and the pin routinely sits several commits past a tag, so two
+ * different builds shared cached previews) and left the index unable to say
+ * which upstream it was actually serving. A file that ships with the repo and
+ * is verified by CI cannot be forgotten.
+ */
 export function upstreamPin(upstreamDir?: string): UpstreamPin {
   const dir = resolveUpstreamDir(upstreamDir);
   assertUpstream(dir);
@@ -194,12 +237,13 @@ export function upstreamPin(upstreamDir?: string): UpstreamPin {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {
-    /* not a git checkout (e.g. a release tarball) — version alone will do */
+    /* not a git checkout (a container, a release tarball) — the stamp answers */
   }
+  if (!/^[0-9a-f]{40}$/.test(commit ?? '')) commit = stampedCommit(dir);
 
   return {
     version: pkg?.version ?? null,
-    commit: /^[0-9a-f]{40}$/.test(commit ?? '') ? commit : null,
+    commit,
     layoutRevision: bundledLayoutRevision(dir),
   };
 }

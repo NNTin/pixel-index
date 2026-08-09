@@ -16,6 +16,9 @@
   "scripts": {
     "build:core": "npm run build --workspace @pixel-index/layout-core",
     "validate": "npm run build:core && node packages/layout-core/dist/cli.js seed",
+    "vendor:commit": "node tools/vendor-commit.mjs",
+    "//vendor:commit": "A container cannot read the submodule's own git, so the pin ships as a file. --check keeps it from drifting; see tools/vendor-commit.mjs.",
+    "vendor:commit:check": "node tools/vendor-commit.mjs --check",
     "//deps": "layout-core is a source dependency of the other workspaces, so its dist has to exist before anything typechecks or tests against it.",
     "pretest": "npm run build:core",
     "test": "npm run test --workspaces --if-present",

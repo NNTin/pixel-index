@@ -23,12 +23,13 @@ const ENV_KEYS = [
   'RATE_LIMIT_WINDOW_MS',
   'RATE_LIMIT_WRITE_MAX',
   'RATE_LIMIT_WRITE_WINDOW_MS',
+  'RATE_LIMIT_EXPORT_MAX',
+  'RATE_LIMIT_EXPORT_WINDOW_MS',
   'INITIAL_ADMIN_DISCORD_ID',
   'ACCESS_TOKEN_TTL_MS',
   'REFRESH_TOKEN_TTL_MS',
   'LOGIN_CODE_TTL_MS',
   'PIXEL_AGENTS_DIR',
-  'PIXEL_AGENTS_COMMIT',
   'MAX_LAYOUT_BYTES',
   'MAX_SUBMISSIONS_PER_USER_PER_DAY',
   'PUBLIC_WEB_ORIGIN_PATTERNS',
@@ -300,22 +301,23 @@ describe('loadConfig — submission limits (#8)', () => {
   });
 });
 
-describe('loadConfig — upstream pin overrides (#6 /meta)', () => {
-  it('are absent by default — auto-discovery is the normal path', () => {
+describe('loadConfig — upstream pin override (#6 /meta)', () => {
+  it('is absent by default — auto-discovery is the normal path', () => {
     setRequired();
-    const config = loadConfig();
-    expect('upstreamDir' in config).toBe(false);
-    expect('upstreamCommit' in config).toBe(false);
+    expect('upstreamDir' in loadConfig()).toBe(false);
   });
 
-  it('reads both when set — a container has no .git to discover a commit from', () => {
-    setRequired({
-      PIXEL_AGENTS_DIR: '/opt/pixel-agents',
-      PIXEL_AGENTS_COMMIT: 'a'.repeat(40),
-    });
-    const config = loadConfig();
-    expect(config.upstreamDir).toBe('/opt/pixel-agents');
-    expect(config.upstreamCommit).toBe('a'.repeat(40));
+  it('reads the directory when set', () => {
+    setRequired({ PIXEL_AGENTS_DIR: '/opt/pixel-agents' });
+    expect(loadConfig().upstreamDir).toBe('/opt/pixel-agents');
+  });
+
+  it('has no commit knob — the pin is read from the checkout, never configured', () => {
+    // A container cannot read the submodule's git, so this used to be a
+    // PIXEL_AGENTS_COMMIT build argument. Nobody passed it and every image
+    // reported commit: null; it is a committed file now (upstream.ts).
+    setRequired();
+    expect('upstreamCommit' in loadConfig()).toBe(false);
   });
 });
 
@@ -338,6 +340,15 @@ describe('loadConfig — defaults', () => {
     const config = loadConfig();
     expect(config.writeRateLimit.max).toBeLessThan(config.rateLimit.max);
   });
+
+  it('gives the bulk export a tighter bucket still', () => {
+    // It is the one read path whose cost scales with the size of the index, so
+    // it must not share the general budget that lets a caller make 300 cheap
+    // requests a minute (#26).
+    setRequired();
+    const config = loadConfig();
+    expect(config.exportRateLimit.max).toBeLessThan(config.rateLimit.max);
+  });
 });
 
 describe('loadConfig — overrides', () => {
@@ -350,6 +361,8 @@ describe('loadConfig — overrides', () => {
       RATE_LIMIT_WINDOW_MS: '5000',
       RATE_LIMIT_WRITE_MAX: '2',
       RATE_LIMIT_WRITE_WINDOW_MS: '1000',
+      RATE_LIMIT_EXPORT_MAX: '3',
+      RATE_LIMIT_EXPORT_WINDOW_MS: '2000',
     });
     const config = loadConfig();
     expect(config.port).toBe(8080);
@@ -357,6 +370,7 @@ describe('loadConfig — overrides', () => {
     expect(config.trustProxy).toBe(false);
     expect(config.rateLimit).toEqual({ max: 10, windowMs: 5000 });
     expect(config.writeRateLimit).toEqual({ max: 2, windowMs: 1000 });
+    expect(config.exportRateLimit).toEqual({ max: 3, windowMs: 2000 });
   });
 
   it('rejects a non-boolean for API_TRUST_PROXY', () => {

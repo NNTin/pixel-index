@@ -23,3 +23,8 @@ if (!window.matchMedia) {
     dispatchEvent: () => false,
   }) as unknown as MediaQueryList;
 }
+
+// Default these suites to "this is a vendor preview deployment", which is the
+// only context where the candidate-render override does anything. The test that
+// cares about the other side flips it with vi.stubGlobal.
+(globalThis as { __VENDOR_PREVIEW__?: boolean }).__VENDOR_PREVIEW__ = true;

@@ -58,14 +58,14 @@ USER pwuser
 # the very thing this image exists to run.
 RUN npm ci --prefix vendor/pixel-agents --include=dev
 
-# The copied vendor/ tree has no git linkage, so the commit cannot be read at
-# runtime. Without it the preview cache key degrades to the upstream *version*,
-# and the pin is routinely several commits past a tag — two builds would then
-# share cached previews. Pass it:
-#   docker build --build-arg PIXEL_AGENTS_COMMIT=$(git -C vendor/pixel-agents rev-parse HEAD) …
-# The service logs a warning at boot if it is missing.
-ARG PIXEL_AGENTS_COMMIT=""
-ENV PIXEL_AGENTS_COMMIT=${PIXEL_AGENTS_COMMIT}
+# Which upstream this is. The copied tree has no usable git linkage — the
+# submodule's .git is a pointer to a gitdir outside the build context — and
+# without a commit the preview cache key degrades to the upstream *version*,
+# which the pin routinely outruns by several commits, so two builds would serve
+# each other's cached previews. The pin therefore travels as this file, kept
+# equal to the gitlink by `npm run vendor:commit` and enforced in CI. The
+# service still warns at boot if it is somehow missing.
+COPY --chown=pwuser:pwuser vendor/pixel-agents.commit ./vendor/pixel-agents.commit
 
 # NODE_ENV is deliberately NOT set to production. Vite derives
 # import.meta.env.DEV from it even when running the dev server, and upstream

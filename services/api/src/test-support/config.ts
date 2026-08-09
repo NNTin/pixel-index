@@ -24,6 +24,7 @@ export function testConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
     maxSubmissionsPerUserPerDay: 20,
     rateLimit: { max: 100, windowMs: 60_000 },
     writeRateLimit: { max: 2, windowMs: 60_000 },
+    exportRateLimit: { max: 100, windowMs: 60_000 },
     ...overrides,
   };
 }

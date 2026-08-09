@@ -200,6 +200,89 @@ function cursorValueOf(sort: SortKey, row: schema.Layout): string | number {
   }
 }
 
+/** One line of the bulk export (#26). See export.ts for why `layout`, not `raw`. */
+export interface PublicLayoutExportRow {
+  slug: string;
+  sha256: string;
+  layoutRevision: number;
+  pixelAgentsVersion: string | null;
+  layout: unknown;
+}
+
+/**
+ * Every public layout, in id order, a page at a time.
+ *
+ * A generator rather than an array because this is what the bulk export
+ * streams from, and the whole point of streaming it is that neither the
+ * server nor the client ever holds the entire index in memory. Keyset on
+ * `id` (not OFFSET) for the same reason the list route uses a cursor: OFFSET
+ * silently skips or repeats rows when something is inserted mid-scan.
+ *
+ * `id` alone is a total order here — it is the primary key — so unlike
+ * listLayouts' cursor there is no tiebreaker to append.
+ */
+export async function* streamPublicLayouts(
+  db: AnyDatabase,
+  batchSize = 200,
+): AsyncGenerator<PublicLayoutExportRow> {
+  let after: string | null = null;
+
+  for (;;) {
+    const conditions = [eq(schema.layouts.visibility, 'public')];
+    if (after !== null) conditions.push(sql`${schema.layouts.id} > ${after}`);
+
+    const batch: schema.Layout[] = await db
+      .select()
+      .from(schema.layouts)
+      .where(and(...conditions))
+      .orderBy(asc(schema.layouts.id))
+      .limit(batchSize);
+
+    for (const row of batch) {
+      yield {
+        slug: row.slug,
+        sha256: row.sha256,
+        layoutRevision: row.layoutRevision,
+        pixelAgentsVersion: row.pixelAgentsVersion,
+        layout: row.layout,
+      };
+    }
+
+    if (batch.length < batchSize) return;
+    after = batch[batch.length - 1]!.id;
+  }
+}
+
+/**
+ * A cheap, exact fingerprint of the public set — what the export's ETag is
+ * built from.
+ *
+ * Exact rather than approximate on purpose: this endpoint's main consumer is
+ * the vendor-update gate (#26), which decides whether an upstream bump breaks
+ * real layouts. A fingerprint that missed an edit would let that gate revalidate
+ * a stale copy and report a verdict about layouts the index no longer holds.
+ * `count` alone misses an edit-in-place; `max(updated_at)` alone misses a
+ * deletion that happens to leave the newest row untouched — so the digest folds
+ * in every row's content hash *and* its updated_at, and `count` rides along for
+ * the `x-total-count` header the client uses to detect a truncated stream.
+ */
+export async function publicLayoutsFingerprint(
+  db: AnyDatabase,
+): Promise<{ count: number; digest: string }> {
+  const [row] = await db
+    .select({
+      count: sql<number>`count(*)::int`,
+      // md5 over the ordered (sha256, updated_at) pairs. NULL for an empty
+      // set, which would make the ETag `"null"` and compare equal to nothing —
+      // coalesce so an empty index still gets a stable, matchable ETag.
+      digest: sql<string>`coalesce(md5(string_agg(${schema.layouts.sha256} || ':' || ${schema.layouts.updatedAt}::text, ',' ORDER BY ${schema.layouts.id})), 'empty')`,
+    })
+    .from(schema.layouts)
+    .where(eq(schema.layouts.visibility, 'public'));
+
+  return { count: row?.count ?? 0, digest: row?.digest ?? 'empty' };
+}
+
 export async function countPublicLayouts(db: AnyDatabase): Promise<number> {
   const [row] = await db
     .select({ total: sql<number>`count(*)::int` })
