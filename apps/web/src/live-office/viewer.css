@@ -1,3 +1,10 @@
+@import '../../../../vendor/pixel-agents/webview-ui/src/index.css';
+
+/* Tailwind's automatic scan stops at the git-submodule boundary. Explicitly
+   include upstream JSX so ToolOverlay utilities such as -translate-x-1/2 are
+   generated instead of leaving activity panels anchored by their left edge. */
+@source '../../../../vendor/pixel-agents/webview-ui/src';
+
 html,
 body,
 #root {
