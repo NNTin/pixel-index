@@ -18,6 +18,7 @@ const manifest = (overrides: Partial<PreviewManifest> = {}): PreviewManifest => 
   candidate: { commit: 'b'.repeat(40), version: '1.5.0' },
   baseline: { commit: 'a'.repeat(40), version: '1.4.0' },
   baseUrl: 'https://renders.example.com/bbb/',
+  upstreamUrl: 'https://github.com/pixel-agents-hq/pixel-agents',
   changed: 1,
   failed: 0,
   shown: 1,

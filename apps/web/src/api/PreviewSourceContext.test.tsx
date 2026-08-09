@@ -21,6 +21,7 @@ const manifest: PreviewManifest = {
   candidate: { commit: CANDIDATE, version: '1.5.0' },
   baseline: { commit: BASELINE, version: '1.4.0' },
   baseUrl: 'https://renders.example.com/bbb/',
+  upstreamUrl: 'https://github.com/pixel-agents-hq/pixel-agents',
   changed: 1,
   failed: 1,
   shown: 2,
@@ -109,6 +110,33 @@ describe('candidate previews end to end', () => {
     // The swap is only honest if the page admits to it.
     expect(screen.getByRole('status')).toHaveTextContent(/candidate Pixel Agents bbbbbbb/);
     expect(screen.getByRole('status')).toHaveTextContent(/API is still on aaaaaaa/);
+  });
+
+  it('links each short sha to the upstream commit it names', async () => {
+    // A seven-character hash on its own is unactionable — the question it
+    // always provokes is "what actually changed upstream?".
+    stubFetch({ manifest, apiCommit: BASELINE });
+    renderWithProvider(['blue-office']);
+
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'bbbbbbb' })).toHaveAttribute(
+      'href',
+      `https://github.com/pixel-agents-hq/pixel-agents/commit/${CANDIDATE}`,
+    );
+    expect(screen.getByRole('link', { name: 'aaaaaaa' })).toHaveAttribute(
+      'href',
+      `https://github.com/pixel-agents-hq/pixel-agents/commit/${BASELINE}`,
+    );
+  });
+
+  it('falls back to plain text when the upstream repository is unknown', async () => {
+    // Better an unlinked hash than a link to nowhere.
+    stubFetch({ manifest: { ...manifest, upstreamUrl: null }, apiCommit: BASELINE });
+    renderWithProvider(['blue-office']);
+
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent(/bbbbbbb/);
+    expect(screen.queryByRole('link', { name: 'bbbbbbb' })).not.toBeInTheDocument();
   });
 
   it('says plainly when nothing changed, rather than implying a swap that did not happen', async () => {

@@ -53,6 +53,13 @@ export interface PreviewManifest {
   /** Absolute, trailing slash. Layout files resolve against it. */
   baseUrl: string;
   /**
+   * The upstream repository, so a pin can link to the commit it names. From
+   * `.gitmodules` via the workflow, so a fork links to its own upstream.
+   * `null` when it could not be read — the banner then shows the short sha as
+   * plain text rather than a link to nowhere.
+   */
+  upstreamUrl: string | null;
+  /**
    * Totals for the whole index, not for `layouts` — which holds at most `cap`
    * of them. The page has to be able to say "800 changed, here are 50" rather
    * than showing 50 and letting a reader assume that was all of them.

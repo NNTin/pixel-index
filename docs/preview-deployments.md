@@ -278,6 +278,10 @@ thumbnails cannot tell "the mechanism ran and found nothing" from "the mechanism
 It is not dismissible and not optional. Silently swapping in different pictures would only
 be lying in a new direction; the banner is what makes the swap honest.
 
+Each short sha links to the commit it names, in whichever repository `.gitmodules` points
+at — a seven-character hash on its own is unactionable, and the question it always provokes
+is "what actually changed upstream?".
+
 Two conditions must both hold. The logic lives in
 [`apps/web/src/api/previewSource.ts`](../apps/web/src/api/previewSource.ts).
 
@@ -309,6 +313,31 @@ Three properties worth knowing:
 - **It disarms itself.** The manifest is committed to the PR branch, so it *merges* along
   with the pin. Once the API is redeployed onto that same commit, the two agree and the
   override stops applying — no cleanup commit anyone has to remember.
+
+### Why `apps/web/public/vendor-preview/manifest.json` is committed
+
+It appears in every vendor-update PR's diff, which looks odd for a generated file, so it is
+worth saying what it is for. It does **two** jobs, and the second is the one that makes it
+hard to remove.
+
+1. **It carries the data the page needs** — both pins, where the renders live, the upstream
+   repository for the commit links, the counts, and which slugs have a render or failed.
+2. **Its presence is the signal that this deployment is a vendor-update preview.** The site
+   is static and has no other way to know which branch it was built from. Every other
+   deployment 404s on this path, and that 404 is what keeps the whole mechanism scoped to
+   the one PR that needs it.
+
+Job 2 is why it cannot simply be fetched from the `vendor-previews` branch instead: a file
+that is always reachable would make every deployment — production included — start
+evaluating whether to override, and the absence of a local file is precisely what stops
+that today.
+
+The cost is real, though: because it is committed to the PR branch, it **merges into `main`**,
+which is what creates the window described below. The alternative that would remove it is a
+build-time flag — Vercel exposes `VERCEL_GIT_COMMIT_REF`, so the build could decide it is a
+vendor preview and fetch the data from the branch — at the price of a host-specific
+condition. Not done: the current design is simpler and the window is short if the API is
+redeployed promptly.
 
 ### What a layout that fails on the candidate shows
 

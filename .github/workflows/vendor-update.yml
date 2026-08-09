@@ -122,17 +122,28 @@ jobs:
             echo "moved=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # Resolved once, here, rather than repeated in both diff steps: it is a
-      # long expression, and two copies of it are two chances for the seed gate
-      # and the live gate to publish manifests pointing at different places.
-      - name: Resolve where the candidate renders will be published
-        id: preview-url
+      # Every URL the report, the manifest and the title need, resolved once.
+      # Two copies of the preview expression would be two chances for the seed
+      # gate and the live gate to publish manifests pointing at different
+      # places, and the upstream URL is wanted by three separate steps.
+      - name: Resolve the URLs the report and manifest need
+        id: urls
         if: steps.candidate.outputs.moved == 'true'
         env:
           CONFIGURED: ${{ vars.VENDOR_PREVIEW_BASE_URL }}
           DEFAULT: https://raw.githubusercontent.com/${{ github.repository }}/${{ env.PREVIEW_BRANCH }}
           SHA: ${{ steps.candidate.outputs.sha }}
-        run: echo "base=${CONFIGURED:-$DEFAULT}/$SHA" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          echo "preview-base=${CONFIGURED:-$DEFAULT}/$SHA" >> "$GITHUB_OUTPUT"
+
+          # From .gitmodules, never hardcoded: the submodule URL is declared in
+          # exactly one place, and a fork pointing at its own upstream should
+          # get compare links, commit links and a title naming *that* one.
+          upstream="$(git config -f .gitmodules submodule.vendor/pixel-agents.url | sed 's/\.git$//')"
+          echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
+          # owner/repo, from either an https or an SSH remote.
+          echo "slug=$(printf '%s' "$upstream" | sed -E 's#^.*[/:]([^/]+/[^/]+)$#\1#')" >> "$GITHUB_OUTPUT"
 
       # Everything below is conditional on the pin having actually moved, so a
       # week with no upstream activity costs one cheap run and opens nothing.
@@ -175,10 +186,12 @@ jobs:
           npx tsx "$HARNESS" diff \
             --baseline gate/seed-baseline.json --candidate gate/seed-candidate.json \
             --gate "Seed gate" --report gate/seed-report.md \
-            --manifest gate/seed-manifest.json --preview-base-url "$PREVIEW_BASE_URL"
+            --manifest gate/seed-manifest.json --preview-base-url "$PREVIEW_BASE_URL" \
+            --upstream-url "$UPSTREAM_URL"
           echo "code=$?" >> "$GITHUB_OUTPUT"
         env:
-          PREVIEW_BASE_URL: ${{ steps.preview-url.outputs.base }}
+          PREVIEW_BASE_URL: ${{ steps.urls.outputs.preview-base }}
+          UPSTREAM_URL: ${{ steps.urls.outputs.upstream }}
 
       - name: Compare the two pins over the live index
         id: live-gate
@@ -191,10 +204,12 @@ jobs:
           npx tsx "$HARNESS" diff \
             --baseline gate/live-baseline.json --candidate gate/live-candidate.json \
             --gate "Live index gate" --report gate/live-report.md \
-            --manifest gate/live-manifest.json --preview-base-url "$PREVIEW_BASE_URL"
+            --manifest gate/live-manifest.json --preview-base-url "$PREVIEW_BASE_URL" \
+            --upstream-url "$UPSTREAM_URL"
           echo "code=$?" >> "$GITHUB_OUTPUT"
         env:
-          PREVIEW_BASE_URL: ${{ steps.preview-url.outputs.base }}
+          PREVIEW_BASE_URL: ${{ steps.urls.outputs.preview-base }}
+          UPSTREAM_URL: ${{ steps.urls.outputs.upstream }}
 
       # When the live gate could not run — no API URL configured, or the index
       # was unreachable — say so in the PR rather than letting its absence read
@@ -376,22 +391,18 @@ jobs:
         id: body
         if: steps.candidate.outputs.moved == 'true'
         env:
-          PREVIEW_BASE_URL: ${{ steps.preview-url.outputs.base }}
+          PREVIEW_BASE_URL: ${{ steps.urls.outputs.preview-base }}
+          UPSTREAM_URL: ${{ steps.urls.outputs.upstream }}
+          SLUG: ${{ steps.urls.outputs.slug }}
         run: |
           set -euo pipefail
-          # From .gitmodules, not hardcoded: the submodule URL is already
-          # declared in exactly one place, and a fork pointing at its own
-          # upstream should get compare links — and a title — naming *that*.
-          upstream="$(git config -f .gitmodules submodule.vendor/pixel-agents.url | sed 's/\.git$//')"
-          # owner/repo, from either an https or an SSH remote.
-          slug="$(printf '%s' "$upstream" | sed -E 's#^.*[/:]([^/]+/[^/]+)$#\1#')"
           short="$(printf '%s' "${{ steps.candidate.outputs.sha }}" | cut -c1-7)"
-          echo "title=chore(vendor): update pixel-agents to ${slug}@${short}" >> "$GITHUB_OUTPUT"
+          echo "title=chore(vendor): update pixel-agents to ${SLUG}@${short}" >> "$GITHUB_OUTPUT"
 
           npx tsx "$HARNESS" body \
             --baseline-commit "${{ steps.baseline.outputs.sha }}" \
             --candidate-commit "${{ steps.candidate.outputs.sha }}" \
-            --repo-url "$upstream" \
+            --repo-url "$UPSTREAM_URL" \
             --section gate/seed-report.md \
             --section gate/live-report.md \
             --section gate/preview-warning.md \

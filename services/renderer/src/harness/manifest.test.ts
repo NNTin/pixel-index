@@ -122,4 +122,21 @@ describe('buildPreviewManifest', () => {
   it('normalises the base URL to a trailing slash', () => {
     expect(build(verdict()).baseUrl).toBe('https://renders.example.com/bbb/');
   });
+
+  it('carries the upstream repository so the page can link a pin to its commit', () => {
+    const manifest = buildPreviewManifest({
+      baseline,
+      candidate,
+      verdict: verdict(),
+      baseUrl: 'https://renders.example.com/bbb/',
+      // Trailing slash stripped, so the page can append /commit/<sha> without
+      // producing a double slash.
+      upstreamUrl: 'https://github.com/pixel-agents-hq/pixel-agents/',
+    });
+    expect(manifest.upstreamUrl).toBe('https://github.com/pixel-agents-hq/pixel-agents');
+  });
+
+  it('reports a null upstream rather than guessing one', () => {
+    expect(build(verdict()).upstreamUrl).toBeNull();
+  });
 });

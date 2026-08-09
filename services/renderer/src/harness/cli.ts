@@ -128,6 +128,7 @@ function commandDiff(argv: string[]): number {
       candidate,
       verdict,
       baseUrl: previewBaseUrl,
+      ...(arg(argv, 'upstream-url') ? { upstreamUrl: arg(argv, 'upstream-url') } : {}),
       ...(arg(argv, 'cap') ? { cap: Number(arg(argv, 'cap')) } : {}),
     });
     writeFile(arg(argv, 'manifest')!, JSON.stringify(manifest, null, 2));

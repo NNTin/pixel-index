@@ -27,6 +27,13 @@ export interface PreviewManifest {
   baseline: { commit: string | null; version: string | null };
   /** Absolute, with a trailing slash. Each layout's `file` is resolved against it. */
   baseUrl: string;
+  /**
+   * The upstream repository, so the page can link a pin to the commit it names.
+   * From `.gitmodules` rather than written in, so a fork linking at its own
+   * upstream points there. `null` when it could not be read — the page then
+   * shows the short sha as plain text rather than a link to nowhere.
+   */
+  upstreamUrl: string | null;
   /** How many layouts render differently under the candidate, in total. */
   changed: number;
   /** How many fail under the candidate, in total. */
@@ -69,9 +76,10 @@ export function buildPreviewManifest(options: {
   candidate: PinRun;
   verdict: Verdict;
   baseUrl: string;
+  upstreamUrl?: string | null;
   cap?: number;
 }): PreviewManifest {
-  const { baseline, candidate, verdict, baseUrl, cap = PUBLISH_CAP } = options;
+  const { baseline, candidate, verdict, baseUrl, upstreamUrl = null, cap = PUBLISH_CAP } = options;
 
   const layouts: PreviewManifest['layouts'] = {};
   let shown = 0;
@@ -99,6 +107,7 @@ export function buildPreviewManifest(options: {
     candidate: { commit: candidate.pin.commit, version: candidate.pin.version },
     baseline: { commit: baseline.pin.commit, version: baseline.pin.version },
     baseUrl: baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`,
+    upstreamUrl: upstreamUrl === null ? null : upstreamUrl.replace(/\/$/, ''),
     // The totals are the whole population, not the sample: the page has to be
     // able to say "800 changed, here are 50" rather than quietly implying 50.
     changed: verdict.visuallyChanged.length,
