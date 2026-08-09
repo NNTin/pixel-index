@@ -26,7 +26,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
-import type { ApiConfig } from '../config.js';
+import { allowsWebOrigin, type ApiConfig } from '../config.js';
 import { ApiError } from '../errors.js';
 import { requireAuth } from './context.js';
 import {
@@ -54,13 +54,20 @@ export interface AuthRoutesDeps {
   db: AnyDatabase;
 }
 
-/** Only an allowlisted origin, so this can't become an open redirect. */
-function resolveReturnTo(candidate: string | undefined, webOrigins: string[]): string {
-  const fallback = `${webOrigins[0]}/`;
+/**
+ * Only an allowlisted origin, so this can't become an open redirect.
+ *
+ * Shares `allowsWebOrigin` with the CORS check (server.ts) rather than
+ * testing `webOrigins` directly: a preview-deploy origin matched by pattern
+ * has to clear *both*, or login from a Vercel preview redirects back
+ * successfully and then fails on the first credentialed API call.
+ */
+function resolveReturnTo(candidate: string | undefined, config: ApiConfig): string {
+  const fallback = `${config.webOrigins[0]}/`;
   if (!candidate) return fallback;
   try {
     const url = new URL(candidate);
-    if ((url.protocol === 'http:' || url.protocol === 'https:') && webOrigins.includes(url.origin)) {
+    if ((url.protocol === 'http:' || url.protocol === 'https:') && allowsWebOrigin(config, url.origin)) {
       return url.toString();
     }
   } catch {
@@ -124,7 +131,7 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
     writeRateLimitConfig(config),
     async (request, reply) => {
       const query = request.query as { returnTo?: string };
-      const returnTo = resolveReturnTo(query.returnTo, config.webOrigins);
+      const returnTo = resolveReturnTo(query.returnTo, config);
       const state = randomBytes(24).toString('base64url');
       const { verifier, challenge } = generatePkcePair();
 

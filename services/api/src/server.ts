@@ -18,7 +18,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { registerAuthContext } from './auth/context.js';
 import { registerAuthRoutes } from './auth/routes.js';
-import type { ApiConfig } from './config.js';
+import { allowsWebOrigin, type ApiConfig } from './config.js';
 import type { AnyDatabase } from './db/client.js';
 import type { Queryable } from './db/pool.js';
 import { registerErrorHandling } from './errors.js';
@@ -69,7 +69,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
     // No `origin` header (curl, server-to-server, same-origin) is not a CORS
     // request at all — nothing to check. A browser always sends one.
     origin: (origin, callback) => {
-      callback(null, origin === undefined || config.webOrigins.includes(origin));
+      callback(null, origin === undefined || allowsWebOrigin(config, origin));
     },
     credentials: true,
     // Without this, @fastify/cors derives the preflight's Allow-Methods

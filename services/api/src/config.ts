@@ -15,6 +15,12 @@ export interface RateLimitBucket {
   windowMs: number;
 }
 
+/** A compiled `PUBLIC_WEB_ORIGIN_PATTERNS` entry. `source` is kept for logs and errors. */
+export interface OriginPattern {
+  source: string;
+  matcher: RegExp;
+}
+
 export interface ApiConfig {
   host: string;
   port: number;
@@ -35,6 +41,15 @@ export interface ApiConfig {
   rendererUrl: string;
   /** Exact origins allowed to call the API with credentials. No wildcards. */
   webOrigins: string[];
+  /**
+   * Opt-in, narrowly scoped patterns for origins that cannot be listed
+   * exactly because the platform mints a fresh hostname per deploy — a
+   * Vercel PR preview is `<project>-<build-hash>-<team>.vercel.app` (#28).
+   * Empty unless `PUBLIC_WEB_ORIGIN_PATTERNS` is set; see
+   * `parseOriginPattern` for what a pattern is allowed to look like and
+   * `allowsWebOrigin` for how one is matched.
+   */
+  webOriginPatterns: OriginPattern[];
 
   /**
    * Where the pinned upstream lives, for `GET /api/v1/meta`'s `pixelAgents`
@@ -190,6 +205,128 @@ function requireOriginList(name: string, problems: string[]): string[] {
   return valid;
 }
 
+/**
+ * Stands in for the `*` while a pattern is checked with `new URL()`. Any
+ * ordinary hostname label works; this one is deliberately unlikely to collide
+ * with a literal the operator actually wrote.
+ */
+const WILDCARD_PROBE = 'wildcardprobe';
+
+/** What `*` is allowed to expand to: one hostname label's worth of characters, never a dot. */
+const WILDCARD_EXPANSION = '[a-z0-9-]+';
+
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Compiles one `PUBLIC_WEB_ORIGIN_PATTERNS` entry.
+ *
+ * This exists because a Vercel PR preview gets a fresh hostname on every
+ * single deploy (`<project>-<build-hash>-<team>.vercel.app`), so there is no
+ * exact origin to put in `PUBLIC_WEB_ORIGIN` — and without one, every
+ * credentialed call from a preview fails CORS (#28). It is deliberately
+ * *opt-in* and deliberately narrow, because anything matched here can make
+ * credentialed cross-origin requests:
+ *
+ *   - https only. A wildcard over cleartext is not defensible, and every
+ *     platform that mints per-deploy hostnames serves them over TLS anyway.
+ *   - Exactly one `*`, and it only ever expands within a single hostname
+ *     label — never across a dot, so `https://pixel-index-*.example.com`
+ *     can never match `https://evil.attacker.example.com`.
+ *   - The wildcard label must carry at least one literal character. That is
+ *     what rules out `https://*.vercel.app`, which would hand credentialed
+ *     access to every project on a shared platform domain rather than yours.
+ *
+ * The residual risk is real and worth stating plainly: anyone who can deploy
+ * a hostname matching your pattern on that shared domain gets the same
+ * access. Pin as much literal text as your platform allows — on Vercel that
+ * means including your team slug, which is not something a stranger can mint
+ * (`https://pixel-index-*-your-team.vercel.app`).
+ */
+function parseOriginPattern(name: string, pattern: string, problems: string[]): OriginPattern | null {
+  const wildcards = pattern.split('*').length - 1;
+  if (wildcards !== 1) {
+    problems.push(
+      `${name} entry ${JSON.stringify(pattern)} must contain exactly one "*" (got ${wildcards})`,
+    );
+    return null;
+  }
+
+  // Substituting a real label first means one `new URL()` catches every way a
+  // pattern can be malformed — bad scheme, a path, a query, a trailing slash.
+  const probe = pattern.replace('*', WILDCARD_PROBE);
+  let url: URL;
+  try {
+    url = new URL(probe);
+  } catch {
+    problems.push(`${name} entry ${JSON.stringify(pattern)} is not a valid origin`);
+    return null;
+  }
+  if (url.origin !== probe) {
+    problems.push(
+      `${name} entry ${JSON.stringify(pattern)} must be an origin only (no path, query or trailing slash)`,
+    );
+    return null;
+  }
+  if (url.protocol !== 'https:') {
+    problems.push(`${name} entry ${JSON.stringify(pattern)} must use https`);
+    return null;
+  }
+
+  const wildcardLabel = url.hostname.split('.').find((label) => label.includes(WILDCARD_PROBE));
+  if (wildcardLabel === undefined) {
+    // The `*` landed somewhere that is not a hostname label at all — a port,
+    // say — where it cannot be matched safely.
+    problems.push(
+      `${name} entry ${JSON.stringify(pattern)} must place "*" inside a hostname label`,
+    );
+    return null;
+  }
+  if (wildcardLabel === WILDCARD_PROBE) {
+    problems.push(
+      `${name} entry ${JSON.stringify(pattern)} is too broad: "*" must not be a whole hostname ` +
+        'label. Pin literal text around it (e.g. "https://my-app-*-my-team.vercel.app") — a ' +
+        'whole-label wildcard grants credentialed access to every deployment on a shared domain.',
+    );
+    return null;
+  }
+
+  // `url.origin`, not the raw pattern — the two are identical by the check
+  // above, and using the parsed one makes it explicit that the matcher is
+  // built from the same normalized form a browser's `Origin` header takes.
+  const [before, after] = url.origin.split(WILDCARD_PROBE) as [string, string];
+  const matcher = new RegExp(`^${escapeRegExp(before)}${WILDCARD_EXPANSION}${escapeRegExp(after)}$`);
+  return { source: pattern, matcher };
+}
+
+/** Optional counterpart to `requireOriginList` — absent means "no patterns", not an error. */
+function optionalOriginPatterns(name: string, problems: string[]): OriginPattern[] {
+  const raw = optionalEnv(name);
+  if (raw === undefined) return [];
+
+  const patterns: OriginPattern[] = [];
+  for (const entry of raw.split(',').map((part) => part.trim()).filter((part) => part.length > 0)) {
+    const parsed = parseOriginPattern(name, entry, problems);
+    if (parsed) patterns.push(parsed);
+  }
+  return patterns;
+}
+
+/**
+ * The one place that answers "may this browser origin call us with
+ * credentials?" — CORS (server.ts) and the OAuth `returnTo` allowlist
+ * (auth/routes.ts) have to agree, or logging in from a preview deploy
+ * succeeds at the redirect and then fails at the first API call.
+ */
+export function allowsWebOrigin(
+  config: Pick<ApiConfig, 'webOrigins' | 'webOriginPatterns'>,
+  origin: string,
+): boolean {
+  if (config.webOrigins.includes(origin)) return true;
+  return config.webOriginPatterns.some((pattern) => pattern.matcher.test(origin));
+}
+
 /** The single-value form of `requireOriginList` — exactly one origin, nothing else. */
 function requireOrigin(name: string, problems: string[]): string {
   const raw = requireEnv(name, problems);
@@ -241,6 +378,7 @@ export function loadConfig(): ApiConfig {
     databaseUrl: requireUrl('DATABASE_URL', problems, ['postgres', 'postgresql']),
     rendererUrl: requireUrl('RENDERER_URL', problems, ['http', 'https']),
     webOrigins: requireOriginList('PUBLIC_WEB_ORIGIN', problems),
+    webOriginPatterns: optionalOriginPatterns('PUBLIC_WEB_ORIGIN_PATTERNS', problems),
 
     ...(optionalEnv('PIXEL_AGENTS_DIR') ? { upstreamDir: optionalEnv('PIXEL_AGENTS_DIR') } : {}),
     ...(optionalEnv('PIXEL_AGENTS_COMMIT')

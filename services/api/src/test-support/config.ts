@@ -11,6 +11,7 @@ export function testConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
     databaseUrl: 'postgres://user:pass@localhost:5432/pixel_index',
     rendererUrl: 'http://renderer.internal:3000',
     webOrigins: ['https://pixel-index.example', 'https://preview.pixel-index.example'],
+    webOriginPatterns: [],
     discordClientId: 'client-id',
     discordClientSecret: 'client-secret',
     publicApiOrigin: 'https://api.pixel-index.example',

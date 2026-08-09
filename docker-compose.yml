@@ -49,6 +49,9 @@ services:
       DATABASE_URL: "postgres://${POSTGRES_USER:-pixel_index}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}@postgres:5432/${POSTGRES_DB:-pixel_index}"
       RENDERER_URL: "${RENDERER_URL:-http://renderer:3000}"
       PUBLIC_WEB_ORIGIN: "${PUBLIC_WEB_ORIGIN:?PUBLIC_WEB_ORIGIN is required, see .env.example}"
+      # Optional, and empty by default — only a platform that mints a fresh
+      # hostname per deploy (Vercel PR previews) needs it. See .env.example.
+      PUBLIC_WEB_ORIGIN_PATTERNS: "${PUBLIC_WEB_ORIGIN_PATTERNS:-}"
       PUBLIC_API_ORIGIN: "${PUBLIC_API_ORIGIN:?PUBLIC_API_ORIGIN is required, see .env.example}"
       DISCORD_CLIENT_ID: "${DISCORD_CLIENT_ID:?DISCORD_CLIENT_ID is required, see .env.example}"
       DISCORD_CLIENT_SECRET: "${DISCORD_CLIENT_SECRET:?DISCORD_CLIENT_SECRET is required, see .env.example}"

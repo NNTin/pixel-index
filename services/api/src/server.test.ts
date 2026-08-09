@@ -108,6 +108,25 @@ describe('CORS', () => {
     expect(response.headers['access-control-allow-origin']).toBeUndefined();
   });
 
+  it('reflects a preview origin matched by pattern — a Vercel deploy hostname is never listable (#28)', async () => {
+    const app = await build(
+      testConfig({
+        webOriginPatterns: [
+          { source: 'https://pixel-index-*-acme.vercel.app', matcher: /^https:\/\/pixel-index-[a-z0-9-]+-acme\.vercel\.app$/ },
+        ],
+      }),
+    );
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { origin: 'https://pixel-index-699uclg0a-acme.vercel.app' },
+    });
+    expect(response.headers['access-control-allow-origin']).toBe(
+      'https://pixel-index-699uclg0a-acme.vercel.app',
+    );
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
+  });
+
   it('answers a preflight for an allowlisted origin', async () => {
     const app = await build();
     const response = await app.inject({

@@ -78,6 +78,7 @@ is ever compiled in; see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#wha
 | `DATABASE_URL` | yes | — | `postgres://` or `postgresql://` |
 | `RENDERER_URL` | yes | — | The renderer (#4), proxied by `/layouts/:slug/{preview,thumbnail}.png` |
 | `PUBLIC_WEB_ORIGIN` | yes | — | Comma-separated **exact origins** allowed to call the API with credentials |
+| `PUBLIC_WEB_ORIGIN_PATTERNS` | | — | Opt-in, narrowly scoped wildcards for frontends whose hostname is minted per deploy (Vercel PR previews) — see below |
 | `DISCORD_CLIENT_ID` | yes | — | From the Discord Developer Portal |
 | `DISCORD_CLIENT_SECRET` | yes | — | Same |
 | `PUBLIC_API_ORIGIN` | yes | — | This API's own externally-reachable origin. `${this}/callback` **must exactly match** the redirect URI registered in the Discord Developer Portal — Discord rejects a mismatch, and mismatches fail late and confusingly |
@@ -112,6 +113,23 @@ allowlisted origin gets `Access-Control-Allow-Credentials: true`; anything else 
 CORS headers at all, which is what makes a real browser block the response from ever
 reaching page JS. A request with **no** `Origin` header (curl, server-to-server) is not a
 CORS request and is unaffected either way.
+
+### The one case exact origins cannot cover: per-deploy preview hostnames
+
+A Vercel PR preview is served from a hostname minted for that build
+(`https://<project>-<build-hash>-<team>.vercel.app`), so there is nothing to put in
+`PUBLIC_WEB_ORIGIN` and every credentialed call from a preview fails CORS (#28).
+`PUBLIC_WEB_ORIGIN_PATTERNS` is the opt-in escape hatch, and it is validated at boot to
+stay narrow: **https only**, **exactly one `*` per pattern**, the `*` **never crosses a
+dot** (so it substitutes for part of a single hostname label), and a **whole-label
+wildcard is rejected** — `https://*.vercel.app` fails to boot, because it would grant
+credentialed access to every project on a shared platform domain rather than yours.
+
+`allowsWebOrigin()` in `config.ts` is the single answer to "may this origin call us with
+credentials?", used by both the CORS check and the OAuth `returnTo` allowlist — if those
+two disagreed, login from a preview would redirect back successfully and then fail on the
+first API call. The residual risk and how to scope a pattern tightly are covered in
+[`docs/deployment.md`](../../docs/deployment.md#public_web_origin_patterns-and-its-trade-off).
 
 ## One error envelope
 
@@ -198,7 +216,7 @@ the part that actually crosses origins — and carries no cookie at all.
 
 | Route | Auth | Purpose |
 |---|---|---|
-| `GET /api/v1/auth/discord/login?returnTo=` | — | Starts the flow. `returnTo` must be one of `PUBLIC_WEB_ORIGIN`; anything else silently falls back to the first configured origin rather than becoming an open redirect |
+| `GET /api/v1/auth/discord/login?returnTo=` | — | Starts the flow. `returnTo` must be an allowed web origin (`PUBLIC_WEB_ORIGIN`, or a `PUBLIC_WEB_ORIGIN_PATTERNS` match); anything else silently falls back to the first configured origin rather than becoming an open redirect |
 | `GET /callback` | — | **Fixed path, not under `/api/v1`.** Must exactly match what is registered in the Discord Developer Portal |
 | `POST /api/v1/auth/token` `{code}` | — | Exchanges a login code for a session. Single-use; a replay is a 401 |
 | `POST /api/v1/auth/refresh` `{refreshToken}` | — | Rotates to a new pair. A reused (already-rotated) token revokes the whole session family — see below |

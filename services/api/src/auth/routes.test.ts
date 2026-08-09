@@ -131,6 +131,44 @@ describe('GET /api/v1/auth/discord/login', () => {
     const location = callback.headers.location as string;
     expect(location.startsWith('https://frontend.example/')).toBe(true);
   });
+
+  // The CORS allowlist and this redirect allowlist share `allowsWebOrigin`
+  // for exactly this case: without it, login from a Vercel preview (#28)
+  // would bounce the visitor back to production instead of the preview they
+  // started from — or, worse, look fine and then fail on the first API call.
+  it('honours a returnTo matched by a preview origin pattern, not just an exact origin', async () => {
+    const previewApp = await buildServer({
+      config: {
+        ...config,
+        webOriginPatterns: [
+          { source: 'https://pixel-index-*-acme.vercel.app', matcher: /^https:\/\/pixel-index-[a-z0-9-]+-acme\.vercel\.app$/ },
+        ],
+      },
+      pool: fakePool,
+      db: harness.db,
+    });
+    try {
+      const preview = 'https://pixel-index-699uclg0a-acme.vercel.app';
+      const response = await previewApp.inject({
+        method: 'GET',
+        url: `/api/v1/auth/discord/login?returnTo=${encodeURIComponent(`${preview}/app`)}`,
+      });
+      const setCookie = response.headers['set-cookie'];
+      const cookieHeader = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+      const authorizeUrl = new URL(response.headers.location as string);
+      const state = authorizeUrl.searchParams.get('state')!;
+
+      vi.stubGlobal('fetch', fakeDiscordFetch());
+      const callback = await previewApp.inject({
+        method: 'GET',
+        url: `/callback?code=c&state=${state}`,
+        headers: { cookie: cookieHeader!.split(';')[0]! },
+      });
+      expect((callback.headers.location as string).startsWith(`${preview}/app`)).toBe(true);
+    } finally {
+      await previewApp.close();
+    }
+  });
 });
 
 describe('GET /callback', () => {
