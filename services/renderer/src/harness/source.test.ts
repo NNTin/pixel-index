@@ -88,6 +88,15 @@ describe('fetchExportedLayouts', () => {
     ).rejects.toThrow(HarnessInfraError);
   });
 
+  it('diagnoses a 404 as an index that predates the endpoint', async () => {
+    // Hit for real on the first live run: the export ships with this gate, so
+    // an index that 404s is running an older build. Reported as "could not be
+    // read" it sends someone hunting for a misconfigured variable that is fine.
+    await expect(
+      fetchExportedLayouts('https://api.example.com', async () => new Response('', { status: 404 })),
+    ).rejects.toThrow(/running a build from before it existed — redeploy the API/);
+  });
+
   it('tolerates a trailing slash on the base URL', async () => {
     let seen = '';
     await fetchExportedLayouts('https://api.example.com/', async (url) => {

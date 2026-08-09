@@ -95,9 +95,13 @@ jobs:
           API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
         run: |
           set +e
+          # Captured, not just printed: when this fails the PR has to be able to
+          # say WHY, and "could not be read" sends someone hunting for a broken
+          # variable that is fine. PIPESTATUS because `tee` would otherwise be
+          # the exit code we read.
           npx tsx "$HARNESS" run --source api --api-url "$API_BASE_URL" \
-            --out gate/live-baseline.json
-          echo "code=$?" >> "$GITHUB_OUTPUT"
+            --out gate/live-baseline.json 2>&1 | tee gate/live-baseline.log
+          echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       # ── Move the pin ──────────────────────────────────────────────────────
       - name: Move the pin to upstream HEAD
@@ -150,8 +154,8 @@ jobs:
         run: |
           set +e
           npx tsx "$HARNESS" run --source api --api-url "$API_BASE_URL" \
-            --out gate/live-candidate.json --png-dir gate/png/live
-          echo "code=$?" >> "$GITHUB_OUTPUT"
+            --out gate/live-candidate.json --png-dir gate/png/live 2>&1 | tee gate/live-candidate.log
+          echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       # ── Verdicts ──────────────────────────────────────────────────────────
       #
@@ -199,6 +203,10 @@ jobs:
           API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
         run: |
           mkdir -p gate
+          # The harness already wrote a precise diagnosis; repeat it verbatim
+          # rather than paraphrasing it into something vaguer.
+          reason="$(cat gate/live-*.log 2>/dev/null \
+            | sed -n 's/^Infrastructure failure (not a vendor verdict): //p' | head -1)"
           {
             echo "### ⏭️ Live index gate: not run"
             echo
@@ -206,9 +214,14 @@ jobs:
               echo "No \`PRODUCTION_API_BASE_URL\` repository variable is set, so only the"
               echo "committed \`seed/\` layouts were checked. Real submissions were not."
             else
-              echo "The index at \`PRODUCTION_API_BASE_URL\` could not be read, so only the"
-              echo "committed \`seed/\` layouts were checked. **This is an infrastructure"
-              echo "failure, not a verdict about the vendor** — see the job log."
+              echo "Only the committed \`seed/\` layouts were checked — real submissions were not."
+              echo
+              echo "\`PRODUCTION_API_BASE_URL\` **is** set (\`$API_BASE_URL\`) and was used; the"
+              echo "index behind it could not be read:"
+              echo
+              echo "> ${reason:-see the job log}"
+              echo
+              echo "**This is an infrastructure failure, not a verdict about the vendor.**"
             fi
             echo
           } > gate/live-report.md

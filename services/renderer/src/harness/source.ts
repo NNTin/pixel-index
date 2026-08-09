@@ -53,6 +53,18 @@ export async function fetchExportedLayouts(
   } catch (error) {
     throw new HarnessInfraError(`Could not reach the index at ${url}.`, error);
   }
+  if (response.status === 404) {
+    // Worth its own message rather than folding into the generic non-2xx case:
+    // a 404 *specifically here* almost never means "wrong URL", it means the
+    // index is running a build from before this endpoint existed. Said plainly,
+    // that is a one-line fix; said as "could not be read", it sends someone
+    // looking for a misconfigured variable that is perfectly fine.
+    throw new HarnessInfraError(
+      `The index at ${apiBaseUrl} has no ${new URL(url).pathname} (404). ` +
+        'That endpoint ships with the vendor-update gate, so the API is almost ' +
+        'certainly running a build from before it existed — redeploy the API.',
+    );
+  }
   if (!response.ok) {
     throw new HarnessInfraError(`The index answered ${response.status} for ${url}.`);
   }
