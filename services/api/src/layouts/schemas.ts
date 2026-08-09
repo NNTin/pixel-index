@@ -138,8 +138,9 @@ export const metaResponseSchema = {
         required: ['version', 'commit', 'layoutRevision'],
       },
       count: { type: 'integer' },
+      discordInviteUrl: { type: ['string', 'null'] },
     },
-    required: ['schemaVersion', 'generatedAt', 'pixelAgents', 'count'],
+    required: ['schemaVersion', 'generatedAt', 'pixelAgents', 'count', 'discordInviteUrl'],
   },
 } as const;
 

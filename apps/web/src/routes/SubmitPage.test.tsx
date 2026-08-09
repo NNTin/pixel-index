@@ -21,15 +21,28 @@ const AUTH_RESPONSE = {
   user: { id: '1', username: 'someone', displayName: 'someone', avatarUrl: null, role: 'user', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null } },
 };
 
+// The invite is public — sourced from /meta, not from the (auth-gated) /me
+// response — so every test that doesn't care about it defaults to "unset"
+// rather than accidentally asserting on a stale per-user value.
+const META_RESPONSE = {
+  schemaVersion: 1,
+  generatedAt: '2026-01-01T00:00:00.000Z',
+  pixelAgents: { version: null, commit: null, layoutRevision: 0 },
+  count: 0,
+  discordInviteUrl: null as string | null,
+};
+
 function stubFetch(
   handleOther: (url: string, init?: RequestInit) => Response,
   authResponse: unknown = AUTH_RESPONSE,
+  metaResponse: unknown = META_RESPONSE,
 ) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/auth/token')) return Response.json(authResponse);
+      if (url.includes('/meta')) return Response.json(metaResponse);
       return handleOther(url, init);
     }),
   );
@@ -64,13 +77,10 @@ describe('SubmitPage', () => {
         ...AUTH_RESPONSE,
         user: {
           ...AUTH_RESPONSE.user,
-          submission: {
-            allowed: false,
-            reason: 'discord_membership_required' as const,
-            inviteUrl: 'https://discord.gg/pixel-index',
-          },
+          submission: { allowed: false, reason: 'discord_membership_required' as const, inviteUrl: null },
         },
       },
+      { ...META_RESPONSE, discordInviteUrl: 'https://discord.gg/pixel-index' },
     );
     renderSubmit();
     const invite = await screen.findByRole('link', { name: 'Join the Discord server' });
@@ -80,6 +90,11 @@ describe('SubmitPage', () => {
 
   it('prompts a logged-out visitor with the same restriction message as a nonmember', async () => {
     location.hash = '';
+    stubFetch(
+      () => new Response('{}', { status: 200 }),
+      AUTH_RESPONSE,
+      { ...META_RESPONSE, discordInviteUrl: 'https://discord.gg/pixel-index' },
+    );
     renderSubmit();
     expect(
       await screen.findByText(
@@ -87,27 +102,28 @@ describe('SubmitPage', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Log in with Discord' })).toBeInTheDocument();
+    // The invite is public — a logged-out visitor sees it too, not just a nonmember.
+    const invite = await screen.findByRole('link', { name: 'Join the Discord server' });
+    expect(invite).toHaveAttribute('href', 'https://discord.gg/pixel-index');
     expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument();
   });
 
-  it('offers Discord reconnection when the retained grant is unavailable', async () => {
+  it('offers Discord reconnection when the retained grant is unavailable, alongside the public invite', async () => {
     stubFetch(
       () => new Response('{}', { status: 200 }),
       {
         ...AUTH_RESPONSE,
         user: {
           ...AUTH_RESPONSE.user,
-          submission: {
-            allowed: false,
-            reason: 'discord_reauthorization_required' as const,
-            inviteUrl: null,
-          },
+          submission: { allowed: false, reason: 'discord_reauthorization_required' as const, inviteUrl: null },
         },
       },
+      { ...META_RESPONSE, discordInviteUrl: 'https://discord.gg/pixel-index' },
     );
     renderSubmit();
     expect(await screen.findByRole('button', { name: 'Reconnect Discord' })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Join the Discord server' })).not.toBeInTheDocument();
+    const invite = await screen.findByRole('link', { name: 'Join the Discord server' });
+    expect(invite).toHaveAttribute('href', 'https://discord.gg/pixel-index');
   });
 
   it('links the content policy before publishing (#11)', async () => {

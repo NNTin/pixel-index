@@ -38,6 +38,32 @@ describe('GET /api/v1/meta', () => {
     expect(new Date(body.generatedAt).toString()).not.toBe('Invalid Date');
   });
 
+  it('reports no invite URL when Discord guild membership is not configured', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/v1/meta' });
+    expect(response.json().discordInviteUrl).toBeNull();
+  });
+
+  it('reports the invite URL unauthenticated, when configured — joining must not require already being signed in', async () => {
+    const guildedApp = await buildServer({
+      config: testConfig({
+        discordGuild: {
+          id: 'guild-id',
+          inviteUrl: 'https://discord.gg/pixel-index',
+          moderatorRoleIds: [],
+          oauthTokenEncryptionKey: Buffer.alloc(32, 9).toString('base64'),
+        },
+      }),
+      pool: fakePool,
+      db: harness.db,
+    });
+    try {
+      const response = await guildedApp.inject({ method: 'GET', url: '/api/v1/meta' });
+      expect(response.json().discordInviteUrl).toBe('https://discord.gg/pixel-index');
+    } finally {
+      await guildedApp.close();
+    }
+  });
+
   it('count matches the number of public layouts, excluding hidden ones', async () => {
     const before = (await app.inject({ method: 'GET', url: '/api/v1/meta' })).json().count;
     await insertLayout(harness.db, { slug: 'meta-count-public' });

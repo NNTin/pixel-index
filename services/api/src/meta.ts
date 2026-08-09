@@ -35,6 +35,9 @@ export function registerMetaRoutes(app: FastifyInstance, config: ApiConfig, db: 
       generatedAt: new Date().toISOString(),
       pixelAgents: pin,
       count,
+      // Public by design — the invite is how someone joins the community in
+      // the first place, so it must not require already being signed in.
+      discordInviteUrl: config.discordGuild?.inviteUrl ?? null,
     };
   });
 }

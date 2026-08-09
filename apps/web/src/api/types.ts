@@ -80,6 +80,7 @@ export interface MetaResponse {
     layoutRevision: number;
   };
   count: number;
+  discordInviteUrl: string | null;
 }
 
 export interface TagUsage {
