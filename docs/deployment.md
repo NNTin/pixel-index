@@ -135,6 +135,13 @@ candidate pin, so the PR can say exactly which of *your* layouts a bump would br
 Leave it unset and the job still runs, but only over the committed `seed/` layouts: it
 reports that it did so rather than passing silently on a corpus of four.
 
+The static renderer gate is not the only candidate-pin check. The workflow also builds
+the web SPA at its real Pages subpath and drives the layout detail page in Chromium with
+the candidate's bundled default layout. It requires a painted canvas, upstream activity
+panels, working agent controls, and persisted live/thumbnail mode. A failure is included
+in the update PR, uploaded with browser diagnostics, and fails the workflow at the final
+gate even when every static PNG still renders.
+
 **Candidate previews need no configuration at all.** That same job publishes the renders
 it already produced to an orphan branch, `vendor-previews`, force-pushed as a single
 commit so old sets become unreachable and the repository does not grow a PNG set a day

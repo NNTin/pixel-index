@@ -67,6 +67,7 @@ src/routes/LayoutDetailPage.tsx  live/static office, formatted layout.json, full
 src/live-office/                isolated iframe entry: thin wrapper around the pinned
                                   OfficeState/OfficeCanvas/ToolOverlay renderer
 build/liveOfficeAssets.ts       build-time upstream sprite decode, content-addressed by pin
+e2e/live-preview.mjs            production-build Chromium guard for upstream pin changes
 src/routes/SubmitPage.tsx        paste/upload layout.json, "Check preview" before "Publish"
 src/routes/MyLayoutsPage.tsx     list/edit/replace/delete what you own, visibility + reason
 src/routes/ModerationPage.tsx    every layout, any visibility; hide/remove/restore with a reason
@@ -164,7 +165,9 @@ deliberately deferred rather than built speculatively.
 - **The live office is build-time pinned.** It is not an iframe to an external service and
   it never contacts the internal renderer. Vite compiles selected Pixel Agents modules and
   decodes its sprites into immutable JSON sidecars keyed by `vendor/pixel-agents.commit`.
-  The iframe isolates upstream's Tailwind/base styles from the gallery SPA.
+  The iframe isolates upstream's Tailwind/base styles from the gallery SPA. Run
+  `npm run test:e2e` in this workspace to build the Pages-subpath bundle and exercise the
+  pinned default layout, canvas pixels, activity panels, controls and persistence in Chromium.
 
 ## Deploys
 

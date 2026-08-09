@@ -159,6 +159,13 @@ export default defineConfig(({ mode }) => {
       __VENDOR_PREVIEW__: JSON.stringify(isVendorPreviewBuild),
       __PIXEL_AGENTS_COMMIT__: JSON.stringify(PIXEL_AGENTS_COMMIT),
     },
+    // The vendor-update workflow installs the submodule's own dependencies
+    // before exercising this build. Without dedupe, source imported across
+    // that package boundary can resolve a second React and fail only in the
+    // exact candidate-pin job this viewer is meant to protect.
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+    },
     // GitHub Pages project sites are served from a repo-name subpath
     // (https://<user>.github.io/<repo>/), which has to be baked into every
     // asset URL at build time — there is no way to detect it at runtime.

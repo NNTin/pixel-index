@@ -83,11 +83,12 @@ git submodule update --init --recursive
 ```bash
 npm ci
 (cd vendor/pixel-agents && npm ci)
-npx playwright install chromium   # needed by services/renderer and its tests
+npx playwright install chromium   # needed by renderer tests and the web live-preview E2E
 
 npm run validate      # seed/ against the pinned Pixel Agents
 npm test              # every workspace's unit tests
 npm run typecheck      # every workspace
+npm run test:e2e --workspace @pixel-index/web  # pinned live viewer in a production build
 
 # The full stack (Postgres + api + renderer + web), for anything beyond
 # layout-core's own unit tests:

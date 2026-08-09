@@ -5,6 +5,9 @@ dist/
 
 node_modules/
 
+# Browser-test diagnostics (screenshots are printed on failure, never committed).
+test-results/
+
 # Local deployment config
 .env
 .env.local
