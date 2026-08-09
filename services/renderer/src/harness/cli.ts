@@ -78,12 +78,21 @@ async function commandRun(argv: string[]): Promise<number> {
   const label = source === 'api' ? `the live index (${layouts.length} layouts)` : 'seed/';
   console.log(`Rendering ${layouts.length} layout(s) from ${label}…`);
 
+  // Each flag is read once into a local. Reading it twice — once to test, once
+  // to use — is what stopped TypeScript narrowing the spread to a defined
+  // value, so under exactOptionalPropertyTypes an absent flag would have been
+  // passed through as an explicit `undefined`.
+  const upstreamDir = arg(argv, 'upstream-dir');
+  const pngDir = arg(argv, 'png-dir');
+  const concurrency = arg(argv, 'concurrency');
+  const timeoutMs = arg(argv, 'timeout-ms');
+
   const run = await runPin(layouts, {
     source: label,
-    ...(arg(argv, 'upstream-dir') ? { upstreamDir: arg(argv, 'upstream-dir') } : {}),
-    ...(arg(argv, 'png-dir') ? { pngDir: arg(argv, 'png-dir') } : {}),
-    ...(arg(argv, 'concurrency') ? { concurrency: Number(arg(argv, 'concurrency')) } : {}),
-    ...(arg(argv, 'timeout-ms') ? { timeoutMs: Number(arg(argv, 'timeout-ms')) } : {}),
+    ...(upstreamDir ? { upstreamDir } : {}),
+    ...(pngDir ? { pngDir } : {}),
+    ...(concurrency ? { concurrency: Number(concurrency) } : {}),
+    ...(timeoutMs ? { timeoutMs: Number(timeoutMs) } : {}),
     onProgress: (done, total) => {
       // One line per tenth, so a thousand-layout run leaves a readable log
       // rather than a thousand lines of noise.
@@ -117,19 +126,27 @@ function commandDiff(argv: string[]): number {
   const verdict = diffRuns(baseline, candidate);
   const report = renderReport({ baseline, candidate, verdict, gate });
 
-  console.log(report);
-  if (arg(argv, 'report')) writeFile(arg(argv, 'report')!, report);
-  if (arg(argv, 'json')) writeFile(arg(argv, 'json')!, JSON.stringify(verdict, null, 2));
+  // Read once into locals: it both narrows the optional spreads below and
+  // retires the `arg(...)!` assertions this used to need.
+  const reportFile = arg(argv, 'report');
+  const jsonFile = arg(argv, 'json');
+  const manifestFile = arg(argv, 'manifest');
+  const upstreamUrl = arg(argv, 'upstream-url');
+  const cap = arg(argv, 'cap');
 
-  if (arg(argv, 'manifest')) {
+  console.log(report);
+  if (reportFile) writeFile(reportFile, report);
+  if (jsonFile) writeFile(jsonFile, JSON.stringify(verdict, null, 2));
+
+  if (manifestFile) {
     const manifest = buildPreviewManifest({
       baseline,
       candidate,
       verdict,
-      ...(arg(argv, 'upstream-url') ? { upstreamUrl: arg(argv, 'upstream-url') } : {}),
-      ...(arg(argv, 'cap') ? { cap: Number(arg(argv, 'cap')) } : {}),
+      ...(upstreamUrl ? { upstreamUrl } : {}),
+      ...(cap ? { cap: Number(cap) } : {}),
     });
-    writeFile(arg(argv, 'manifest')!, JSON.stringify(manifest, null, 2));
+    writeFile(manifestFile, JSON.stringify(manifest, null, 2));
     console.log(
       `Preview manifest: ${manifest.shown} layout(s) published ` +
         `(${manifest.changed} changed, ${manifest.failed} failed, cap ${manifest.cap}).`,
@@ -168,12 +185,13 @@ function commandBody(argv: string[]): number {
     // with the separator the body adds after it.
     .map((file) => fs.readFileSync(file, 'utf-8').trimEnd());
 
+  const previewUrl = arg(argv, 'preview-url');
   const body = renderPullRequestBody({
     baselineCommit: requireArg(argv, 'baseline-commit'),
     candidateCommit: requireArg(argv, 'candidate-commit'),
     repoUrl: requireArg(argv, 'repo-url'),
     sections,
-    ...(arg(argv, 'preview-url') ? { previewUrl: arg(argv, 'preview-url') } : {}),
+    ...(previewUrl ? { previewUrl } : {}),
   });
 
   writeFile(requireArg(argv, 'out'), body);

@@ -1,4 +1,5 @@
 {
+  "extends": "../../tsconfig.strict.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "ES2022",
@@ -15,13 +16,18 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    "strict": true,
-    "allowUnreachableCode": false,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    // Vite strips types rather than compiling them, so anything non-erasable
+    // (enums, parameter properties) would break the bundle. The Node
+    // workspaces build with tsc and deliberately do not set this — see the
+    // parameter properties in services/renderer/src/cache.ts.
+    "erasableSyntaxOnly": true
   },
-  "include": ["src"]
+  // src/live-office is the one part of the SPA that compiles the pinned
+  // upstream's own sources, which cannot satisfy noUncheckedIndexedAccess or
+  // exactOptionalPropertyTypes and are not ours to fix. It gets its own
+  // project (tsconfig.live-office.json) so that the other ~6k lines here —
+  // every route, component, hook and test — are checked at full strictness
+  // instead of the whole workspace being held back by four wrapper modules.
+  "include": ["src"],
+  "exclude": ["src/live-office"]
 }

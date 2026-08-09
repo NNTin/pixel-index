@@ -1,4 +1,5 @@
 {
+  "extends": "../../tsconfig.strict.json",
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023"],
@@ -6,15 +7,14 @@
     "moduleResolution": "NodeNext",
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "declaration": true,
-    "sourceMap": true,
-    "outDir": "dist",
-    "rootDir": "src",
+    // Type-checking only; tsconfig.build.json owns the emit.
+    "noEmit": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*"],
+  // drizzle.config.ts is in here, not just src/**/*: it was previously outside
+  // every tsconfig, so it was neither typechecked nor lintable. It is the file
+  // that decides where migrations are generated from.
+  "include": ["src/**/*", "drizzle.config.ts"],
   "exclude": ["dist"]
 }

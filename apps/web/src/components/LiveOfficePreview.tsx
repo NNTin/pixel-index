@@ -34,8 +34,16 @@ function storedRenderMode(): RenderMode {
 }
 
 function mockAgent(id: number): MockAgent {
-  const activity = ACTIVITIES[(id - 1) % ACTIVITIES.length];
-  return { id, ...activity };
+  // `%` keeps the sign of its left operand in JavaScript, so an id below 1
+  // would index off the front of the table and leave the agent with no
+  // activity or tool at all. Wrapping it into range first is what makes the
+  // lookup total — the ids are 1-based today, but nothing in the type said so.
+  const index = (((id - 1) % ACTIVITIES.length) + ACTIVITIES.length) % ACTIVITIES.length;
+  // `?? ACTIVITIES[0]` cannot be reached with the index wrapped above, but a
+  // computed index into a tuple is `T | undefined` under
+  // noUncheckedIndexedAccess and this is what makes the lookup total without a
+  // non-null assertion. ACTIVITIES[0] is a literal tuple index, so it is not.
+  return { id, ...(ACTIVITIES[index] ?? ACTIVITIES[0]) };
 }
 
 export function LiveOfficePreview({

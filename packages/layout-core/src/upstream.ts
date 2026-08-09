@@ -158,9 +158,14 @@ function walkManifest(
   }
 
   if (node.type === 'asset' && typeof node.id === 'string') {
+    // `props` already carries the inherited orientation, so the node's own
+    // orientation is only spread in when it actually has one. Written as a
+    // conditional spread rather than `node.orientation ?? inherited.orientation`
+    // so an orientation-less asset leaves the key absent instead of present-and-
+    // undefined, which is what exactOptionalPropertyTypes asks for.
     catalog.set(node.id, {
       ...props,
-      orientation: node.orientation ?? inherited.orientation,
+      ...(node.orientation !== undefined ? { orientation: node.orientation } : {}),
       mirrorSide: node.mirrorSide ?? false,
     });
     return;

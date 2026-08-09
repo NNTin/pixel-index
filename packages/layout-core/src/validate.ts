@@ -17,13 +17,7 @@ import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 import addFormatsExport from 'ajv-formats';
 
 import { layoutSchema, metaSchema } from './schemas.js';
-import type {
-  FurnitureCatalog,
-  Layout,
-  LayoutMeta,
-  ValidationIssue,
-  ValidationResult,
-} from './types.js';
+import type { FurnitureCatalog, Layout, ValidationIssue, ValidationResult } from './types.js';
 import { bundledLayoutRevision, furnitureCatalog } from './upstream.js';
 
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;

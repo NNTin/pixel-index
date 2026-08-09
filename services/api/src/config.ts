@@ -423,6 +423,7 @@ export function loadConfig(): ApiConfig {
   const discordModeratorRoleIds = discordIdsFromEnv('DISCORD_MODERATOR_ROLE_IDS', problems);
   const inviteUrl = discordInviteUrl(problems);
   const oauthTokenEncryptionKey = discordEncryptionKey(problems);
+  const upstreamDir = optionalEnv('PIXEL_AGENTS_DIR');
 
   if (discordGuildId && !DISCORD_SNOWFLAKE_RE.test(discordGuildId)) {
     problems.push(`DISCORD_GUILD_ID must be a Discord snowflake, got ${JSON.stringify(discordGuildId)}`);
@@ -457,7 +458,7 @@ export function loadConfig(): ApiConfig {
     webOrigins: requireOriginList('PUBLIC_WEB_ORIGIN', problems),
     webOriginPatterns: optionalOriginPatterns('PUBLIC_WEB_ORIGIN_PATTERNS', problems),
 
-    ...(optionalEnv('PIXEL_AGENTS_DIR') ? { upstreamDir: optionalEnv('PIXEL_AGENTS_DIR') } : {}),
+    ...(upstreamDir ? { upstreamDir } : {}),
 
     discordClientId: requireEnv('DISCORD_CLIENT_ID', problems),
     discordClientSecret: requireEnv('DISCORD_CLIENT_SECRET', problems),

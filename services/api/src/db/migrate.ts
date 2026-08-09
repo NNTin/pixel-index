@@ -26,7 +26,9 @@ export const MIGRATIONS_FOLDER = path.resolve(
 );
 
 export async function runMigrations(connectionString?: string): Promise<void> {
-  const { db, pool } = createDatabase({ connectionString });
+  // Omit the key rather than passing an explicit undefined: createDatabase
+  // falls back to DATABASE_URL when it is absent (resolveConnectionString).
+  const { db, pool } = createDatabase(connectionString === undefined ? {} : { connectionString });
   try {
     await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
   } finally {

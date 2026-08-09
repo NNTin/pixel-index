@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
-import { insertLayout, insertTag, insertUser, tagLayout } from '../test-support/layouts.js';
+import { insertLayout, insertUser, tagLayout } from '../test-support/layouts.js';
 import {
   layoutDetailResponseSchema,
   layoutDetailSchema,

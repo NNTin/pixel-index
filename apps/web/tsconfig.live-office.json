@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.live-office.tsbuildinfo",
+
+    // These four modules import vendor/pixel-agents' TypeScript *sources* —
+    // OfficeCanvas, OfficeState, the sprite tables — so tsc typechecks the
+    // upstream along with them. The upstream is a pinned submodule we do not
+    // patch, and it reports 135 noUncheckedIndexedAccess and 10
+    // exactOptionalPropertyTypes errors of its own. skipLibCheck does not help:
+    // these are .ts files, not .d.ts. So the two flags are off for this
+    // project only, and every other strictness flag still applies.
+    //
+    // If the pin ever moves to an upstream that satisfies them, delete these
+    // two lines and this project folds back into tsconfig.app.json.
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false
+  },
+  // vite-env.d.ts carries __PIXEL_AGENTS_COMMIT__, which assets.ts addresses
+  // the immutable asset directory with.
+  "include": ["src/live-office", "src/vite-env.d.ts"]
+}

@@ -73,6 +73,15 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
         ? query.tags.split(',').map((t) => t.trim()).filter((t) => t.length > 0)
         : undefined;
 
+      // Each range is computed once into a local. Calling range() twice per
+      // filter — once for the guard, once for the value — is what stopped
+      // TypeScript narrowing the spread away from `NumericRange | undefined`.
+      const colsRange = range(query.minCols, query.maxCols);
+      const rowsRange = range(query.minRows, query.maxRows);
+      const furnitureRange = range(query.minFurniture, query.maxFurniture);
+      const areasRange = range(query.minAreas, query.maxAreas);
+      const petsRange = range(query.minPets, query.maxPets);
+
       const { rows, total, nextCursor } = await listLayouts(db, {
         sort: query.sort ?? 'newest',
         limit: query.limit ?? 24,
@@ -81,15 +90,11 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
           ...(query.author ? { author: query.author } : {}),
           ...(tags && tags.length > 0 ? { tags } : {}),
           ...(query.q ? { q: query.q } : {}),
-          ...(range(query.minCols, query.maxCols) ? { cols: range(query.minCols, query.maxCols) } : {}),
-          ...(range(query.minRows, query.maxRows) ? { rows: range(query.minRows, query.maxRows) } : {}),
-          ...(range(query.minFurniture, query.maxFurniture)
-            ? { furniture: range(query.minFurniture, query.maxFurniture) }
-            : {}),
-          ...(range(query.minAreas, query.maxAreas)
-            ? { areas: range(query.minAreas, query.maxAreas) }
-            : {}),
-          ...(range(query.minPets, query.maxPets) ? { pets: range(query.minPets, query.maxPets) } : {}),
+          ...(colsRange ? { cols: colsRange } : {}),
+          ...(rowsRange ? { rows: rowsRange } : {}),
+          ...(furnitureRange ? { furniture: furnitureRange } : {}),
+          ...(areasRange ? { areas: areasRange } : {}),
+          ...(petsRange ? { pets: petsRange } : {}),
         },
       });
 

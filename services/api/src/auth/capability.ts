@@ -97,8 +97,8 @@ export async function resolveCapability(
       guild.oauthTokenEncryptionKey,
       { now },
     );
-  } catch (error) {
-    throw discordUnavailable(error);
+  } catch {
+    throw discordUnavailable();
   }
   if (token.status === 'reauthorization_required') {
     return reauthorizationRequired(db, user);
@@ -137,8 +137,8 @@ export async function resolveCapability(
           guild.oauthTokenEncryptionKey,
           { forceRefresh: true, now },
         );
-      } catch (error) {
-        throw discordUnavailable(error);
+      } catch {
+        throw discordUnavailable();
       }
       if (refreshed.status === 'reauthorization_required') {
         return reauthorizationRequired(db, user);
@@ -165,10 +165,10 @@ export async function resolveCapability(
           await discardDiscordGrant(db, user.id);
           return reauthorizationRequired(db, user);
         }
-        throw discordUnavailable(retryError);
+        throw discordUnavailable();
       }
     } else {
-      throw discordUnavailable(firstError);
+      throw discordUnavailable();
     }
   }
 
@@ -190,7 +190,13 @@ export async function resolveCapability(
   return { user: current, submission: { allowed: true, reason: null } };
 }
 
-function discordUnavailable(error: unknown): ApiError {
+/**
+ * Takes no argument on purpose: the caught error never reaches the client. A
+ * 503 here means "we could not ask Discord", and echoing Discord's own error
+ * text (or a token in it) into a public response body is not something a
+ * caller needs or should get.
+ */
+function discordUnavailable(): ApiError {
   return new ApiError(
     503,
     'discord_unavailable',
