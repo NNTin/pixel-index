@@ -33,6 +33,36 @@ jobs:
       - name: Validate the seed layouts against the pinned Pixel Agents
         run: npm run validate
 
+  mermaid:
+    name: Mermaid diagrams
+    runs-on: ubuntu-latest
+    # GitHub renders the diagrams in our markdown, and a diagram with a syntax
+    # error renders as a red error box in the docs rather than failing anywhere
+    # a human would notice first. This parses every one of them.
+    #
+    # Its own job rather than a step on `test`: it needs neither the submodule
+    # nor layout-core's dist, so it starts and finishes while the heavier jobs
+    # are still installing, and a broken diagram reads as "docs" in the checks
+    # list instead of as a failing unit test. Deliberately not folded into the
+    # `renderer` job either — that one installs Chromium, and the whole point
+    # of tools/check-mermaid.mjs is that this check does not need a browser.
+    steps:
+      - uses: actions/checkout@v4
+        # No `submodules: recursive`: `git ls-files` does not descend into the
+        # submodule, so vendor/pixel-agents' markdown is never checked and
+        # cloning it here would be dead weight.
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install index tooling
+        run: npm ci
+
+      - name: Every mermaid diagram in tracked markdown parses
+        run: npm run check:mermaid
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest

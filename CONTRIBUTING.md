@@ -50,3 +50,29 @@ npm run validate
 CI runs the same validation the live submit flow does, so a seed layout can never be one
 the site would itself reject. This path is specifically for the curated starter set —
 publishing your own layout for the community index is the web flow above.
+
+## Editing the docs
+
+Several documents draw their diagrams with [mermaid](https://mermaid.js.org/), which
+GitHub renders inline from a ` ```mermaid ` code block. A diagram with a syntax error
+does not fail anything — it just renders as a red error box on github.com, which nobody
+notices until a reader hits it. So CI parses every diagram in every tracked markdown
+file, and you can run the same check locally:
+
+```bash
+npm run check:mermaid                       # everything git tracks
+node tools/check-mermaid.mjs docs/FOO.md    # just one file, while you iterate
+```
+
+It reports every bad diagram in one pass, with the line to jump to. It parses rather
+than renders, so it needs no browser and takes about a second; see
+[`tools/check-mermaid.mjs`](tools/check-mermaid.mjs) for why, and for how to move the
+pinned mermaid version when GitHub upgrades theirs.
+
+Two things worth knowing when you write the markdown itself:
+
+- The check reads the first word of the info string, so ` ```mermaid ` and
+  ` ```mermaid title="x" ` are both diagrams.
+- To *show* a mermaid block as an example rather than have it rendered and checked,
+  wrap it in a longer fence (four or more backticks, or `~~~`). Anything inside that
+  outer fence is left alone.
