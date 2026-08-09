@@ -11,6 +11,10 @@ WORKDIR /app
 
 # Workspace manifests first: they change far less often than source.
 COPY package.json package-lock.json ./
+# Every workspace's tsconfig extends this, so `tsc` cannot run without it.
+# Beside the manifests rather than with the source below: it changes about as
+# often as they do, and the layer caching should reflect that.
+COPY tsconfig.strict.json ./
 COPY packages/layout-core/package.json ./packages/layout-core/
 COPY services/api/package.json ./services/api/
 RUN npm ci --workspace @pixel-index/layout-core --workspace @pixel-index/api --include-workspace-root

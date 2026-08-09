@@ -6,6 +6,12 @@
 // drifted: `strict` was on everywhere, but noUncheckedIndexedAccess was missing
 // in apps/web, noUnusedLocals/noUnusedParameters were missing in the three Node
 // workspaces, and exactOptionalPropertyTypes was off across the board. See #44.
+//
+// Because every workspace `extends` this, `tsc` cannot run anywhere it is
+// absent — and the three Dockerfiles copy named paths rather than the whole
+// tree, so each of them has to copy it explicitly. If you add another shared
+// config at the repo root, add it to services/api/Dockerfile,
+// services/renderer/Dockerfile and apps/web/Dockerfile too.
 {
   "compilerOptions": {
     "strict": true,
