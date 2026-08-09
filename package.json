@@ -19,13 +19,19 @@
     "vendor:commit": "node tools/vendor-commit.mjs",
     "//vendor:commit": "A container cannot read the submodule's own git, so the pin ships as a file. --check keeps it from drifting; see tools/vendor-commit.mjs.",
     "vendor:commit:check": "node tools/vendor-commit.mjs --check",
+    "//check:mermaid": "Parses every mermaid diagram in every tracked markdown file. The `mermaid` devDependency below is pinned exactly and deliberately behind the newest release, because \"valid mermaid\" only means anything relative to the version github.com renders with; tools/check-mermaid.mjs explains that, why this parses rather than renders, and how to move the pin.",
+    "check:mermaid": "node tools/check-mermaid.mjs",
     "//deps": "layout-core is a source dependency of the other workspaces, so its dist has to exist before anything typechecks or tests against it.",
     "pretest": "npm run build:core",
-    "test": "npm run test --workspaces --if-present",
+    "//test": "The root suite covers tools/ only — see vitest.tools.config.mjs for why it is passed with --config; the workspaces then run their own.",
+    "test": "vitest run --config vitest.tools.config.mjs && npm run test --workspaces --if-present",
     "pretypecheck": "npm run build:core",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
-    "playwright": "^1.58.2"
+    "jsdom": "^25.0.1",
+    "mermaid": "11.12.0",
+    "playwright": "^1.58.2",
+    "vitest": "^4.1.10"
   }
 }
