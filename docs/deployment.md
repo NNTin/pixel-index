@@ -89,6 +89,15 @@ Pages site the domain belongs to:
 If you are unsure which you have, load the deployed page and look at where the `<script
 src>` points: `/pixel-index/assets/…` means keep the subpath, `/assets/…` means root.
 
+**One repository setting `vendor-update.yml` cannot work without.** Settings → Actions →
+General → Workflow permissions → **"Allow GitHub Actions to create and approve pull
+requests"**. It is off by default, and without it the job pushes its branch and its
+renders successfully and is then refused at the last step, with
+`GitHub Actions is not permitted to create or approve pull requests`. The workflow
+detects that specific failure and prints both the setting and a link to open the PR by
+hand, so nothing is lost either way — but until it is enabled, every weekly run ends red
+and needs a click. Nothing else in this repository needs the setting.
+
 **`PRODUCTION_API_BASE_URL` has a second reader: `vendor-update.yml`.** The weekly job
 that bumps the pinned Pixel Agents (#26) uses it to fetch every public layout from your
 running index — `GET /api/v1/export/layouts.ndjson` — and render them against the

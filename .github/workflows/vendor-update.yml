@@ -300,8 +300,13 @@ jobs:
             echo "labels=vendor-update" >> "$GITHUB_OUTPUT"
           fi
 
+      # Not fatal on its own. By the time this runs the branch has already been
+      # pushed and the renders published, so a refused PR creation costs a click,
+      # not a rerun — and swallowing the step here lets the run explain itself
+      # (see the last step) instead of ending on a raw API error.
       - name: Open or update the pull request
         id: pr
+        continue-on-error: true
         if: steps.candidate.outputs.moved == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
@@ -358,3 +363,21 @@ jobs:
             exit 1
           fi
           echo "No layout that rendered before fails now."
+
+      # `GITHUB_TOKEN` can push a branch but may not be allowed to open a PR
+      # with it: that is a repository setting, off by default, and the API's
+      # refusal ("GitHub Actions is not permitted to create or approve pull
+      # requests") arrives 100 lines into a log with no hint of where to fix it.
+      # Everything else has already succeeded by this point, so say what to do
+      # and where the work went, rather than making the next person read the log.
+      - name: Explain a pull request that could not be opened
+        if: always() && steps.pr.outcome == 'failure'
+        run: |
+          {
+            echo "::error::The branch and the renders were pushed, but opening the PR was refused."
+            echo "Enable Settings → Actions → General → Workflow permissions →"
+            echo "  \"Allow GitHub Actions to create and approve pull requests\","
+            echo "or open it by hand — the work is already on the branch:"
+            echo "  https://github.com/${{ github.repository }}/compare/${{ github.ref_name }}...${{ env.PR_BRANCH }}?expand=1"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
