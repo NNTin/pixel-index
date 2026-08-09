@@ -367,8 +367,12 @@ jobs:
           set -euo pipefail
           # From .gitmodules, not hardcoded: the submodule URL is already
           # declared in exactly one place, and a fork pointing at its own
-          # upstream should get compare links to *that*.
+          # upstream should get compare links — and a title — naming *that*.
           upstream="$(git config -f .gitmodules submodule.vendor/pixel-agents.url | sed 's/\.git$//')"
+          # owner/repo, from either an https or an SSH remote.
+          slug="$(printf '%s' "$upstream" | sed -E 's#^.*[/:]([^/]+/[^/]+)$#\1#')"
+          short="$(printf '%s' "${{ steps.candidate.outputs.sha }}" | cut -c1-7)"
+          echo "title=chore(vendor): update pixel-agents to ${slug}@${short}" >> "$GITHUB_OUTPUT"
 
           npx tsx "$HARNESS" body \
             --baseline-commit "${{ steps.baseline.outputs.sha }}" \
@@ -418,11 +422,16 @@ jobs:
           # bump alone rather than the whole branch replayed against main.
           base: ${{ github.ref_name }}
           delete-branch: false
+          # Subject matches the PR title; the full range lives in the body,
+          # where `git log` on the default branch still has it but a one-line
+          # summary is not 90 characters of hex.
           commit-message: |
-            chore(vendor): pixel-agents ${{ steps.baseline.outputs.sha }} -> ${{ steps.candidate.outputs.sha }}
+            ${{ steps.body.outputs.title }}
+
+            ${{ steps.baseline.outputs.sha }} -> ${{ steps.candidate.outputs.sha }}
 
             Opened by .github/workflows/vendor-update.yml. Refs #26.
-          title: 'chore(vendor): pixel-agents ${{ steps.baseline.outputs.sha }} → ${{ steps.candidate.outputs.sha }}'
+          title: ${{ steps.body.outputs.title }}
           body-path: gate/pr-body.md
           labels: ${{ steps.body.outputs.labels }}
           add-paths: |
