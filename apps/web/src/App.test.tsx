@@ -3,8 +3,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
-import { AuthProvider } from './auth/AuthContext';
-import { ThemeProvider } from './theme/ThemeContext';
+import { AuthProvider } from './auth/AuthProvider';
+import { requestUrl } from './test/fetchStub';
+import { ThemeProvider } from './theme/ThemeProvider';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -20,7 +21,7 @@ describe('App routing', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = requestUrl(input);
         if (url.includes('/meta')) {
           return Response.json({
             schemaVersion: 1,

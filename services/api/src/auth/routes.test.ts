@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
+import type { SessionBody } from './routes.js';
 import { verifyAccessToken } from './tokens.js';
 
 const DISCORD_USER = { id: '999888777666555444', username: 'pixel-fan', avatar: null };
@@ -89,11 +90,7 @@ async function completeLogin() {
     url: '/api/v1/auth/token',
     payload: { code },
   });
-  return tokenResponse.json() as {
-    accessToken: string;
-    refreshToken: string;
-    user: { id: string; username: string; role: string };
-  };
+  return tokenResponse.json<SessionBody>();
 }
 
 describe('GET /api/v1/auth/discord/login', () => {
@@ -113,7 +110,7 @@ describe('GET /api/v1/auth/discord/login', () => {
       method: 'GET',
       url: '/api/v1/auth/discord/login',
     });
-    const setCookie = (response.headers['set-cookie'] as string) ?? '';
+    const setCookie = String(response.headers['set-cookie'] ?? '');
     expect(setCookie.toLowerCase()).toContain('httponly');
     expect(setCookie).toContain('Path=/callback');
     expect(setCookie).toMatch(/^pixelindex_oauth=/);
@@ -325,7 +322,7 @@ describe('POST /api/v1/auth/refresh', () => {
       payload: { refreshToken: session.refreshToken },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json().refreshToken).not.toBe(session.refreshToken);
+    expect(response.json<SessionBody>().refreshToken).not.toBe(session.refreshToken);
   });
 
   it('a spent refresh token cannot be used again', async () => {

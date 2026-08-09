@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { buildServer } from '../server.js';
+import type { OpenApiDoc } from '../test-support/bodies.js';
 import { testConfig } from '../test-support/config.js';
 import { insertLayout } from '../test-support/layouts.js';
 
@@ -139,7 +140,7 @@ describe('GET /api/v1/export/layouts.ndjson', () => {
   });
 
   it('appears in the OpenAPI document, since it is part of the public contract', async () => {
-    const spec = (await app.inject({ method: 'GET', url: '/openapi.json' })).json();
+    const spec = (await app.inject({ method: 'GET', url: '/openapi.json' })).json<OpenApiDoc>();
     expect(spec.paths['/api/v1/export/layouts.ndjson']?.get).toBeDefined();
   });
 
@@ -162,6 +163,10 @@ describe('GET /api/v1/export/layouts.ndjson', () => {
     expect(declared).toBeGreaterThan(0);
     // Every line stands alone — that is what "newline-delimited" has to mean
     // for a consumer that parses as it reads.
-    for (const line of received) expect(() => JSON.parse(line)).not.toThrow();
+    for (const line of received) {
+      expect(() => {
+        JSON.parse(line);
+      }).not.toThrow();
+    }
   });
 });

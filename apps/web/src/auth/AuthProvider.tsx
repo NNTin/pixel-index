@@ -1,7 +1,8 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import { discordLoginUrl, exchangeLoginCode, getMe, logoutSession, refreshTokens } from '../api/authClient';
 import type { AuthUser } from '../api/types';
+import { AuthContext, type AuthContextValue, type AuthStatus } from './authState';
 import { clearStoredRefreshToken, getStoredRefreshToken, setStoredRefreshToken } from './storage';
 
 const LOGIN_CODE_HASH_KEY = 'pixelIndexLoginCode';
@@ -10,19 +11,6 @@ const LOGIN_CODE_HASH_KEY = 'pixelIndexLoginCode';
 // loop.
 const REFRESH_SAFETY_MARGIN_MS = 60_000;
 const MIN_REFRESH_DELAY_MS = 5_000;
-
-export type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
-
-interface AuthContextValue {
-  status: AuthStatus;
-  user: AuthUser | null;
-  /** In-memory only (ADR 0001 decision 10; see auth/storage.ts) — null until a session is established. */
-  accessToken: string | null;
-  login: () => void;
-  logout: () => void;
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null);
 
 function consumeLoginCodeFromHash(): string | null {
   if (!location.hash.includes(LOGIN_CODE_HASH_KEY)) return null;
@@ -161,10 +149,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthContextValue = { status, user, accessToken, login, logout };
 
   return <AuthContext value={value}>{children}</AuthContext>;
-}
-
-export function useAuth(): AuthContextValue {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider.');
-  return context;
 }

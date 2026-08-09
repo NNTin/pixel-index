@@ -18,6 +18,12 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[]): ApiState<
 
   useEffect(() => {
     let cancelled = false;
+    // Resetting to 'loading' when `deps` change is the whole contract of this
+    // hook: without it a screen keeps rendering the previous request's data
+    // while the new one is in flight. React's own guidance is to reset with a
+    // `key` instead, which a hook cannot do for its caller — so this stays, and
+    // the follow-up is a real refactor rather than a lint fix.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState({ status: 'loading' });
     fetcher()
       .then((data) => {

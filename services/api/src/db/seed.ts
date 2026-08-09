@@ -15,13 +15,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createValidator, layoutStats, sha256, upstreamPin, type Layout } from '@pixel-index/layout-core';
+import { createValidator, type Layout, layoutStats, sha256, upstreamPin } from '@pixel-index/layout-core';
 import { eq, sql } from 'drizzle-orm';
 
 import { validateTagNames } from '../layouts/metadata.js';
 import { attachTags } from '../layouts/query.js';
 import { recordModerationAction } from '../moderation/audit.js';
-import { createDatabase, type AnyDatabase } from './client.js';
+import { type AnyDatabase, createDatabase } from './client.js';
 import { SYSTEM_USER_ID } from './constants.js';
 import * as schema from './schema.js';
 

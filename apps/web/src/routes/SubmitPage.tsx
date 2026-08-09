@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ApiError, getMeta } from '../api/client';
 import { previewCheck, submitLayout } from '../api/manageClient';
 import { useApi } from '../api/useApi';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth } from '../auth/authState';
 
 /**
  * "Submitting shows a rendered preview before publishing" (#15). The
@@ -109,7 +109,9 @@ export function SubmitPage() {
     setError(null);
     try {
       const result = await submitLayout(raw, { title, description, tags }, accessToken);
-      navigate(`/layouts/${result.slug}`);
+      // `void`: navigate() returns a promise in react-router 7, and there is
+      // nothing to do after it resolves — but it must not be left floating.
+      void navigate(`/layouts/${result.slug}`);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
     } finally {
@@ -198,7 +200,7 @@ export function SubmitPage() {
         <div className="flex gap-3">
           <button
             type="button"
-            onClick={checkPreview}
+            onClick={() => void checkPreview()}
             disabled={!raw || checking}
             className="border-2 border-border px-4 py-2 text-sm text-ink hover:border-accent disabled:opacity-50"
           >
@@ -206,7 +208,7 @@ export function SubmitPage() {
           </button>
           <button
             type="button"
-            onClick={publish}
+            onClick={() => void publish()}
             disabled={!raw || !title || publishing}
             className="border-2 border-accent px-4 py-2 text-sm text-accent hover:bg-accent hover:text-accent-solid-ink disabled:opacity-50"
           >

@@ -24,6 +24,11 @@ async function copyText(text: string): Promise<void> {
   document.body.append(textarea);
   textarea.select();
   try {
+    // Deprecated, and deliberately still here: it is the fallback for the
+    // browsers that reach the line above at all, which are exactly the ones
+    // without navigator.clipboard (no HTTPS, older Safari). Removing it would
+    // leave those with a Copy button that does nothing.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     if (!document.execCommand('copy')) throw new Error('Copy command was rejected.');
   } finally {
     textarea.remove();

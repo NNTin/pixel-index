@@ -27,7 +27,7 @@ function makeLayout(overrides: Partial<Layout> = {}): Layout {
     visibilityReason: null,
     visibilityChangedAt: null,
     visibilityChangedBy: null,
-    searchVector: null as never,
+    searchVector: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-02T00:00:00.000Z'),
     ...overrides,

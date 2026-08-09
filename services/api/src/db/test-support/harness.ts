@@ -26,7 +26,7 @@ export interface Harness {
 /** A fresh, empty database with every migration applied. */
 export async function createTestDatabase(): Promise<Harness> {
   const client = new PGlite();
-  const db = drizzle(client, { schema }) as TestDatabase;
+  const db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
   return { db, client, close: () => client.close() };
 }

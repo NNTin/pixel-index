@@ -2,7 +2,7 @@
  * The cross-origin bearer-token flow ADR 0001 decision 10 designs: a
  * top-level browser redirect through Discord and back, a single-use code
  * handed off via a URL fragment, then ordinary CORS `fetch` calls for
- * everything after. See `auth/AuthContext.tsx` for the state machine that
+ * everything after. See `auth/AuthProvider.tsx` for the state machine that
  * drives these.
  */
 import { API_BASE_URL, apiRequest } from './client';

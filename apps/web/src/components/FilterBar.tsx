@@ -31,6 +31,10 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
 
   // Keep the input in sync when filters change from elsewhere (e.g. "clear
   // filters", or the browser back button) without fighting the user's typing.
+  // The rule's preferred shape — deriving the input's value during render —
+  // would take the text box away from the user mid-keystroke, which is the
+  // thing the debounce below exists to avoid.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setText(filters.q), [filters.q]);
 
   useEffect(() => {

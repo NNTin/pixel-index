@@ -12,7 +12,7 @@
  * dedupe -> daily cap -> insert.
  */
 
-import { layoutStats, sha256, type Layout } from '@pixel-index/layout-core';
+import { type Layout, layoutStats, sha256 } from '@pixel-index/layout-core';
 import type { FastifyInstance } from 'fastify';
 
 import { requireSubmissionCapability } from '../auth/capability.js';
@@ -20,10 +20,10 @@ import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
-import { requestPreview } from '../renderer/client.js';
-import { writeRateLimitConfig } from '../rateLimit.js';
-import { isUniqueViolation, parseAndValidateTags } from './metadata.js';
 import { recordModerationAction } from '../moderation/audit.js';
+import { writeRateLimitConfig } from '../rateLimit.js';
+import { requestPreview } from '../renderer/client.js';
+import { isUniqueViolation, parseAndValidateTags } from './metadata.js';
 import { attachTags, countUserSubmissionsSince, findLayoutBySha256 } from './query.js';
 import { toDetail } from './serialize.js';
 import { generateUniqueSlug } from './slug.js';

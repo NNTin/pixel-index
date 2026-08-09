@@ -8,6 +8,23 @@ import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
 
+/** One row of `GET /api/v1/admin/users`. Deliberately no discordId or roleIds. */
+export interface AdminUserView {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  capability: string;
+  capabilityCheckedAt: string | null;
+  layoutCount: number;
+}
+
+/** `GET /api/v1/admin/users` */
+export interface ListAdminUsersBody {
+  users: AdminUserView[];
+  nextCursor: string | null;
+}
+
 export interface UserAdminRoutesDeps {
   config: ApiConfig;
   db: AnyDatabase;
@@ -38,7 +55,7 @@ export function registerUserAdminRoutes(
   app.get(
     '/api/v1/admin/users',
     { schema: { querystring: listQuerySchema } },
-    async (request) => {
+    async (request): Promise<ListAdminUsersBody> => {
       await requireCapability(db, config, request, 'admin');
       const query = request.query as ListQuery;
       const limit = query.limit ?? 50;

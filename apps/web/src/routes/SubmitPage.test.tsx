@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider } from '../auth/AuthContext';
+import { AuthProvider } from '../auth/AuthProvider';
+import { requestUrl } from '../test/fetchStub';
 import { SubmitPage } from './SubmitPage';
 
 beforeEach(() => {
@@ -40,7 +41,7 @@ function stubFetch(
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/auth/token')) return Response.json(authResponse);
       if (url.includes('/meta')) return Response.json(metaResponse);
       return handleOther(url, init);

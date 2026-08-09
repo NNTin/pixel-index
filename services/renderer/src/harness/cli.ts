@@ -222,7 +222,10 @@ export async function main(argv: string[]): Promise<number> {
 // `endsWith` rather than an exact match: the workflow invokes this through tsx,
 // which resolves the .ts path, while a built dist/ run resolves the .js one.
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
-  main(process.argv.slice(2)).then((code) => {
+  // `void`, not a `.catch`: main() converts every failure into an exit code
+  // itself (see its own try/catch), so there is no rejection to handle — and a
+  // second error path here would be a second way to report a verdict.
+  void main(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
   });
 }

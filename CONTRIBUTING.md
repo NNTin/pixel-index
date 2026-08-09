@@ -76,3 +76,34 @@ Two things worth knowing when you write the markdown itself:
 - To *show* a mermaid block as an example rather than have it rendered and checked,
   wrap it in a longer fence (four or more backticks, or `~~~`). Anything inside that
   outer fence is left alone.
+
+## Editing the code
+
+Every workspace is held to the same TypeScript strictness contract
+([`tsconfig.strict.json`](tsconfig.strict.json)) and linted by one type-aware ESLint
+config at the repo root ([`eslint.config.js`](eslint.config.js)). Both run in CI, and
+both run locally:
+
+```bash
+npm run typecheck    # every workspace
+npm run lint         # every workspace, plus tools/
+npm test             # tools/, then every workspace's own suite
+```
+
+`npm run lint` is type-aware — the rules worth having here are the `no-unsafe-*` family,
+which need real types to say anything — so it costs about as much as a typecheck, not as
+much as a formatter. It needs `vendor/pixel-agents` checked out, because `apps/web`
+compiles some of the upstream's own sources.
+
+Two conventions the config makes load-bearing rather than decorative:
+
+- A leading underscore (`_request`, `_canvasBox`) means "deliberately unused". Anything
+  else unused is an error.
+- A module that exports a React component exports *only* components — the provider and
+  its hook live in separate files (`AuthProvider.tsx` / `authState.ts`). That is what
+  lets Vite hot-replace a component in place instead of reloading the page, which for
+  this app also means not having to log in again after every edit.
+
+Where a rule is switched off, or a suppression is narrowed to one line, the reason is
+written next to it. If you need a new exception, write the reason too — a bare
+`eslint-disable` is not reviewable.

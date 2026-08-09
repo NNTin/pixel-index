@@ -5,7 +5,7 @@ import { ApiError } from '../api/client';
 import { patchLayout } from '../api/manageClient';
 import { getModerationLayouts } from '../api/moderationClient';
 import type { OwnerLayoutView } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth } from '../auth/authState';
 import { ErrorNotice } from '../components/ErrorNotice';
 
 const VISIBILITY_OPTIONS = ['public', 'hidden', 'removed', 'deleted'] as const;
@@ -73,7 +73,7 @@ function ModerationRow({
           />
           <button
             type="button"
-            onClick={apply}
+            onClick={() => void apply()}
             disabled={saving || visibility === layout.visibility}
             className="border border-accent px-3 py-1 text-sm text-accent disabled:opacity-50"
           >
@@ -94,6 +94,9 @@ export function ModerationPage() {
 
   useEffect(() => {
     if (!accessToken) return;
+    // As in Home.tsx: clear before refetching so the moderator does not act on
+    // the previous visibility filter's rows. See useApi.ts for the note.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLayouts(null);
     getModerationLayouts(
       { limit: 50, ...(visibilityFilter ? { visibility: visibilityFilter as OwnerLayoutView['visibility'] } : {}) },

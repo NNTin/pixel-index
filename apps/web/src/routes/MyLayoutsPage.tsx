@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { deleteLayout, getMyLayouts, patchLayout, replaceLayoutContent } from '../api/manageClient';
 import type { OwnerLayoutView } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth } from '../auth/authState';
 import { ErrorNotice } from '../components/ErrorNotice';
 
 function VisibilityBadge({ layout }: { layout: OwnerLayoutView }) {
@@ -81,7 +81,13 @@ function EditRow({ layout, accessToken, canEdit, onSaved }: { layout: OwnerLayou
     return (
       <div className="mt-2 text-sm">
         <p className="text-subtle">Reconnect or rejoin Discord to edit this layout.</p>
-        <button type="button" onClick={remove} className="mt-1 text-danger hover:underline">Delete</button>
+        <button
+          type="button"
+          onClick={() => void remove()}
+          className="mt-1 text-danger hover:underline"
+        >
+          Delete
+        </button>
         {error && <span className="ml-3 text-danger">{error.message}</span>}
       </div>
     );
@@ -105,7 +111,7 @@ function EditRow({ layout, accessToken, canEdit, onSaved }: { layout: OwnerLayou
             }}
           />
         </label>
-        <button type="button" onClick={remove} className="text-danger hover:underline">
+        <button type="button" onClick={() => void remove()} className="text-danger hover:underline">
           Delete
         </button>
         {error && <span className="text-danger">{error.message}</span>}
@@ -138,7 +144,7 @@ function EditRow({ layout, accessToken, canEdit, onSaved }: { layout: OwnerLayou
       <div className="flex gap-2">
         <button
           type="button"
-          onClick={save}
+          onClick={() => void save()}
           disabled={saving}
           className="border border-accent px-3 py-1 text-sm text-accent disabled:opacity-50"
         >

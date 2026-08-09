@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { ApiError } from '../api/client';
 import { getAdminUsers } from '../api/moderationClient';
 import type { AdminUserView, Role } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth } from '../auth/authState';
 import { ErrorNotice } from '../components/ErrorNotice';
 
 const CAPABILITIES: Array<{ value: '' | Role; label: string }> = [

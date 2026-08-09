@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { Role } from '../api/types';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth } from '../auth/authState';
 
 const ROLE_RANK: Record<Role, number> = { user: 0, moderator: 1, admin: 2 };
 

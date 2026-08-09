@@ -25,6 +25,10 @@ export function Home() {
 
   useEffect(() => {
     let cancelled = false;
+    // Clearing before the fetch is what makes the gallery show its skeleton on
+    // a filter change instead of the previous filter's results. Same pattern
+    // and same trade-off as useApi.ts — see the note there.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLayouts(null);
     setError(null);
     listLayouts({ ...filtersToApiParams(filters), limit: PAGE_SIZE })

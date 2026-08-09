@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RenderTimeoutError } from '../render.js';
-import { runPin, type RunPinDeps, type RendererLike } from './run.js';
+import { type RendererLike, runPin, type RunPinDeps } from './run.js';
 import { HarnessInfraError, type HarnessLayout } from './types.js';
 
 const temporaryDirs: string[] = [];

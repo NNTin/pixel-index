@@ -44,10 +44,23 @@ function writeFixtureSeed(entries: { slug: string; cols: number; title: string; 
   return dir;
 }
 
-let harness: Harness;
+let harness: Harness | undefined;
 afterEach(async () => {
+  // Only unset if the test threw before creating one, which is exactly when
+  // this must not throw a second error on top of the first.
   await harness?.close();
+  harness = undefined;
 });
+
+/**
+ * The database the running test created. A function rather than reading
+ * `db()` directly so the "not created yet" case is a sentence instead of
+ * a TypeError — and so `harness` can be honestly typed as possibly unset.
+ */
+function db(): Harness['db'] {
+  if (!harness) throw new Error('this test did not create a database');
+  return harness.db;
+}
 
 describe('seedIfEmpty', () => {
   it('loads every layout under seed/ into an empty database', async () => {
@@ -57,10 +70,10 @@ describe('seedIfEmpty', () => {
       { slug: 'seed-b', cols: 5, title: 'Seed B' },
     ]);
 
-    const seeded = await seedIfEmpty(harness.db, dir);
+    const seeded = await seedIfEmpty(db(), dir);
     expect(seeded).toBe(2);
 
-    const rows = await harness.db.select().from(schema.layouts).orderBy(schema.layouts.slug);
+    const rows = await db().select().from(schema.layouts).orderBy(schema.layouts.slug);
     expect(rows.map((r) => r.slug)).toEqual(['seed-a', 'seed-b']);
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -69,9 +82,9 @@ describe('seedIfEmpty', () => {
     harness = await createTestDatabase();
     const dir = writeFixtureSeed([{ slug: 'seed-attrib', cols: 4, title: 'Seed Attrib' }]);
 
-    await seedIfEmpty(harness.db, dir);
+    await seedIfEmpty(db(), dir);
 
-    const [row] = await harness.db.select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-attrib'));
+    const [row] = await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-attrib'));
     expect(row!.authorUserId).toBe(SYSTEM_USER_ID);
     expect(row!.authorDisplay).toBe('pablodelucca');
     fs.rmSync(dir, { recursive: true, force: true });
@@ -86,9 +99,9 @@ describe('seedIfEmpty', () => {
       authorDiscordId: '900000000000000010',
     }]);
 
-    await seedIfEmpty(harness.db, dir);
+    await seedIfEmpty(db(), dir);
 
-    const [row] = await harness.db
+    const [row] = await db()
       .select({
         authorUserId: schema.layouts.authorUserId,
         authorDisplay: schema.layouts.authorDisplay,
@@ -109,10 +122,10 @@ describe('seedIfEmpty', () => {
     harness = await createTestDatabase();
     const dir = writeFixtureSeed([{ slug: 'seed-tagged', cols: 4, title: 'Seed Tagged', tags: ['cosy', 'small'] }]);
 
-    await seedIfEmpty(harness.db, dir);
+    await seedIfEmpty(db(), dir);
 
-    const [layout] = await harness.db.select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-tagged'));
-    const tagRows = await harness.db
+    const [layout] = await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-tagged'));
+    const tagRows = await db()
       .select({ name: schema.tags.name })
       .from(schema.layoutTags)
       .innerJoin(schema.tags, eq(schema.tags.id, schema.layoutTags.tagId))
@@ -125,10 +138,10 @@ describe('seedIfEmpty', () => {
     harness = await createTestDatabase();
     const dir = writeFixtureSeed([{ slug: 'seed-audited', cols: 4, title: 'Seed Audited' }]);
 
-    await seedIfEmpty(harness.db, dir);
+    await seedIfEmpty(db(), dir);
 
-    const [layout] = await harness.db.select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-audited'));
-    const [action] = await harness.db
+    const [layout] = await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-audited'));
+    const [action] = await db()
       .select()
       .from(schema.moderationActions)
       .where(eq(schema.moderationActions.targetId, layout!.id));
@@ -141,22 +154,22 @@ describe('seedIfEmpty', () => {
     harness = await createTestDatabase();
     const dir = writeFixtureSeed([{ slug: 'seed-once', cols: 4, title: 'Seed Once' }]);
 
-    const first = await seedIfEmpty(harness.db, dir);
+    const first = await seedIfEmpty(db(), dir);
     expect(first).toBe(1);
 
     // Re-running (the entrypoint runs this on every boot, not just the
     // first) must not duplicate anything, even against the same directory.
-    const second = await seedIfEmpty(harness.db, dir);
+    const second = await seedIfEmpty(db(), dir);
     expect(second).toBe(0);
 
-    const rows = await harness.db.select().from(schema.layouts);
+    const rows = await db().select().from(schema.layouts);
     expect(rows.length).toBe(1);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('is a no-op when the database already has a layout from somewhere else', async () => {
     harness = await createTestDatabase();
-    await harness.db.insert(schema.layouts).values({
+    await db().insert(schema.layouts).values({
       slug: 'not-from-seed',
       title: 'Not From Seed',
       authorUserId: SYSTEM_USER_ID,
@@ -168,9 +181,9 @@ describe('seedIfEmpty', () => {
     });
     const dir = writeFixtureSeed([{ slug: 'seed-c', cols: 4, title: 'Seed C' }]);
 
-    const seeded = await seedIfEmpty(harness.db, dir);
+    const seeded = await seedIfEmpty(db(), dir);
     expect(seeded).toBe(0);
-    const rows = await harness.db.select().from(schema.layouts);
+    const rows = await db().select().from(schema.layouts);
     expect(rows.map((r) => r.slug)).toEqual(['not-from-seed']);
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -188,13 +201,13 @@ describe('seedIfEmpty', () => {
       JSON.stringify({ title: 'Broken', author: 'pablodelucca', description: '', tags: [] }),
     );
 
-    await expect(seedIfEmpty(harness.db, dir)).rejects.toThrow(/fails validation/);
+    await expect(seedIfEmpty(db(), dir)).rejects.toThrow(/fails validation/);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('is a clean no-op when the directory does not exist', async () => {
     harness = await createTestDatabase();
-    const seeded = await seedIfEmpty(harness.db, '/does/not/exist');
+    const seeded = await seedIfEmpty(db(), '/does/not/exist');
     expect(seeded).toBe(0);
   });
 });

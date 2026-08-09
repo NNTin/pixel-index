@@ -14,9 +14,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import type { ValidationIssue } from './types.js';
 import { readJsonOrNull, upstreamPin } from './upstream.js';
 import { createValidator } from './validate.js';
-import type { ValidationIssue } from './types.js';
 
 const dir = path.resolve(process.argv[2] ?? 'seed');
 

@@ -7,6 +7,8 @@ import { createTestDatabase, type Harness } from '../db/test-support/harness.js'
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
 import { insertLayout, insertUser } from '../test-support/layouts.js';
+import type { ListOwnerLayoutsBody } from './responses.js';
+import type { OwnerLayoutView } from './serialize.js';
 
 const config = testConfig({
   writeRateLimit: { max: 1000, windowMs: 60_000 },
@@ -127,7 +129,7 @@ describe('PATCH /api/v1/layouts/:slug — owner edits', () => {
       accessToken,
     );
     expect(response.statusCode).toBe(200);
-    const body = response.json();
+    const body = response.json<OwnerLayoutView>();
     expect(body.title).toBe('Renamed');
     expect(body.description).toBe('updated');
     expect(body.tags).toEqual(['cosy']);
@@ -159,8 +161,8 @@ describe('PATCH /api/v1/layouts/:slug — moderation', () => {
     const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
     const response = await patch(layout.slug, { visibility: 'hidden', reason: 'spam' }, modToken);
     expect(response.statusCode).toBe(200);
-    expect(response.json().visibility).toBe('hidden');
-    expect(response.json().visibilityReason).toBe('spam');
+    expect(response.json<OwnerLayoutView>().visibility).toBe('hidden');
+    expect(response.json<OwnerLayoutView>().visibilityReason).toBe('spam');
 
     const publicView = await app.inject({ method: 'GET', url: `/api/v1/layouts/${layout.slug}` });
     expect(publicView.statusCode).toBe(404);
@@ -191,7 +193,7 @@ describe('PATCH /api/v1/layouts/:slug — moderation', () => {
     const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
     const response = await patch(layout.slug, { visibility: 'public', reason: 'appeal granted' }, modToken);
     expect(response.statusCode).toBe(200);
-    expect(response.json().visibility).toBe('public');
+    expect(response.json<OwnerLayoutView>().visibility).toBe('public');
   });
 });
 
@@ -210,7 +212,7 @@ describe('PUT /api/v1/layouts/:slug/layout — owner replace', () => {
     const raw = validLayoutJson({ cols: 6, rows: 6, tiles: Array(36).fill(0) });
     const response = await put(layout.slug, raw, accessToken);
     expect(response.statusCode).toBe(200);
-    const body = response.json();
+    const body = response.json<OwnerLayoutView>();
     expect(body.cols).toBe(6);
     expect(body.rows).toBe(6);
 
@@ -304,7 +306,7 @@ describe('GET /api/v1/me/layouts', () => {
       headers: { authorization: `Bearer ${accessToken}` },
     });
     expect(response.statusCode).toBe(200);
-    const slugs = response.json().layouts.map((l: { slug: string }) => l.slug);
+    const slugs = response.json<ListOwnerLayoutsBody>().layouts.map((l) => l.slug);
     expect(slugs.sort()).toEqual(['mine-hidden', 'mine-public']);
   });
 });

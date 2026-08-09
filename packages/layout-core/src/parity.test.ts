@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { layoutStats } from './stats.js';
+import type { Layout, LayoutMeta } from './types.js';
 import { createValidator } from './validate.js';
 
 /**
@@ -35,8 +36,13 @@ describe('published layouts', () => {
 
   it.each(slugs)('%s validates clean', (slug) => {
     const dir = path.join(SEED_DIR, slug);
-    const layout = JSON.parse(fs.readFileSync(path.join(dir, 'layout.json'), 'utf-8'));
-    const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf-8'));
+    // The `as` casts are the point of the suite, not a shortcut around it:
+    // these files are untrusted input as far as the validator is concerned, and
+    // what follows is the assertion that they really do have this shape.
+    const layout = JSON.parse(
+      fs.readFileSync(path.join(dir, 'layout.json'), 'utf-8'),
+    ) as Layout;
+    const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf-8')) as LayoutMeta;
 
     const layoutResult = validator.validateLayout(layout);
     const metaResult = validator.validateMeta(meta);
@@ -52,15 +58,15 @@ describe('published layouts', () => {
     // rows, the parity suite silently stops covering that fix.
     const layout = JSON.parse(
       fs.readFileSync(path.join(SEED_DIR, 'four-rooms/layout.json'), 'utf-8'),
-    );
-    const negative = layout.furniture.filter((item: { row: number }) => item.row < 0);
+    ) as Layout;
+    const negative = layout.furniture.filter((item) => item.row < 0);
     expect(negative.length).toBeGreaterThan(0);
   });
 
   it('produces the stats the index publishes', () => {
     const layout = JSON.parse(
       fs.readFileSync(path.join(SEED_DIR, 'blue-office/layout.json'), 'utf-8'),
-    );
+    ) as Layout;
     expect(layoutStats(layout)).toMatchObject({ cols: 25, rows: 22, furniture: 59, areas: 4 });
   });
 });

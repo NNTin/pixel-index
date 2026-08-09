@@ -21,7 +21,7 @@ if (!window.matchMedia) {
     addEventListener: () => {},
     removeEventListener: () => {},
     dispatchEvent: () => false,
-  }) as unknown as MediaQueryList;
+  });
 }
 
 // Default these suites to "this is a vendor preview deployment", which is the

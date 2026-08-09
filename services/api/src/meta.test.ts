@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createTestDatabase, type Harness } from './db/test-support/harness.js';
+import type { MetaBody } from './meta.js';
 import { buildServer } from './server.js';
 import { testConfig } from './test-support/config.js';
 import { insertLayout } from './test-support/layouts.js';
@@ -31,7 +32,7 @@ describe('GET /api/v1/meta', () => {
   it('reports the real pinned Pixel Agents version', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/meta' });
     expect(response.statusCode).toBe(200);
-    const body = response.json();
+    const body = response.json<MetaBody>();
     expect(body.schemaVersion).toBe(1);
     expect(body.pixelAgents.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(Number.isInteger(body.pixelAgents.layoutRevision)).toBe(true);
@@ -40,7 +41,7 @@ describe('GET /api/v1/meta', () => {
 
   it('reports no invite URL when Discord guild membership is not configured', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/meta' });
-    expect(response.json().discordInviteUrl).toBeNull();
+    expect(response.json<MetaBody>().discordInviteUrl).toBeNull();
   });
 
   it('reports the invite URL unauthenticated, when configured — joining must not require already being signed in', async () => {
@@ -58,18 +59,19 @@ describe('GET /api/v1/meta', () => {
     });
     try {
       const response = await guildedApp.inject({ method: 'GET', url: '/api/v1/meta' });
-      expect(response.json().discordInviteUrl).toBe('https://discord.gg/pixel-index');
+      expect(response.json<MetaBody>().discordInviteUrl).toBe('https://discord.gg/pixel-index');
     } finally {
       await guildedApp.close();
     }
   });
 
   it('count matches the number of public layouts, excluding hidden ones', async () => {
-    const before = (await app.inject({ method: 'GET', url: '/api/v1/meta' })).json().count;
+    const before = (await app.inject({ method: 'GET', url: '/api/v1/meta' })).json<MetaBody>()
+      .count;
     await insertLayout(harness.db, { slug: 'meta-count-public' });
     await insertLayout(harness.db, { slug: 'meta-count-hidden', visibility: 'hidden' });
 
-    const after = (await app.inject({ method: 'GET', url: '/api/v1/meta' })).json();
+    const after = (await app.inject({ method: 'GET', url: '/api/v1/meta' })).json<MetaBody>();
     expect(after.count).toBe(before + 1);
   });
 
@@ -82,7 +84,7 @@ describe('GET /api/v1/meta', () => {
     try {
       const response = await brokenApp.inject({ method: 'GET', url: '/api/v1/meta' });
       expect(response.statusCode).toBe(200);
-      expect(response.json().pixelAgents).toEqual({
+      expect(response.json<MetaBody>().pixelAgents).toEqual({
         version: null,
         commit: null,
         layoutRevision: 0,
@@ -115,7 +117,7 @@ describe('GET /api/v1/meta', () => {
     });
     try {
       const response = await stampedApp.inject({ method: 'GET', url: '/api/v1/meta' });
-      expect(response.json().pixelAgents).toEqual({
+      expect(response.json<MetaBody>().pixelAgents).toEqual({
         version: '9.9.9',
         commit: 'a'.repeat(40),
         layoutRevision: 3,

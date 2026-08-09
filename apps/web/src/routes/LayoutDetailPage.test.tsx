@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { requestUrl } from '../test/fetchStub';
 import { LayoutDetailPage } from './LayoutDetailPage';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -44,7 +45,7 @@ function stubFetch(layoutBody: unknown, metaBody: unknown) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/meta')) return Response.json(metaBody);
       if (url.endsWith('/download')) {
         return new Response('{"version":1,"layoutRevision":1,"cols":2,"rows":2,"tiles":[0,0,0,0],"furniture":[]}');

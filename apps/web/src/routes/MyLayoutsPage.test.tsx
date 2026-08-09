@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider } from '../auth/AuthContext';
+import { AuthProvider } from '../auth/AuthProvider';
+import { requestJson, requestUrl } from '../test/fetchStub';
 import { MyLayoutsPage } from './MyLayoutsPage';
 
 beforeEach(() => {
@@ -58,7 +59,7 @@ function stubFetch(
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/auth/token')) return Response.json(authResponse);
       return handleOther(url, init);
     }),
@@ -138,7 +139,7 @@ describe('MyLayoutsPage', () => {
   it('edits title/description/tags via the inline form', async () => {
     stubFetch((_url, init) => {
       if (init?.method === 'PATCH') {
-        const body = JSON.parse(String(init.body));
+        const body = requestJson<{ title?: string }>(init);
         return Response.json(ownerView({ title: body.title }));
       }
       return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });

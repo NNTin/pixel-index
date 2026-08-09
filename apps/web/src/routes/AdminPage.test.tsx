@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider } from '../auth/AuthContext';
+import { AuthProvider } from '../auth/AuthProvider';
+import { requestUrl } from '../test/fetchStub';
 import { AdminPage } from './AdminPage';
 
 beforeEach(() => {
@@ -35,7 +36,7 @@ function stubFetch() {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/auth/token')) return Response.json(AUTH_RESPONSE);
       return Response.json({ users: [TARGET], nextCursor: null });
     }),
@@ -71,7 +72,7 @@ describe('AdminPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => {
-      const calls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+      const calls = vi.mocked(fetch).mock.calls.map(([input]) => requestUrl(input));
       expect(calls.some((url) =>
         url.includes('/api/v1/admin/users') && url.includes('q=handle') && url.includes('capability=moderator'),
       )).toBe(true);

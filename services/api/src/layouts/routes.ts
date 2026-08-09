@@ -20,9 +20,10 @@ import {
   getLayoutBySlug,
   listLayouts,
   listPublicTags,
-  tagsForLayouts,
   type NumericRange,
+  tagsForLayouts,
 } from './query.js';
+import type { ListLayoutsBody, ListTagsBody } from './responses.js';
 import {
   layoutDetailResponseSchema,
   listLayoutsQuerySchema,
@@ -67,7 +68,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
   app.get(
     '/api/v1/layouts',
     { schema: { querystring: listLayoutsQuerySchema, response: listLayoutsResponseSchema } },
-    async (request) => {
+    async (request): Promise<ListLayoutsBody> => {
       const query = request.query as ListQuery;
       const tags = query.tags
         ? query.tags.split(',').map((t) => t.trim()).filter((t) => t.length > 0)
@@ -114,7 +115,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
     },
   );
 
-  app.get('/api/v1/tags', { schema: { response: listTagsResponseSchema } }, async () => {
+  app.get('/api/v1/tags', { schema: { response: listTagsResponseSchema } }, async (): Promise<ListTagsBody> => {
     const tags = await listPublicTags(db);
     return { schemaVersion: SCHEMA_VERSION, tags };
   });

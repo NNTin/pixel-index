@@ -8,8 +8,8 @@ import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { requireAuth, type Role } from './context.js';
 import {
-  discordAvatarUrl,
   DiscordApiError,
+  discordAvatarUrl,
   fetchDiscordGuildMember,
 } from './discord.js';
 import { discardDiscordGrant, usableDiscordAccessToken } from './discordGrant.js';

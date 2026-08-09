@@ -1,11 +1,12 @@
 import { Link, useParams } from 'react-router-dom';
 
 import { getLayout, getLayoutJson, getMeta } from '../api/client';
-import { previewImageProps, usePreviewSource } from '../api/PreviewSourceContext';
+import { previewImageProps, usePreviewSource } from '../api/previewSourceState';
 import { useApi } from '../api/useApi';
 import { AuthorLink } from '../components/AuthorLink';
 import { ErrorNotice } from '../components/ErrorNotice';
-import { factsFor, FactsRow } from '../components/FactsRow';
+import { factsFor } from '../components/facts';
+import { FactsRow } from '../components/FactsRow';
 import { LayoutJsonPanel, type LayoutJsonState } from '../components/LayoutJsonPanel';
 import { LiveOfficePreview } from '../components/LiveOfficePreview';
 

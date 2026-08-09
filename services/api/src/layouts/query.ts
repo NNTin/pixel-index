@@ -10,7 +10,7 @@ import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
-import { decodeCursor, encodeCursor, type Cursor, type SortKey } from './cursor.js';
+import { type Cursor, decodeCursor, encodeCursor, type SortKey } from './cursor.js';
 
 export interface NumericRange {
   min?: number;

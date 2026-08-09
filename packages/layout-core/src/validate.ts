@@ -17,7 +17,13 @@ import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.
 import addFormatsExport from 'ajv-formats';
 
 import { layoutSchema, metaSchema } from './schemas.js';
-import type { FurnitureCatalog, Layout, ValidationIssue, ValidationResult } from './types.js';
+import type {
+  FurnitureCatalog,
+  FurnitureItem,
+  Layout,
+  ValidationIssue,
+  ValidationResult,
+} from './types.js';
 import { bundledLayoutRevision, furnitureCatalog } from './upstream.js';
 
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -145,7 +151,11 @@ export function validateLayout(layout: unknown, options: ValidateLayoutOptions =
     const unknown = new Set<string>();
     const misplaced: string[] = [];
 
-    for (const item of doc.furniture) {
+    // Widened on the way in: `doc` is an `as Layout` view of untrusted JSON, and
+    // this loop runs even when the schema check above already failed, so the
+    // array really can hold nulls and junk. The guard below is what keeps that
+    // from throwing mid-validation.
+    for (const item of doc.furniture as (FurnitureItem | null | undefined)[]) {
       if (!item || typeof item.type !== 'string') continue;
       const entry = catalog.get(item.type);
       if (!entry) {

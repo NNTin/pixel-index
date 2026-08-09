@@ -21,7 +21,7 @@
     <script>
       // Applied before the app bundle loads so there's no flash of the
       // wrong theme — mirrors the persistence/default logic in
-      // src/theme/ThemeContext.tsx exactly (same storage key, same
+      // src/theme/ThemeProvider.tsx exactly (same storage key, same
       // default-to-dark rationale).
       (function () {
         var stored = localStorage.getItem('pixelindex_theme');

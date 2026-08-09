@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { layoutStats, sha256 } from '@pixel-index/layout-core';
+import { type Layout, layoutStats, sha256 } from '@pixel-index/layout-core';
 import { and, asc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -325,7 +325,7 @@ describe('denormalised stats come from layout-core', () => {
     // beside it. This test ties the two packages together.
     const file = path.join(REPO_ROOT, 'seed/blue-office/layout.json');
     const raw = fs.readFileSync(file);
-    const parsed = JSON.parse(raw.toString());
+    const parsed = JSON.parse(raw.toString()) as Layout;
     const stats = layoutStats(parsed);
 
     const stored = await insertLayout({
@@ -359,7 +359,7 @@ describe('denormalised stats come from layout-core', () => {
     // never surprise them.
     const parsed = JSON.parse(
       fs.readFileSync(path.join(REPO_ROOT, 'seed/four-rooms/layout.json'), 'utf-8'),
-    );
+    ) as Layout;
     const stored = await insertLayout({ layout: parsed });
     expect(stored.layout).toEqual(parsed);
   });

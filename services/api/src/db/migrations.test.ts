@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { SYSTEM_USER_ID } from './constants.js';
 import * as schema from './schema.js';
-import { createTestDatabase, migrateAgain, tableNames, type Harness } from './test-support/harness.js';
+import { createTestDatabase, type Harness, migrateAgain, tableNames } from './test-support/harness.js';
 
 describe('migrations', () => {
   let harness: Harness;

@@ -1,7 +1,9 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider, useAuth } from './AuthContext';
+import { requestJson, requestUrl } from '../test/fetchStub';
+import { AuthProvider } from './AuthProvider';
+import { useAuth } from './authState';
 import { getStoredRefreshToken } from './storage';
 
 function authUser(overrides: Record<string, unknown> = {}) {
@@ -50,7 +52,7 @@ describe('AuthProvider — establishing a session on mount', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = requestUrl(input);
         expect(url).toContain('/api/v1/auth/token');
         return Response.json({
           accessToken: 'access-1',
@@ -74,7 +76,7 @@ describe('AuthProvider — establishing a session on mount', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = requestUrl(input);
         calls.push(url);
         if (url.includes('/auth/refresh')) {
           return Response.json({ accessToken: 'access-2', refreshToken: 'rotated-refresh', expiresInMs: 900_000 });
@@ -110,9 +112,20 @@ describe('AuthProvider — login and logout', () => {
 
     const original = window.location;
     let assignedHref = '';
-    // jsdom's window.location cannot be reassigned directly; stub just the setter path this exercises.
+    // jsdom's window.location cannot be reassigned directly; stub just the
+    // setter path this exercises. Built field by field rather than spreading
+    // `original`: Location is a class instance, and spreading it would drop its
+    // prototype (assign, reload, replace) while looking like it had copied it.
     Object.defineProperty(window, 'location', {
-      value: { ...original, set href(value: string) { assignedHref = value; }, get href() { return assignedHref; } },
+      value: {
+        origin: original.origin,
+        set href(value: string) {
+          assignedHref = value;
+        },
+        get href() {
+          return assignedHref;
+        },
+      },
       writable: true,
     });
 
@@ -129,7 +142,7 @@ describe('AuthProvider — login and logout', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
+        const url = requestUrl(input);
         if (url.includes('/auth/token')) {
           return Response.json({
             accessToken: 'access-3',
@@ -139,7 +152,7 @@ describe('AuthProvider — login and logout', () => {
           });
         }
         if (url.includes('/auth/logout')) {
-          loggedOutWith.push(JSON.parse(String(init?.body)).refreshToken);
+          loggedOutWith.push(requestJson<{ refreshToken: string }>(init).refreshToken);
           return new Response(null, { status: 204 });
         }
         throw new Error(`unexpected fetch: ${url}`);
@@ -163,7 +176,7 @@ describe('AuthProvider — Discord capability freshness', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = requestUrl(input);
         if (url.includes('/auth/token')) {
           return Response.json({
             accessToken: 'focus-access',

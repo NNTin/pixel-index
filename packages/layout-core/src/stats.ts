@@ -13,7 +13,12 @@ export function layoutStats(layout: Layout): LayoutStats {
   return {
     cols: layout.cols,
     rows: layout.rows,
-    furniture: layout.furniture?.length ?? 0,
+    // Not defensive like the four below: `furniture` is required by both the
+    // Layout type and layout.schema.json, and every caller validates before
+    // getting here (seed.ts, submit.ts, manage.ts). `areas`, `pets`, `carpets`
+    // and `layoutRevision` really are optional — an office with no pets exports
+    // without the key — and the columns they feed are NOT NULL.
+    furniture: layout.furniture.length,
     areas: layout.areas?.length ?? 0,
     pets: layout.pets?.length ?? 0,
     carpets: layout.carpets?.length ?? 0,

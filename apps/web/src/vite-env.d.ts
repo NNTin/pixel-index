@@ -1,6 +1,19 @@
 /// <reference types="vite/client" />
 
 /**
+ * The typed view of the `VITE_*` variables this app reads. Without it
+ * `import.meta.env.VITE_API_BASE_URL` is `any`, which is how a typo in the
+ * variable name becomes a silent same-origin request rather than a build error.
+ */
+interface ImportMetaEnv {
+  /**
+   * Absolute origin of the API. Optional, and deliberately allowed to be the
+   * empty string — see client.ts for why that case matters.
+   */
+  readonly VITE_API_BASE_URL?: string;
+}
+
+/**
  * True only on a Vercel *preview* deployment — see `vite.config.ts`, which
  * inlines it from the `VERCEL_ENV` system variable at build time.
  *

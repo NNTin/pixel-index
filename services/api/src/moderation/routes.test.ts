@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { signAccessToken } from '../auth/tokens.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
+import type { ListOwnerLayoutsBody } from '../layouts/responses.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
 import { insertLayout, insertUser } from '../test-support/layouts.js';
@@ -61,7 +62,7 @@ describe('GET /api/v1/moderation/layouts', () => {
 
     const response = await listModerationLayouts(`author=${owner.id}`, modToken);
     expect(response.statusCode).toBe(200);
-    const slugs = response.json().layouts.map((l: { slug: string }) => l.slug);
+    const slugs = response.json<ListOwnerLayoutsBody>().layouts.map((l) => l.slug);
     expect(slugs.sort()).toEqual(
       ['mod-visible-deleted', 'mod-visible-hidden', 'mod-visible-public', 'mod-visible-removed'].sort(),
     );
@@ -74,7 +75,7 @@ describe('GET /api/v1/moderation/layouts', () => {
     await insertLayout(harness.db, { slug: 'mod-filter-hidden', authorUserId: owner.id, visibility: 'hidden' });
 
     const response = await listModerationLayouts(`author=${owner.id}&visibility=hidden`, modToken);
-    const slugs = response.json().layouts.map((l: { slug: string }) => l.slug);
+    const slugs = response.json<ListOwnerLayoutsBody>().layouts.map((l) => l.slug);
     expect(slugs).toEqual(['mod-filter-hidden']);
   });
 
@@ -89,8 +90,8 @@ describe('GET /api/v1/moderation/layouts', () => {
     });
 
     const response = await listModerationLayouts(`author=${owner.id}&visibility=hidden`, modToken);
-    const layout = response.json().layouts[0];
-    expect(layout.visibility).toBe('hidden');
-    expect(layout.visibilityReason).toBe('spam');
+    const layout = response.json<ListOwnerLayoutsBody>().layouts[0];
+    expect(layout?.visibility).toBe('hidden');
+    expect(layout?.visibilityReason).toBe('spam');
   });
 });

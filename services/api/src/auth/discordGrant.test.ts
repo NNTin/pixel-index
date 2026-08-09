@@ -3,8 +3,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 
 import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
-import { insertUser } from '../test-support/layouts.js';
+import { formBody } from '../test-support/bodies.js';
 import { testConfig } from '../test-support/config.js';
+import { insertUser } from '../test-support/layouts.js';
 import {
   decryptDiscordToken,
   encryptDiscordToken,
@@ -76,7 +77,7 @@ describe('retained Discord OAuth grants', () => {
       scope: 'identify guilds.members.read',
     }, KEY, savedAt);
     vi.stubGlobal('fetch', vi.fn(async (_input: unknown, init?: RequestInit) => {
-      const body = new URLSearchParams(String(init?.body));
+      const body = formBody(init);
       expect(body.get('grant_type')).toBe('refresh_token');
       expect(body.get('refresh_token')).toBe('old-refresh');
       return Response.json({

@@ -4,8 +4,8 @@
  * make sure both come down together on SIGTERM/SIGINT.
  */
 
-import { createDatabase } from './db/client.js';
 import { loadConfig } from './config.js';
+import { createDatabase } from './db/client.js';
 import { buildServer } from './server.js';
 
 export async function main(): Promise<void> {

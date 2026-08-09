@@ -5,7 +5,7 @@
  *
  * Accent (#6030ff family) comes from the Pixel Agents docs site's own
  * `src/css/custom.css` (Docusaurus's --ifm-color-primary* scale). Dark mode
- * is deliberately the default (see theme/ThemeContext.tsx) and its surface
+ * is deliberately the default (see theme/ThemeProvider.tsx) and its surface
  * tones are the office webview's own index.css values verbatim —
  * --color-bg-dark: #181828 (canvas) and --color-bg: #1e1e2e (surface) — not
  * the docs site's own dark scale, so the site reads as "the office," which

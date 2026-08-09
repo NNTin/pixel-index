@@ -2,8 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { requireAuth } from './auth/context.js';
-import type { AnyDatabase } from './db/client.js';
 import type { ApiConfig } from './config.js';
+import type { AnyDatabase } from './db/client.js';
+import type { EnvelopeBody } from './errors.js';
 import { ApiError } from './errors.js';
 import { buildServer } from './server.js';
 import { testConfig } from './test-support/config.js';
@@ -192,7 +193,7 @@ describe('error envelope', () => {
     });
     const response = await app.inject({ method: 'GET', url: '/__test/validation' });
     expect(response.statusCode).toBe(422);
-    const body = response.json();
+    const body = response.json<EnvelopeBody>();
     expect(body.error).toBe('validation_error');
     expect(body.issues).toEqual([
       { code: 'layout.revision.below_bundled', path: '/layoutRevision', message: 'too old' },
@@ -206,7 +207,7 @@ describe('error envelope', () => {
     });
     const response = await app.inject({ method: 'GET', url: '/__test/boom' });
     expect(response.statusCode).toBe(500);
-    const body = response.json();
+    const body = response.json<EnvelopeBody>();
     expect(body).toEqual({ error: 'internal_error', message: 'Something went wrong.' });
     expect(JSON.stringify(body)).not.toContain('connection string');
   });
@@ -244,7 +245,7 @@ describe('rate limiting', () => {
     const second = await app.inject({ method: 'GET', url: '/health' });
     expect(second.statusCode).toBe(429);
     expect(second.headers['retry-after']).toBeDefined();
-    const body = second.json();
+    const body = second.json<EnvelopeBody>();
     expect(body.error).toBe('rate_limited');
     expect(typeof body.message).toBe('string');
   });

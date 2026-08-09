@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { requestUrl } from '../test/fetchStub';
 import { Home } from './Home';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -43,7 +44,7 @@ function stubHomeFetch(handleLayouts: (url: string) => Response, tags: { name: s
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/api/v1/tags')) return Response.json({ schemaVersion: 1, tags });
       return handleLayouts(url);
     }),

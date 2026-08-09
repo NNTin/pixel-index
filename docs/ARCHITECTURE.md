@@ -60,7 +60,7 @@ separately-hosted API, for every self-hoster, not just the official index). The
 short-lived access token, the single-use login code delivered via a URL fragment (never
 a query string, so it never lands in server logs or browser history), and the
 rotate-on-every-refresh-or-revoke-the-family refresh token are the direct consequences
-of that choice. See `apps/web/src/auth/AuthContext.tsx` (the SPA's half) and
+of that choice. See `apps/web/src/auth/AuthProvider.tsx` (the SPA's half) and
 `services/api/src/auth/` (the API's half) for the implementation.
 
 **`renderer` is reachable from `api` only — never from a browser.** It has no `ports:`

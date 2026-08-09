@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { PreviewManifest, PreviewManifestPin } from '../api/previewSource';
-import { usePreviewSource } from '../api/PreviewSourceContext';
+import { usePreviewSource } from '../api/previewSourceState';
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;

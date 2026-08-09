@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildAuthorizeUrl,
-  discordAvatarUrl,
   DiscordApiError,
+  discordAvatarUrl,
   exchangeCodeForToken,
   fetchDiscordGuildMember,
   fetchDiscordUser,

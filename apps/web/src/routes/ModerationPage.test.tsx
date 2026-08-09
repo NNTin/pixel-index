@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider } from '../auth/AuthContext';
+import { AuthProvider } from '../auth/AuthProvider';
+import { requestJson, requestUrl } from '../test/fetchStub';
 import { ModerationPage } from './ModerationPage';
 
 beforeEach(() => {
@@ -53,7 +54,7 @@ function stubFetch(handleOther: (url: string, init?: RequestInit) => Response) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/auth/token')) return Response.json(AUTH_RESPONSE);
       return handleOther(url, init);
     }),
@@ -84,7 +85,7 @@ describe('ModerationPage', () => {
     let sentBody: { visibility?: string; reason?: string } = {};
     stubFetch((_url, init) => {
       if (init?.method === 'PATCH') {
-        sentBody = JSON.parse(String(init.body));
+        sentBody = requestJson<typeof sentBody>(init);
         return Response.json(ownerView({ visibility: 'hidden', visibilityReason: sentBody.reason }));
       }
       return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });

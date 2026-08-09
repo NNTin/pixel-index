@@ -13,7 +13,7 @@
  * thread on issue #10 for why.
  */
 
-import { layoutStats, sha256, type Layout } from '@pixel-index/layout-core';
+import { type Layout, layoutStats, sha256 } from '@pixel-index/layout-core';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
@@ -25,8 +25,8 @@ import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { recordModerationAction } from '../moderation/audit.js';
-import { requestPreview } from '../renderer/client.js';
 import { writeRateLimitConfig } from '../rateLimit.js';
+import { requestPreview } from '../renderer/client.js';
 import {
   MAX_DESCRIPTION_LENGTH,
   MAX_TAGS,

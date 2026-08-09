@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CandidatePinBanner } from '../components/CandidatePinBanner';
 import { LayoutCard } from '../components/LayoutCard';
-import { type PreviewManifest,resetPreviewManifestCache } from './previewSource';
-import { PreviewSourceProvider } from './PreviewSourceContext';
+import { requestUrl } from '../test/fetchStub';
+import { type PreviewManifest, resetPreviewManifestCache } from './previewSource';
+import { PreviewSourceProvider } from './PreviewSourceProvider';
 import type { LayoutSummary } from './types';
 
 afterEach(() => {
@@ -55,14 +56,14 @@ const summary = (slug: string): LayoutSummary =>
       preview: `/api/v1/layouts/${slug}/preview.png`,
       thumbnail: `/api/v1/layouts/${slug}/thumbnail.png`,
     },
-  }) as LayoutSummary;
+  });
 
 /** The two requests the provider makes: the manifest probe, then /meta. */
 function stubFetch(options: { manifest: PreviewManifest | null; apiCommit: string | null }) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('vendor-preview/manifest.json')) {
         return options.manifest === null
           ? new Response('', { status: 404 })

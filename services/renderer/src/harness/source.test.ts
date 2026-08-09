@@ -99,8 +99,12 @@ describe('fetchExportedLayouts', () => {
 
   it('tolerates a trailing slash on the base URL', async () => {
     let seen = '';
-    await fetchExportedLayouts('https://api.example.com/', async (url) => {
-      seen = String(url);
+    await fetchExportedLayouts('https://api.example.com/', async (input) => {
+      // fetch's first argument is `RequestInfo | URL`. String() over that union
+      // yields "[object Request]" for a Request, so the URL is read from each
+      // form explicitly — fetchExportedLayouts passes a string today, and this
+      // assertion should keep meaning something if that ever changes.
+      seen = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       return ndjsonResponse('');
     });
     expect(seen).toBe('https://api.example.com/api/v1/export/layouts.ndjson');

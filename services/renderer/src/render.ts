@@ -9,8 +9,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { readJsonOrNull, upstreamAssetsDir, type Layout } from '@pixel-index/layout-core';
-import { chromium, type Browser } from 'playwright';
+import { type Layout, readJsonOrNull, upstreamAssetsDir } from '@pixel-index/layout-core';
+import { type Browser, chromium } from 'playwright';
 
 import type { DevServer } from './devServer.js';
 
@@ -175,7 +175,10 @@ export class Renderer {
 
       // Wait for the office to actually hold this layout's furniture, so the
       // screenshot can never catch an empty or half-built office.
-      const expected = layout.furniture?.length ?? 0;
+      // `layout` is a validated Layout by the time it reaches here (server.ts
+      // and the harness both validate before casting), so `furniture` is
+      // present — no defensive `?.` pretending otherwise.
+      const expected = layout.furniture.length;
       await page.waitForFunction(
         (count) =>
           (

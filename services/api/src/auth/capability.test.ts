@@ -1,10 +1,10 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import * as schema from '../db/schema.js';
-import { eq } from 'drizzle-orm';
-import { insertUser } from '../test-support/layouts.js';
+import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { testConfig } from '../test-support/config.js';
+import { insertUser } from '../test-support/layouts.js';
 import { resolveCapability } from './capability.js';
 import { saveDiscordGrant } from './discordGrant.js';
 

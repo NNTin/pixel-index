@@ -18,5 +18,9 @@
   },
   // vite-env.d.ts carries __PIXEL_AGENTS_COMMIT__, which assets.ts addresses
   // the immutable asset directory with.
-  "include": ["src/live-office", "src/vite-env.d.ts"]
+  "include": ["src/live-office", "src/vite-env.d.ts"],
+  // `extends` inherits `exclude`, and tsconfig.app.json excludes exactly the
+  // directory this project is for — without this the project resolves to zero
+  // files and checks nothing at all.
+  "exclude": []
 }
