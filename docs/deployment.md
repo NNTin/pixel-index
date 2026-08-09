@@ -54,6 +54,20 @@ in logs for no benefit).
 | `PRODUCTION_API_BASE_URL` | Yes, for a working Pages site | `https://api.example.com` | Origin only, no trailing slash. Baked into the bundle as `VITE_API_BASE_URL`. |
 | `PAGES_BASE_PATH` | No | `/` | Only when Pages serves this site from the **root**. Unset for any `/<repo>/` subpath, including under a user-site custom domain — see below. |
 
+**`PRODUCTION_API_BASE_URL` is the shared name for every workflow that builds the SPA**,
+not just `pages.yml`. Any future workflow that produces a frontend build — the vendor
+auto-update pipeline in #26, for instance, which needs to render layouts against a real
+API rather than a hardcoded host — should read `vars.PRODUCTION_API_BASE_URL` and pass it
+through as `VITE_API_BASE_URL`, exactly as `pages.yml` does:
+
+```yaml
+env:
+  VITE_API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+```
+
+One variable, one place to change it. Introducing a second name for the same value is how
+a repository ends up with one workflow silently building against a stale API.
+
 **Repository-level, not Environment-level.** `pages.yml`'s `build` job deliberately
 declares no `environment:`, so environment-scoped variables are not in scope for it —
 only repository (or organisation) variables are. Adding `environment: github-pages` to
@@ -113,6 +127,26 @@ vercel env add VITE_API_BASE_URL preview
 
 Vercel bakes env vars in at build time, so changing one requires a **redeploy** —
 existing deployments keep the old value. Use "Redeploy" without the build cache.
+
+**Deployment Protection decides whether a preview is readable at all.** Under
+**Project → Settings → Deployment Protection → Vercel Authentication**, Vercel's default
+("Standard Protection") puts every preview deployment behind a Vercel login. The symptom
+is unmistakable once you know it: the preview URL answers `302` with
+`location: https://vercel.com/sso-api?url=…` instead of serving the app, so a logged-out
+visitor — a PR reviewer, a contributor, anything automated — cannot open it and `curl`
+cannot check it either. Nothing about your environment variables is wrong when this
+happens.
+
+Leave it on if previews should stay team-only; set it to **Disabled** if PR previews are
+meant to be shareable. Note that turning it off makes any preview URL public, and Vercel
+posts those URLs into PR comments — on a public repository, treat "anyone with the URL"
+as "anyone". Keep **Git Fork Protection** on regardless: it is a separate setting, and it
+is what stops a fork's PR from building with your project's environment variables.
+
+Worth deciding alongside it: a Preview `VITE_API_BASE_URL` pointing at production makes
+every preview a fully functional client against live data — login and submission
+included — before any review. Point Preview at a staging API if that is more exposure
+than you want.
 
 **Preview deploys need one thing from the backend.** Every Vercel PR preview gets a
 fresh hostname (`https://<project>-<build-hash>-<team>.vercel.app`), so there is no
@@ -227,9 +261,22 @@ are Vercel's own and hold nothing this build reads.
 **2. Vercel** (Project → Settings → Environment Variables; Root Directory must be `apps/web`)
 
 ```bash
-vercel env add VITE_API_BASE_URL production
-vercel env add VITE_API_BASE_URL preview
+# --no-sensitive matters: the CLI defaults to Sensitive non-interactively, and a
+# Sensitive value cannot be read back to verify. Neither value is a secret.
+vercel env add VITE_API_BASE_URL production --no-sensitive
+vercel env add VITE_API_BASE_URL preview --no-sensitive
 # Then redeploy — env vars are baked in at build time.
+```
+
+Then decide **Deployment Protection** (Settings → Deployment Protection → Vercel
+Authentication), which is a dashboard setting only the project owner can change. While it
+is on, previews require a Vercel login, so they cannot be opened by a logged-out reviewer
+or checked anonymously — a preview URL returns `302` to `vercel.com/sso-api` rather than
+the app. Set it to **Disabled** if PR previews should be publicly shareable; leave it on
+if they should stay team-only. Either way, verify with:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://<preview-url>/   # 200 public, 302 protected
 ```
 
 **3. The backend host** — `cp .env.example .env`, then fill in:
@@ -254,7 +301,22 @@ then `docker compose up --build -d`.
 `${PUBLIC_API_ORIGIN}/callback` exactly (e.g. `https://api.example.com/callback`).
 
 **5. Verify.** `curl https://api.example.com/health`; open the Pages and Vercel sites and
-confirm layouts load; click through a Discord login. A CORS failure in the browser
+confirm layouts load; click through a Discord login.
+
+The single most useful check, because it distinguishes "misconfigured" from "built before
+you configured it" — grep the *deployed* bundle for your API host:
+
+```bash
+SITE=https://example.com/pixel-index      # or your Vercel URL
+JS=$(curl -s "$SITE/" | grep -oE '/[a-z-]*/?assets/[^"]*\.js' | head -1)
+curl -s "$SITE$JS" | grep -c 'api\.example\.com'   # 0 means the build never saw the variable
+```
+
+`VITE_API_BASE_URL` is baked in at build time, so a correct variable set *after* the last
+build changes nothing until you rebuild. If the count is 0 and `localhost:3000` is present
+instead, that is exactly what happened: rebuild rather than hunting for a config error.
+
+A CORS failure in the browser
 console means the origin you are *browsing from* is missing from `PUBLIC_WEB_ORIGIN` (or
 from `PUBLIC_WEB_ORIGIN_PATTERNS`, for a preview) — the API must be restarted after
 changing either.
