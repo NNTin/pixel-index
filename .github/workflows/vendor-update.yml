@@ -292,6 +292,8 @@ jobs:
       - name: Compose the pull request body
         id: body
         if: steps.candidate.outputs.moved == 'true'
+        env:
+          PREVIEW_BASE_URL: ${{ steps.preview-url.outputs.base }}
         run: |
           set -euo pipefail
           # From .gitmodules, not hardcoded: the submodule URL is already
@@ -305,6 +307,7 @@ jobs:
             --repo-url "$upstream" \
             --section gate/seed-report.md \
             --section gate/live-report.md \
+            --preview-url "$PREVIEW_BASE_URL" \
             --out gate/pr-body.md
 
           if [ "${{ steps.seed-gate.outputs.code }}" != "0" ] || [ "${{ steps.live-gate.outputs.code || '0' }}" != "0" ]; then

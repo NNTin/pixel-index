@@ -157,7 +157,9 @@ function commandDiff(argv: string[]): number {
 function commandBody(argv: string[]): number {
   const sections = args(argv, 'section')
     .filter((file) => fs.existsSync(file))
-    .map((file) => fs.readFileSync(file, 'utf-8'));
+    // trimEnd so a section that ends in its own blank line does not stack up
+    // with the separator the body adds after it.
+    .map((file) => fs.readFileSync(file, 'utf-8').trimEnd());
 
   const body = renderPullRequestBody({
     baselineCommit: requireArg(argv, 'baseline-commit'),
