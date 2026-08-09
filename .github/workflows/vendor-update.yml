@@ -17,6 +17,13 @@ on:
     # rarely enough that the PR is an event rather than noise.
     - cron: '0 6 * * 1'
   workflow_dispatch:
+  # TEMPORARY (#26): a cron workflow cannot be exercised from the PR that adds
+  # it — `schedule` only ever runs on the default branch, and a scheduled job
+  # first fires long after review. This trigger lets the branch prove itself
+  # end to end: it opens a real PR, against this branch, carrying a real
+  # verdict. **Remove this once #26 has merged.**
+  push:
+    branches: [feat/26]
 
 permissions:
   contents: write
@@ -107,6 +114,18 @@ jobs:
             echo "moved=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Resolved once, here, rather than repeated in both diff steps: it is a
+      # long expression, and two copies of it are two chances for the seed gate
+      # and the live gate to publish manifests pointing at different places.
+      - name: Resolve where the candidate renders will be published
+        id: preview-url
+        if: steps.candidate.outputs.moved == 'true'
+        env:
+          CONFIGURED: ${{ vars.VENDOR_PREVIEW_BASE_URL }}
+          DEFAULT: https://raw.githubusercontent.com/${{ github.repository }}/${{ env.PREVIEW_BRANCH }}
+          SHA: ${{ steps.candidate.outputs.sha }}
+        run: echo "base=${CONFIGURED:-$DEFAULT}/$SHA" >> "$GITHUB_OUTPUT"
+
       # Everything below is conditional on the pin having actually moved, so a
       # week with no upstream activity costs one cheap run and opens nothing.
       - name: Install upstream webview dependencies for the candidate
@@ -151,7 +170,7 @@ jobs:
             --manifest gate/seed-manifest.json --preview-base-url "$PREVIEW_BASE_URL"
           echo "code=$?" >> "$GITHUB_OUTPUT"
         env:
-          PREVIEW_BASE_URL: ${{ vars.VENDOR_PREVIEW_BASE_URL != '' && format('{0}/{1}', vars.VENDOR_PREVIEW_BASE_URL, steps.candidate.outputs.sha) || format('https://raw.githubusercontent.com/{0}/vendor-previews/{1}', github.repository, steps.candidate.outputs.sha) }}
+          PREVIEW_BASE_URL: ${{ steps.preview-url.outputs.base }}
 
       - name: Compare the two pins over the live index
         id: live-gate
@@ -167,7 +186,7 @@ jobs:
             --manifest gate/live-manifest.json --preview-base-url "$PREVIEW_BASE_URL"
           echo "code=$?" >> "$GITHUB_OUTPUT"
         env:
-          PREVIEW_BASE_URL: ${{ vars.VENDOR_PREVIEW_BASE_URL != '' && format('{0}/{1}', vars.VENDOR_PREVIEW_BASE_URL, steps.candidate.outputs.sha) || format('https://raw.githubusercontent.com/{0}/vendor-previews/{1}', github.repository, steps.candidate.outputs.sha) }}
+          PREVIEW_BASE_URL: ${{ steps.preview-url.outputs.base }}
 
       # When the live gate could not run — no API URL configured, or the index
       # was unreachable — say so in the PR rather than letting its absence read
@@ -291,7 +310,12 @@ jobs:
           # pushes a single commit on top of the checked-out base, so the branch
           # is regenerated from main each run rather than accumulating hops.
           branch: ${{ env.PR_BRANCH }}
-          base: ${{ github.event.repository.default_branch }}
+          # The branch this run checked out, which for `schedule` is the default
+          # branch — the same thing hardcoding `main` would give, without the
+          # hardcoding. It also keeps the temporary `push` trigger above honest:
+          # the test PR targets the feature branch, so its diff is the vendor
+          # bump alone rather than the whole branch replayed against main.
+          base: ${{ github.ref_name }}
           delete-branch: false
           commit-message: |
             chore(vendor): pixel-agents ${{ steps.baseline.outputs.sha }} -> ${{ steps.candidate.outputs.sha }}

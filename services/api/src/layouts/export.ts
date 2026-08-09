@@ -40,6 +40,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
+import { PUBLIC_REVALIDATED, respondNotModifiedIfMatching } from './caching.js';
 import { publicLayoutsFingerprint, streamPublicLayouts } from './query.js';
 
 export interface ExportRoutesDeps {
@@ -79,13 +80,12 @@ export function registerExportRoutes(app: FastifyInstance, { config, db }: Expor
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { count, digest } = await publicLayoutsFingerprint(db);
-      const etag = `"${digest}"`;
 
-      reply.header('etag', etag);
-      // Same short-lived, revalidated policy as the other public read paths —
-      // the content behind this URL changes whenever anyone submits.
-      reply.header('cache-control', 'public, max-age=60, must-revalidate');
-      if (request.headers['if-none-match'] === etag) return reply.code(304).send();
+      // The same short-lived, revalidated policy as every other public read
+      // path (caching.ts) — the content behind this URL changes whenever
+      // anyone submits.
+      reply.header('cache-control', PUBLIC_REVALIDATED);
+      if (respondNotModifiedIfMatching(request, reply, `"${digest}"`)) return;
 
       reply.header('content-type', 'application/x-ndjson; charset=utf-8');
       reply.header('x-total-count', String(count));

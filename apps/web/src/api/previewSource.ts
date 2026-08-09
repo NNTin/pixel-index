@@ -30,6 +30,16 @@
  * this is a real configuration, not a hypothetical.
  */
 
+/**
+ * ## The manifest shape is declared twice, deliberately
+ *
+ * The producer's copy is `services/renderer/src/harness/manifest.ts`. This is a
+ * *wire format* — a JSON file published by one workspace and fetched by
+ * another — so the two ends mirror each other exactly the way `types.ts` here
+ * already mirrors the API's `serialize.ts`. Sharing the type would mean giving
+ * the browser bundle a dependency on a Node-only package (`fs`, `child_process`,
+ * ajv) to import an interface. Change one end, change the other.
+ */
 export interface PreviewManifestPin {
   commit: string | null;
   version: string | null;
