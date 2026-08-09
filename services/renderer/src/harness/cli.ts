@@ -60,9 +60,9 @@ function requireArg(argv: string[], name: string): string {
 
 function writeFile(file: string, contents: string): void {
   fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-  // Trailing newline: the manifest is committed to the PR branch, and a file
-  // without one shows up as "\ No newline at end of file" in every diff of it
-  // forever.
+  // Trailing newline on everything written here: these files are read by
+  // humans in logs and diffs, and one without it renders as
+  // "\ No newline at end of file".
   fs.writeFileSync(file, contents.endsWith('\n') ? contents : `${contents}\n`);
 }
 
@@ -121,13 +121,11 @@ function commandDiff(argv: string[]): number {
   if (arg(argv, 'report')) writeFile(arg(argv, 'report')!, report);
   if (arg(argv, 'json')) writeFile(arg(argv, 'json')!, JSON.stringify(verdict, null, 2));
 
-  const previewBaseUrl = arg(argv, 'preview-base-url');
-  if (arg(argv, 'manifest') && previewBaseUrl) {
+  if (arg(argv, 'manifest')) {
     const manifest = buildPreviewManifest({
       baseline,
       candidate,
       verdict,
-      baseUrl: previewBaseUrl,
       ...(arg(argv, 'upstream-url') ? { upstreamUrl: arg(argv, 'upstream-url') } : {}),
       ...(arg(argv, 'cap') ? { cap: Number(arg(argv, 'cap')) } : {}),
     });

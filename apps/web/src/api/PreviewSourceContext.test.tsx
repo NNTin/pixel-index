@@ -20,7 +20,6 @@ const manifest: PreviewManifest = {
   generatedAt: '2026-08-09T00:00:00.000Z',
   candidate: { commit: CANDIDATE, version: '1.5.0' },
   baseline: { commit: BASELINE, version: '1.4.0' },
-  baseUrl: 'https://renders.example.com/bbb/',
   upstreamUrl: 'https://github.com/pixel-agents-hq/pixel-agents',
   changed: 1,
   failed: 1,
@@ -103,7 +102,7 @@ describe('candidate previews end to end', () => {
     await waitFor(() => {
       expect(screen.getByRole('img', { name: /blue-office/ })).toHaveAttribute(
         'src',
-        'https://renders.example.com/bbb/blue-office.png',
+        '/vendor-preview/blue-office.png',
       );
     });
 

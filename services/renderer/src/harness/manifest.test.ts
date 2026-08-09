@@ -28,7 +28,6 @@ const build = (v: Verdict, cap?: number) =>
     baseline,
     candidate,
     verdict: v,
-    baseUrl: 'https://renders.example.com/bbb',
     ...(cap !== undefined ? { cap } : {}),
   });
 
@@ -119,8 +118,13 @@ describe('buildPreviewManifest', () => {
     expect(manifest.baseline.commit).toBe('a'.repeat(40));
   });
 
-  it('normalises the base URL to a trailing slash', () => {
-    expect(build(verdict()).baseUrl).toBe('https://renders.example.com/bbb/');
+  it('names files without a location — the build resolves them beside the manifest', () => {
+    // No baseUrl: the manifest used to be committed to the PR branch and point
+    // at raw.githubusercontent. It is now fetched into a preview build's dist/
+    // and served from there, so a bare filename is the only portable form.
+    const manifest = build(verdict({ visuallyChanged: ['blue-office'] }));
+    expect(manifest.layouts['blue-office']).toEqual({ file: 'blue-office.png' });
+    expect('baseUrl' in manifest).toBe(false);
   });
 
   it('carries the upstream repository so the page can link a pin to its commit', () => {
@@ -128,7 +132,6 @@ describe('buildPreviewManifest', () => {
       baseline,
       candidate,
       verdict: verdict(),
-      baseUrl: 'https://renders.example.com/bbb/',
       // Trailing slash stripped, so the page can append /commit/<sha> without
       // producing a double slash.
       upstreamUrl: 'https://github.com/pixel-agents-hq/pixel-agents/',

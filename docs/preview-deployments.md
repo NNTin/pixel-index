@@ -48,7 +48,7 @@ flowchart TD
     C -->|"PNGs from both pins"| E
     C -->|"verdicts"| D
 
-    E["E. publish candidate renders<br/>PNGs → orphan branch vendor-previews<br/>manifest.json → the PR branch"]
+    E["E. publish candidate renders<br/>PNGs + manifest.json → orphan<br/>branch vendor-previews<br/>(nothing enters the PR)"]
     E --> D
 
     D["D. report + verdict<br/>only layouts that passed on OLD<br/>and fail on NEW count as regressions"]
@@ -88,7 +88,7 @@ flowchart LR
 
     subgraph yesOverride ["With it"]
         direction LR
-        V1["vendor PR preview"] -->|"reads<br/>vendor-preview/manifest.json"| V2["candidate renders<br/>on vendor-previews branch"]
+        V1["vendor PR preview build"] -->|"fetches, keyed on<br/>the pinned commit"| V2["candidate renders<br/>on vendor-previews branch"]
         V2 -->|"drawn with<br/>NEW pin 0f823e2"| V3["what the update<br/>actually looks like"]
     end
 ```
@@ -139,7 +139,7 @@ answers and the image element points wherever it says.
 flowchart LR
     IMG["an image on a layout card"] --> R{"previewSource.resolve(slug)"}
     R -->|"kind: api"| A["PRODUCTION_API_BASE_URL<br/>/api/v1/layouts/:slug/thumbnail.png<br/>rendered on demand — OLD pin"]
-    R -->|"kind: candidate"| C["raw.githubusercontent.com<br/>/vendor-previews/SHA/:slug.png<br/>rendered in CI — NEW pin"]
+    R -->|"kind: candidate"| C["/vendor-preview/:slug.png<br/>on this deployment<br/>rendered in CI — NEW pin"]
     R -->|"kind: failed"| F["a placeholder — the new pin<br/>cannot draw this layout at all"]
 ```
 
@@ -239,7 +239,7 @@ fine. The gate's report and check status count all 800 regardless — the cap go
 | Images per typical bump | = index size | **0** |
 | Images per sprite change | = index size | **≤ 50** |
 | Payload at 10,000 layouts | ~150 MB | **≤ 750 KB** |
-| Requests to `raw.githubusercontent.com` | 100s per *visitor* | ~50 per *reviewer* |
+| Requests to `raw.githubusercontent.com` | 100s per *visitor* | ~50 per *build*, none by visitors |
 | Binaries committed to `main` | none | none |
 
 Nothing scales with the index, which is why hosting was left alone: at this size neither
@@ -287,7 +287,7 @@ Two conditions must both hold. The logic lives in
 
 ```mermaid
 flowchart TD
-    S(["page loads"]) --> M{"GET vendor-preview/<br/>manifest.json"}
+    S(["page loads"]) --> M{"GET vendor-preview/<br/>manifest.json<br/>(present only on a<br/>preview build)"}
     M -->|"404 — no manifest"| OFF(["no banner<br/>images come from the API"])
     M -->|"200"| CMP{"can we prove the API is<br/>on a different pin?"}
 
@@ -314,30 +314,36 @@ Three properties worth knowing:
   with the pin. Once the API is redeployed onto that same commit, the two agree and the
   override stops applying — no cleanup commit anyone has to remember.
 
-### Why `apps/web/public/vendor-preview/manifest.json` is committed
+### Nothing is committed — the build fetches it
 
-It appears in every vendor-update PR's diff, which looks odd for a generated file, so it is
-worth saying what it is for. It does **two** jobs, and the second is the one that makes it
-hard to remove.
+The manifest and the PNGs both live on the `vendor-previews` branch. A Vercel **preview**
+build pulls them into its own `dist/vendor-preview/` and serves them from its own origin;
+no generated file appears in the PR's diff, and none reaches `main`.
 
-1. **It carries the data the page needs** — both pins, where the renders live, the upstream
-   repository for the commit links, the counts, and which slugs have a render or failed.
-2. **Its presence is the signal that this deployment is a vendor-update preview.** The site
-   is static and has no other way to know which branch it was built from. Every other
-   deployment 404s on this path, and that 404 is what keeps the whole mechanism scoped to
-   the one PR that needs it.
+Two gates, and the first one is structural rather than a decision anything makes at
+runtime:
 
-Job 2 is why it cannot simply be fetched from the `vendor-previews` branch instead: a file
-that is always reachable would make every deployment — production included — start
-evaluating whether to override, and the absence of a local file is precisely what stops
-that today.
+1. **`VERCEL_ENV === 'preview'`.** A Vercel system variable, set at build time. Production
+   is `production`, GitHub Pages does not have the variable at all, and local dev does not
+   either — so the fetch only ever happens on a preview deployment, and a production build
+   *physically cannot contain the manifest*. The runtime already treats a missing manifest
+   as "no override", so the guard is the absence of a file rather than a flag someone can
+   get wrong. `previewSource.ts` checks the same constant again anyway: cheap, and it is
+   the thing that would still hold if the file were ever put back into `public/`.
+2. **The pinned commit.** The build looks for `vendor-previews/<its own pin>/manifest.json`.
+   Only the vendor-update branch has a pin with a published render set, so a preview of any
+   other branch asks for something that was never published and gets a 404.
 
-The cost is real, though: because it is committed to the PR branch, it **merges into `main`**,
-which is what creates the window described below. The alternative that would remove it is a
-build-time flag — Vercel exposes `VERCEL_GIT_COMMIT_REF`, so the build could decide it is a
-vendor preview and fetch the data from the branch — at the price of a host-specific
-condition. Not done: the current design is simpler and the window is short if the API is
-redeployed promptly.
+Every failure — no variable, no pin file, a 404, an offline builder — is silent and means
+"no override". The safe direction.
+
+This replaces an earlier design that committed the manifest to
+`apps/web/public/vendor-preview/manifest.json`. It worked, and it had one bad consequence:
+the file merged to `main` with the pin, so production and Pages served it until the API was
+redeployed onto the new pin. Deciding from the *deployment* instead of from a file in the
+repository is what makes that impossible rather than merely brief. It also means visitors
+never fetch from `raw.githubusercontent.com` — the build downloads once, from Vercel's
+builder, and the site serves the copies off its own CDN.
 
 ### What a layout that fails on the candidate shows
 
@@ -350,47 +356,48 @@ in the manifest at all and simply falls through to the API: unmeasured, not brok
 
 ## Environment by environment
 
-| Environment | Built from | Manifest present? | Banner | Preview images come from |
-|---|---|---|---|---|
-| **Vendor-update PR preview** | `chore/vendor-pixel-agents` | **Yes** — committed by the workflow | **Yes** | The candidate renders on the `vendor-previews` branch |
-| Any other PR preview | that PR's branch | No — 404 | No | The production API |
-| Vercel production | `main` | No¹ | No | The production API |
-| GitHub Pages | `main` | No¹ | No | The production API |
-| Local `npm run dev` | your working tree | No, unless you made one | No | Whatever `VITE_API_BASE_URL` points at |
+| Environment | Built from | `VERCEL_ENV` | Manifest in the build? | Banner | Preview images |
+|---|---|---|---|---|---|
+| **Vendor-update PR preview** | `chore/vendor-pixel-agents` | `preview` | **Yes** — fetched at build time | **Yes** | Candidate renders, served by this deployment |
+| Any other PR preview | that PR's branch | `preview` | No — no published set for its pin | No | The production API |
+| Vercel production | `main` | `production` | **Never fetched** | No | The production API |
+| GitHub Pages | `main` | *unset* | **Never fetched** | No | The production API |
+| Local `npm run dev` | your working tree | *unset* | Never fetched | No | Whatever `VITE_API_BASE_URL` points at |
 
-¹ Until a vendor PR merges — see the next section.
-
-The 404 is the overwhelmingly common case, so it is cheap and completely silent: one small
-failed request per page load, no `/api/v1/meta` call, nothing logged, no behaviour change.
+Note the last three rows are excluded at *build* time, not talked out of it at runtime —
+the file is not there to find. The runtime 404 is then the overwhelmingly common case, and
+it is cheap and silent: one small failed request per page load, no `/api/v1/meta` call,
+nothing logged, no behaviour change.
 
 ---
 
-## The exception: the window between merge and redeploy
+## Production cannot show this, by construction
 
-**The banner is not strictly vendor-PR-only.** The manifest is committed to the PR branch,
-which means merging the vendor PR puts it on `main` — and therefore into the next
-production and Pages build.
+Worth stating explicitly, because an earlier version of this mechanism *could*.
 
-For the window between **merging the PR** and **redeploying the API**, production satisfies
-both conditions: the manifest is present, and the API is demonstrably still on the old pin.
-So production shows the banner and the candidate renders too.
+When the manifest was committed to the PR branch, merging the vendor PR put it on `main`
+and therefore into the next production and Pages build. For the window between merging and
+redeploying the API, production satisfied both conditions — manifest present, API still on
+the old pin — and showed the banner and the candidate renders to ordinary visitors. Worse,
+`vendor-previews` is force-pushed on every run, so once the next run landed, a merged
+manifest pointed at a deleted path and those cards rendered as "no preview".
+
+Neither can happen now:
 
 ```mermaid
-flowchart LR
-    P1["before merge<br/>manifest not on main"] -->|"merge the PR"| P2["after merge,<br/>before API redeploy"]
-    P2 -->|"redeploy the API"| P3["after redeploy"]
+flowchart TD
+    B{"VERCEL_ENV"}
+    B -->|"preview"| P["fetch the manifest for this pin<br/>into dist/"]
+    B -->|"production"| X(["nothing fetched —<br/>no manifest exists in the build"])
+    B -->|"unset (GitHub Pages, local)"| X
 
-    P1 --- N1(["no banner<br/>API images"])
-    P2 --- N2(["banner shows<br/>candidate renders"])
-    P3 --- N3(["no banner<br/>API images"])
+    P --> Q{"published set<br/>for this pin?"}
+    Q -->|"yes — the vendor branch"| ON(["banner + candidate renders"])
+    Q -->|"404 — any other branch"| X
 ```
 
-That is the mechanism working as designed rather than a bug — during that window the site's
-pin genuinely has moved and the API's has not, and saying so is more honest than quietly
-serving images from an upstream the repo no longer pins. But it *is* visitor-facing text on
-a public gallery, so **keep the window short: redeploy the API promptly after merging a
-vendor bump.** Doing so is required anyway — that is what puts the new pin into the
-renderer.
+Redeploying the API promptly after a vendor bump is still worth doing — it is what puts the
+new pin into the renderer — but nothing visitor-facing depends on how quickly you do it.
 
 ---
 

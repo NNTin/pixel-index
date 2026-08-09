@@ -53,7 +53,6 @@ in logs for no benefit).
 |---|---|---|---|
 | `PRODUCTION_API_BASE_URL` | Yes, for a working Pages site | `https://api.example.com` | Origin only, no trailing slash. Baked into the bundle as `VITE_API_BASE_URL`. Also read by `vendor-update.yml` — see below. |
 | `PAGES_BASE_PATH` | No | `/` | Only when Pages serves this site from the **root**. Unset for any `/<repo>/` subpath, including under a user-site custom domain — see below. |
-| `VENDOR_PREVIEW_BASE_URL` | No | `https://cdn.jsdelivr.net/gh/you/pixel-index@vendor-previews` | Where `vendor-update.yml` publishes candidate renders from. Defaults to `raw.githubusercontent.com` — see below. |
 
 **Repository-level, not Environment-level.** `pages.yml`'s `build` job deliberately
 declares no `environment:`, so environment-scoped variables are not in scope for it —
@@ -122,12 +121,17 @@ candidate pin, so the PR can say exactly which of *your* layouts a bump would br
 Leave it unset and the job still runs, but only over the committed `seed/` layouts: it
 reports that it did so rather than passing silently on a corpus of four.
 
-**About `VENDOR_PREVIEW_BASE_URL`.** That same job publishes the candidate renders it
-already produced to an orphan branch, `vendor-previews`, force-pushed as a single commit
-so old renders become unreachable and the repository does not grow a PNG set a day
-forever. The PR's preview deployment then shows *those* pictures instead of the API's,
-because the API is still on the old pin — without it, the one view where seeing a vendor
-bump matters is the one view that cannot show it.
+**Candidate previews need no configuration at all.** That same job publishes the renders
+it already produced to an orphan branch, `vendor-previews`, force-pushed as a single
+commit so old sets become unreachable and the repository does not grow a PNG set a day
+forever. A Vercel **preview** build then pulls them into its own `dist/`, keyed on the
+pinned commit, and serves them from its own origin — see
+[`preview-deployments.md`](preview-deployments.md).
+
+Nothing to set. The mechanism is gated on `VERCEL_ENV === 'preview'`, a Vercel system
+variable, so a production build and a GitHub Pages build cannot show candidate renders
+whatever else is true. It also means visitors never fetch from
+`raw.githubusercontent.com`: the build downloads once, and the site serves the copies.
 
 **The swap needs the API to report its pin.** It only engages when the site can prove the
 API is on a *different* Pixel Agents than the renders were made with — otherwise it fails
@@ -136,18 +140,6 @@ slightly stale beats a static one that is certainly stale. A current build repor
 commit with no configuration at all (see *The pinned commit ships as a file* below), so
 this works out of the box; an API reporting `commit: null` is one that predates that and
 needs redeploying. `vendor-update.yml` checks for exactly this and says so in the PR.
-
-[`preview-deployments.md`](preview-deployments.md) covers what each environment serves,
-including the window after a vendor PR merges but before the API is redeployed — the one
-time this banner appears somewhere other than a vendor PR.
-
-The default is `https://raw.githubusercontent.com/<owner>/<repo>/vendor-previews`, which
-needs no configuration and is correct the moment the branch is pushed. A CDN in front is
-faster, but pick one that can serve a *newly pushed* path immediately: jsDelivr caches
-branch refs for hours, so `…@vendor-previews/<sha>/` may 404 for a while after the job
-runs, which reads as "the preview is broken" rather than "the CDN is warming up". Set
-this only if you have a CDN without that behaviour. Nothing here is secret — the branch
-is as public as the repository.
 
 ### (b) Vercel — Production and Preview
 

@@ -12,10 +12,15 @@
  * layout against the candidate pin to produce its verdict. Those PNGs are the
  * missing pictures; this file is the index that points the web app at them.
  *
- * The manifest is deliberately self-disarming — see `apps/web/src/api/previewSource.ts`
- * for the rule. It carries the candidate commit, so once the PR merges and the
- * API redeploys onto that same pin, the override stops applying on its own
- * rather than needing a cleanup commit nobody would remember to make.
+ * It is published beside the PNGs on the `vendor-previews` branch and pulled
+ * into a preview build's `dist/` — never committed. An earlier version put it in
+ * `apps/web/public/`, which meant it merged to `main` with the pin and shipped
+ * to production until the API caught up; `file` is therefore a bare filename,
+ * resolved against wherever the manifest itself was found.
+ *
+ * It is also self-disarming — see `apps/web/src/api/previewSource.ts`. It carries
+ * the candidate commit, so once the API is on that same pin the override stops
+ * applying on its own.
  */
 
 import type { PinRun, Verdict } from './types.js';
@@ -25,8 +30,6 @@ export interface PreviewManifest {
   generatedAt: string;
   candidate: { commit: string | null; version: string | null };
   baseline: { commit: string | null; version: string | null };
-  /** Absolute, with a trailing slash. Each layout's `file` is resolved against it. */
-  baseUrl: string;
   /**
    * The upstream repository, so the page can link a pin to the commit it names.
    * From `.gitmodules` rather than written in, so a fork linking at its own
@@ -75,11 +78,10 @@ export function buildPreviewManifest(options: {
   baseline: PinRun;
   candidate: PinRun;
   verdict: Verdict;
-  baseUrl: string;
   upstreamUrl?: string | null;
   cap?: number;
 }): PreviewManifest {
-  const { baseline, candidate, verdict, baseUrl, upstreamUrl = null, cap = PUBLISH_CAP } = options;
+  const { baseline, candidate, verdict, upstreamUrl = null, cap = PUBLISH_CAP } = options;
 
   const layouts: PreviewManifest['layouts'] = {};
   let shown = 0;
@@ -106,7 +108,6 @@ export function buildPreviewManifest(options: {
     generatedAt: new Date().toISOString(),
     candidate: { commit: candidate.pin.commit, version: candidate.pin.version },
     baseline: { commit: baseline.pin.commit, version: baseline.pin.version },
-    baseUrl: baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`,
     upstreamUrl: upstreamUrl === null ? null : upstreamUrl.replace(/\/$/, ''),
     // The totals are the whole population, not the sample: the page has to be
     // able to say "800 changed, here are 50" rather than quietly implying 50.

@@ -50,8 +50,6 @@ export interface PreviewManifest {
   generatedAt: string;
   candidate: PreviewManifestPin;
   baseline: PreviewManifestPin;
-  /** Absolute, trailing slash. Layout files resolve against it. */
-  baseUrl: string;
   /**
    * The upstream repository, so a pin can link to the commit it names. From
    * `.gitmodules` via the workflow, so a fork links to its own upstream.
@@ -142,9 +140,21 @@ export function buildPreviewSource(
       // which the banner says out loud rather than leaving to be inferred.
       if (entry === undefined) return { kind: 'api' };
       if ('failed' in entry) return { kind: 'failed', reason: entry.failed };
-      return { kind: 'candidate', src: `${manifest.baseUrl}${entry.file}` };
+      return { kind: 'candidate', src: previewAssetUrl(entry.file) };
     },
   };
+}
+
+/**
+ * Where the candidate renders are served from: this deployment itself.
+ *
+ * The build downloads them into `dist/vendor-preview/` (vite.config.ts), so
+ * they come off the same origin and the same CDN as everything else — visitors
+ * never reach `raw.githubusercontent.com`, which is neither a CDN nor
+ * comfortable being used as one.
+ */
+function previewAssetUrl(file: string): string {
+  return `${import.meta.env.BASE_URL}vendor-preview/${file}`;
 }
 
 /**
@@ -152,12 +162,18 @@ export function buildPreviewSource(
  *
  * A 404 is the overwhelmingly common case — every deployment except a
  * vendor-update preview — so this must be cheap and completely silent when the
- * file is not there.
+ * file is not there. On a production build the file cannot exist at all: it is
+ * no longer committed anywhere, and only a preview build fetches it.
  */
 let cached: Promise<PreviewManifest | null> | null = null;
 
 export function fetchPreviewManifest(): Promise<PreviewManifest | null> {
   cached ??= (async () => {
+    // Redundant with the build, which never writes the file outside a preview
+    // — kept because the failure this replaces was exactly a manifest reaching
+    // production, and one cheap constant means that cannot recur even if the
+    // file finds its way back into `public/`.
+    if (!__VENDOR_PREVIEW__) return null;
     try {
       const response = await fetch(`${import.meta.env.BASE_URL}vendor-preview/manifest.json`, {
         cache: 'no-cache',

@@ -1,9 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
+
+/** This config is ESM, so `__dirname` does not exist. */
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * GitHub Pages has no server-side rewrite rules, so a hard refresh (or a
@@ -48,10 +52,101 @@ function ghPagesSpaFallback(): Plugin {
   };
 }
 
+/**
+ * Whether this build is allowed to show candidate Pixel Agents renders (#26).
+ *
+ * `VERCEL_ENV` is a Vercel system variable, set at build time to `production`,
+ * `preview` or `development`. Requiring `preview` is *positive* identification:
+ * production, GitHub Pages (where the variable does not exist at all) and local
+ * dev are all excluded by default rather than by remembering to exclude them.
+ *
+ * This matters because the mechanism used to be scoped by a manifest committed
+ * to the PR branch — which merged to `main` along with the pin, and so shipped
+ * to production for the window before the API was redeployed. Deciding from the
+ * *deployment* rather than from a file in the repository is what makes that
+ * structurally impossible.
+ */
+const isVendorPreviewBuild = process.env.VERCEL_ENV === 'preview';
+
+/**
+ * Pull the candidate renders into `dist/` — only on a preview deployment, and
+ * only when this build's pin actually has a published set.
+ *
+ * The manifest is no longer committed to the branch. It lives beside the PNGs
+ * on the `vendor-previews` branch, and is fetched here, at build time. Three
+ * things follow, all of them the point:
+ *
+ * - **Nothing enters git.** No manifest in the PR diff, and none on `main` after
+ *   a merge, so production cannot inherit one.
+ * - **A production build physically cannot have the file.** The runtime already
+ *   treats a missing manifest as "no override", so the guard is the absence of
+ *   the file rather than a flag someone could get wrong.
+ * - **Visitors never hotlink `raw.githubusercontent.com`.** The images are
+ *   downloaded once per build and served same-origin, off the same CDN as the
+ *   rest of the site.
+ *
+ * Keyed on the pinned commit, so a preview of an unrelated branch asks for a
+ * render set that was never published and gets a 404. Every failure here is
+ * silent and means "no override" — the safe direction.
+ */
+function vendorPreviewAssets(): Plugin {
+  return {
+    name: 'vendor-preview-assets',
+    apply: 'build',
+    async closeBundle() {
+      if (!isVendorPreviewBuild) return;
+
+      const owner = process.env.VERCEL_GIT_REPO_OWNER;
+      const repo = process.env.VERCEL_GIT_REPO_SLUG;
+      if (!owner || !repo) return;
+
+      const pinFile = path.resolve(HERE, '../../vendor/pixel-agents.commit');
+      if (!fs.existsSync(pinFile)) return;
+      const pin = fs.readFileSync(pinFile, 'utf-8').trim();
+      if (!/^[0-9a-f]{40}$/.test(pin)) return;
+
+      const base = `https://raw.githubusercontent.com/${owner}/${repo}/vendor-previews/${pin}`;
+      const outDir = path.resolve(HERE, 'dist/vendor-preview');
+
+      try {
+        const response = await fetch(`${base}/manifest.json`);
+        if (!response.ok) return;
+        const manifest = (await response.json()) as {
+          layouts?: Record<string, { file?: string }>;
+        };
+
+        fs.mkdirSync(outDir, { recursive: true });
+        fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest));
+
+        let downloaded = 0;
+        for (const entry of Object.values(manifest.layouts ?? {})) {
+          if (!entry.file) continue;
+          const png = await fetch(`${base}/${entry.file}`);
+          if (!png.ok) continue;
+          fs.writeFileSync(path.join(outDir, entry.file), Buffer.from(await png.arrayBuffer()));
+          downloaded += 1;
+        }
+        console.log(`vendor-preview: ${pin.slice(0, 7)}, ${downloaded} candidate render(s).`);
+      } catch {
+        // Offline, rate-limited, nothing published for this pin. The site is
+        // fine without it; it simply shows the API's images.
+        fs.rmSync(outDir, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
-    plugins: [tailwindcss(), react(), ghPagesSpaFallback()],
+    plugins: [tailwindcss(), react(), ghPagesSpaFallback(), vendorPreviewAssets()],
+    // Belt as well as braces. A production build cannot contain the manifest at
+    // all (see above), so this is redundant today — but it is the guard that
+    // would still hold if the file were ever committed into `public/` again,
+    // which is precisely the mistake this replaces.
+    define: {
+      __VENDOR_PREVIEW__: JSON.stringify(isVendorPreviewBuild),
+    },
     // GitHub Pages project sites are served from a repo-name subpath
     // (https://<user>.github.io/<repo>/), which has to be baked into every
     // asset URL at build time — there is no way to detect it at runtime.

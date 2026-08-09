@@ -17,7 +17,6 @@ const manifest = (overrides: Partial<PreviewManifest> = {}): PreviewManifest => 
   generatedAt: '2026-08-09T00:00:00.000Z',
   candidate: { commit: 'b'.repeat(40), version: '1.5.0' },
   baseline: { commit: 'a'.repeat(40), version: '1.4.0' },
-  baseUrl: 'https://renders.example.com/bbb/',
   upstreamUrl: 'https://github.com/pixel-agents-hq/pixel-agents',
   changed: 1,
   failed: 0,
@@ -69,7 +68,7 @@ describe('buildPreviewSource', () => {
     expect(source.active).toBe(true);
     expect(source.resolve('blue-office')).toEqual({
       kind: 'candidate',
-      src: 'https://renders.example.com/bbb/blue-office.png',
+      src: '/vendor-preview/blue-office.png',
     });
   });
 
@@ -97,6 +96,20 @@ describe('buildPreviewSource', () => {
 });
 
 describe('fetchPreviewManifest', () => {
+  it('never even looks outside a preview deployment', async () => {
+    // The guard that makes production unreachable by this mechanism. A
+    // production build cannot contain the manifest at all — only a preview
+    // build fetches it into dist/ — but a manifest that found its way back
+    // into public/ is exactly the regression this replaces, so the runtime
+    // refuses independently rather than trusting the build.
+    vi.stubGlobal('__VENDOR_PREVIEW__', false);
+    const fetchMock = vi.fn(async () => Response.json(manifest()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchPreviewManifest()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('returns null on a 404 — the case on every deployment but a vendor preview', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
     await expect(fetchPreviewManifest()).resolves.toBeNull();

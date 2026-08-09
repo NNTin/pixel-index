@@ -133,12 +133,13 @@ jobs:
         id: urls
         if: steps.candidate.outputs.moved == 'true'
         env:
-          CONFIGURED: ${{ vars.VENDOR_PREVIEW_BASE_URL }}
-          DEFAULT: https://raw.githubusercontent.com/${{ github.repository }}/${{ env.PREVIEW_BRANCH }}
           SHA: ${{ steps.candidate.outputs.sha }}
         run: |
           set -euo pipefail
-          echo "preview-base=${CONFIGURED:-$DEFAULT}/$SHA" >> "$GITHUB_OUTPUT"
+          # Where a reader can go and look at what was published. The web build
+          # derives this same path itself from the pinned commit, so it is a
+          # link for humans, not configuration.
+          echo "preview-base=https://github.com/${{ github.repository }}/tree/${{ env.PREVIEW_BRANCH }}/$SHA" >> "$GITHUB_OUTPUT"
 
           # From .gitmodules, never hardcoded: the submodule URL is declared in
           # exactly one place, and a fork pointing at its own upstream should
@@ -189,11 +190,10 @@ jobs:
           npx tsx "$HARNESS" diff \
             --baseline gate/seed-baseline.json --candidate gate/seed-candidate.json \
             --gate "Seed gate" --report gate/seed-report.md \
-            --manifest gate/seed-manifest.json --preview-base-url "$PREVIEW_BASE_URL" \
+            --manifest gate/seed-manifest.json \
             --upstream-url "$UPSTREAM_URL"
           echo "code=$?" >> "$GITHUB_OUTPUT"
         env:
-          PREVIEW_BASE_URL: ${{ steps.urls.outputs.preview-base }}
           UPSTREAM_URL: ${{ steps.urls.outputs.upstream }}
 
       - name: Compare the two pins over the live index
@@ -207,11 +207,10 @@ jobs:
           npx tsx "$HARNESS" diff \
             --baseline gate/live-baseline.json --candidate gate/live-candidate.json \
             --gate "Live index gate" --report gate/live-report.md \
-            --manifest gate/live-manifest.json --preview-base-url "$PREVIEW_BASE_URL" \
+            --manifest gate/live-manifest.json \
             --upstream-url "$UPSTREAM_URL"
           echo "code=$?" >> "$GITHUB_OUTPUT"
         env:
-          PREVIEW_BASE_URL: ${{ steps.urls.outputs.preview-base }}
           UPSTREAM_URL: ${{ steps.urls.outputs.upstream }}
 
       # When the live gate could not run — no API URL configured, or the index
@@ -293,6 +292,11 @@ jobs:
           done <<EOF
           $(jq -r '.layouts | to_entries[] | select(.value.file) | .value.file' "$manifest")
           EOF
+          # The manifest ships WITH the renders, not in the repository. Putting
+          # it in apps/web/public/ meant it merged to main with the pin and
+          # shipped to production until the API caught up; a preview build now
+          # fetches it from here instead (apps/web/vite.config.ts).
+          cp "$manifest" "$work/$sha/manifest.json"
           echo "Publishing $published render(s) of $(jq -r '.changed' "$manifest") changed."
 
           # A fresh single-commit repo, force-pushed: old renders become
@@ -309,20 +313,6 @@ jobs:
           git config credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
           git push -q --force "https://github.com/${{ github.repository }}.git" "$PREVIEW_BRANCH"
           echo "count=$published" >> "$GITHUB_OUTPUT"
-
-      - name: Point the web app at the candidate renders
-        if: steps.candidate.outputs.moved == 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p apps/web/public/vendor-preview
-          # The live manifest when there is one — it covers the slugs the
-          # gallery lists. Self-disarming either way: the web app ignores a
-          # manifest whose candidate commit matches the API's own pin.
-          if [ -f gate/live-manifest.json ]; then
-            cp gate/live-manifest.json apps/web/public/vendor-preview/manifest.json
-          else
-            cp gate/seed-manifest.json apps/web/public/vendor-preview/manifest.json
-          fi
 
       # The candidate-preview swap only engages when the web app can prove the
       # API is on a *different* pin than the manifest — it fails safe, because a
@@ -462,10 +452,12 @@ jobs:
           title: ${{ steps.body.outputs.title }}
           body-path: gate/pr-body.md
           labels: ${{ steps.body.outputs.labels }}
+          # Only the pin. The preview manifest deliberately does NOT appear
+          # here: it used to, and merging it put a manifest on main that
+          # production then served.
           add-paths: |
             vendor/pixel-agents
             vendor/pixel-agents.commit
-            apps/web/public/vendor-preview/manifest.json
 
       - name: Summarise
         if: always() && steps.candidate.outputs.moved == 'true'
