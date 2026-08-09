@@ -78,6 +78,18 @@ describe('SubmitPage', () => {
     expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument();
   });
 
+  it('prompts a logged-out visitor with the same restriction message as a nonmember', async () => {
+    location.hash = '';
+    renderSubmit();
+    expect(
+      await screen.findByText(
+        'Layout submission is available to members of the official Discord community. Log in with Discord to check your membership.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Log in with Discord' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument();
+  });
+
   it('offers Discord reconnection when the retained grant is unavailable', async () => {
     stubFetch(
       () => new Response('{}', { status: 200 }),

@@ -18,14 +18,7 @@ export function App() {
         <Route index element={<Home />} />
         <Route path="layouts/:slug" element={<LayoutDetailPage />} />
         <Route path="authors/:id" element={<AuthorPage />} />
-        <Route
-          path="submit"
-          element={
-            <RequireAuth>
-              <SubmitPage />
-            </RequireAuth>
-          }
-        />
+        <Route path="submit" element={<SubmitPage />} />
         <Route
           path="me/layouts"
           element={

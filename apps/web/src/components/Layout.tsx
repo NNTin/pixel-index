@@ -15,42 +15,44 @@ import { CandidatePinBanner } from './CandidatePinBanner';
 function Nav() {
   const { status, user, login, logout } = useAuth();
 
-  if (status === 'loading') return null;
-
-  if (status === 'anonymous') {
-    return (
-      <button
-        type="button"
-        onClick={login}
-        className="border-2 border-border px-3 py-1.5 text-sm text-ink hover:border-accent"
-      >
-        Log in with Discord
-      </button>
-    );
-  }
-
   return (
     <nav className="flex items-center gap-4 text-sm">
       <Link to="/submit" className="text-ink hover:text-accent">
         Submit
       </Link>
-      <Link to="/me/layouts" className="text-ink hover:text-accent">
-        My layouts
-      </Link>
-      {user && (user.role === 'moderator' || user.role === 'admin') && (
-        <Link to="/moderation" className="text-ink hover:text-accent">
-          Moderation
-        </Link>
+      {status === 'loading' ? null : status === 'anonymous' ? (
+        <button
+          type="button"
+          onClick={login}
+          className="border-2 border-border px-3 py-1.5 text-sm text-ink hover:border-accent"
+        >
+          Log in with Discord
+        </button>
+      ) : (
+        <>
+          <Link to="/me/layouts" className="text-ink hover:text-accent">
+            My layouts
+          </Link>
+          {user && (user.role === 'moderator' || user.role === 'admin') && (
+            <Link to="/moderation" className="text-ink hover:text-accent">
+              Moderation
+            </Link>
+          )}
+          {user?.role === 'admin' && (
+            <Link to="/admin" className="text-ink hover:text-accent">
+              Admin
+            </Link>
+          )}
+          <span className="text-muted">{user?.displayName}</span>
+          <button
+            type="button"
+            onClick={logout}
+            className="border-2 border-border px-2 py-1 text-ink hover:border-accent"
+          >
+            Log out
+          </button>
+        </>
       )}
-      {user?.role === 'admin' && (
-        <Link to="/admin" className="text-ink hover:text-accent">
-          Admin
-        </Link>
-      )}
-      <span className="text-muted">{user?.displayName}</span>
-      <button type="button" onClick={logout} className="border-2 border-border px-2 py-1 text-ink hover:border-accent">
-        Log out
-      </button>
     </nav>
   );
 }
