@@ -330,6 +330,29 @@ jobs:
             echo
           } > gate/preview-warning.md
 
+      # `secrets` is not available in a step-level `if:`, so this is a shell
+      # check rather than a condition. The token is only ever tested for
+      # emptiness — never echoed.
+      - name: Note if the pull request will arrive without CI
+        if: steps.candidate.outputs.moved == 'true'
+        env:
+          VENDOR_UPDATE_TOKEN: ${{ secrets.VENDOR_UPDATE_TOKEN }}
+        run: |
+          mkdir -p gate
+          if [ -n "$VENDOR_UPDATE_TOKEN" ]; then exit 0; fi
+          {
+            echo "### ⚠️ No checks will run on this pull request"
+            echo
+            echo "It was opened with \`GITHUB_TOKEN\`, and GitHub does not trigger"
+            echo "\`pull_request\` workflows for anything that token creates — so \`ci.yml\` is"
+            echo "not running here, however green it looks. The gate's own verdict above is"
+            echo "unaffected: it ran inside the workflow, not as a check on this PR."
+            echo
+            echo "Set a \`VENDOR_UPDATE_TOKEN\` repository secret (a PAT on a machine account"
+            echo "with \`repo\`) to get real checks — see docs/deployment.md."
+            echo
+          } > gate/token-warning.md
+
       # ── The PR ────────────────────────────────────────────────────────────
       - name: Compose the pull request body
         id: body
@@ -350,6 +373,7 @@ jobs:
             --section gate/seed-report.md \
             --section gate/live-report.md \
             --section gate/preview-warning.md \
+            --section gate/token-warning.md \
             --preview-url "$PREVIEW_BASE_URL" \
             --out gate/pr-body.md
 
@@ -373,6 +397,15 @@ jobs:
           # opening a second one every time upstream moves. The action force-
           # pushes a single commit on top of the checked-out base, so the branch
           # is regenerated from main each run rather than accumulating hops.
+          # A PR opened with GITHUB_TOKEN never triggers `pull_request`
+          # workflows — GitHub's loop protection — so the bot's PR would arrive
+          # with no CI at all. VENDOR_UPDATE_TOKEN (a PAT on the bot account)
+          # is not subject to that, so ci.yml runs on the PR like any other.
+          #
+          # Falls back to GITHUB_TOKEN so a fork, or this repo before the secret
+          # exists, still gets a PR — just one without checks, which the step
+          # below says out loud rather than leaving as a mystery.
+          token: ${{ secrets.VENDOR_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
           branch: ${{ env.PR_BRANCH }}
           # The branch this run checked out, which for `schedule` is the default
           # branch — the same thing hardcoding `main` would give, without the
@@ -434,9 +467,13 @@ jobs:
         run: |
           {
             echo "::error::The branch and the renders were pushed, but opening the PR was refused."
-            echo "Enable Settings → Actions → General → Workflow permissions →"
-            echo "  \"Allow GitHub Actions to create and approve pull requests\","
-            echo "or open it by hand — the work is already on the branch:"
+            echo "Two things cause this, and the job log says which:"
+            echo "  * \"not permitted to create or approve pull requests\" — enable Settings →"
+            echo "    Actions → General → Workflow permissions → \"Allow GitHub Actions to"
+            echo "    create and approve pull requests\"."
+            echo "  * 401 or 403 — VENDOR_UPDATE_TOKEN has expired or lost access. PATs expire;"
+            echo "    mint a new one on the same account and re-set the secret."
+            echo "Either way the work is already on the branch, so this opens by hand:"
             echo "  https://github.com/${{ github.repository }}/compare/${{ github.ref_name }}...${{ env.PR_BRANCH }}?expand=1"
           } | tee -a "$GITHUB_STEP_SUMMARY"
           exit 1

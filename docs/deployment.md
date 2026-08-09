@@ -89,6 +89,23 @@ Pages site the domain belongs to:
 If you are unsure which you have, load the deployed page and look at where the `<script
 src>` points: `/pixel-index/assets/…` means keep the subpath, `/assets/…` means root.
 
+**`VENDOR_UPDATE_TOKEN` — a repository *secret*, and the only one this repo has.** Without
+it the vendor-update PR opens but arrives with **no checks at all**: GitHub never triggers
+`pull_request` workflows for anything `GITHUB_TOKEN` creates, so `ci.yml` simply does not
+run on the bot's PR. The gate's own verdict is unaffected — it runs inside the workflow,
+not as a check on the PR — but nothing else is verified.
+
+Create it as a **classic** PAT on a machine account that is a collaborator here
+(`nntin-bot`), with the **`repo`** scope and nothing else. Not `workflow`: the PR's
+`add-paths` never touches `.github/workflows`, and granting it would let the token rewrite
+CI. A *fine-grained* token cannot be used for this — they do not work for collaborators on
+a repository owned by another account, which is exactly what a machine account is here.
+
+PATs expire. When this one does, the run pushes its branch and renders as usual and then
+fails on the last step with a 401 or 403; the workflow prints both that possibility and
+the settings one, so the log says which. Mint a replacement on the same account and re-set
+the secret — nothing else changes.
+
 **One repository setting `vendor-update.yml` cannot work without.** Settings → Actions →
 General → Workflow permissions → **"Allow GitHub Actions to create and approve pull
 requests"**. It is off by default, and without it the job pushes its branch and its
