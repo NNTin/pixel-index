@@ -36,6 +36,13 @@
       "when": 1786122779754,
       "tag": "0004_layout_raw_bytes_and_sort_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786303614776,
+      "tag": "0005_discord_capabilities_and_authors",
+      "breakpoints": true
     }
   ]
 }

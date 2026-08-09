@@ -6,24 +6,24 @@ const SECRET = 'a'.repeat(32);
 
 describe('access tokens', () => {
   it('round-trips the claims it was signed with', async () => {
-    const token = await signAccessToken({ sub: 'user-1', role: 'moderator' }, SECRET, 60_000);
+    const token = await signAccessToken({ sub: 'user-1' }, SECRET, 60_000);
     const claims = await verifyAccessToken(token, SECRET);
-    expect(claims).toEqual({ sub: 'user-1', role: 'moderator' });
+    expect(claims).toEqual({ sub: 'user-1' });
   });
 
   it('rejects a token signed with a different secret', async () => {
-    const token = await signAccessToken({ sub: 'user-1', role: 'user' }, SECRET, 60_000);
+    const token = await signAccessToken({ sub: 'user-1' }, SECRET, 60_000);
     expect(await verifyAccessToken(token, 'b'.repeat(32))).toBeNull();
   });
 
   it('rejects an expired token', async () => {
     // Negative TTL puts exp in the past immediately, no need to wait.
-    const token = await signAccessToken({ sub: 'user-1', role: 'user' }, SECRET, -1000);
+    const token = await signAccessToken({ sub: 'user-1' }, SECRET, -1000);
     expect(await verifyAccessToken(token, SECRET)).toBeNull();
   });
 
   it('rejects a token with a tampered payload', async () => {
-    const token = await signAccessToken({ sub: 'user-1', role: 'user' }, SECRET, 60_000);
+    const token = await signAccessToken({ sub: 'user-1' }, SECRET, 60_000);
     const [header, , signature] = token.split('.');
     const forgedPayload = Buffer.from(JSON.stringify({ sub: 'user-1', role: 'admin' })).toString(
       'base64url',
@@ -37,14 +37,13 @@ describe('access tokens', () => {
     await expect(verifyAccessToken('', SECRET)).resolves.toBeNull();
   });
 
-  it('rejects a role outside the known set, even with a valid signature', async () => {
-    // Guards against a future bug that signs an unvalidated role string.
+  it('does not put a supplied legacy role claim in a newly signed token', async () => {
     const token = await signAccessToken(
       { sub: 'user-1', role: 'superadmin' as never },
       SECRET,
       60_000,
     );
-    expect(await verifyAccessToken(token, SECRET)).toBeNull();
+    expect(await verifyAccessToken(token, SECRET)).toEqual({ sub: 'user-1' });
   });
 });
 

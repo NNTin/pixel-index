@@ -77,7 +77,7 @@ describe('GET /api/v1/layouts', () => {
     expect(validateList(body), JSON.stringify(validateList.errors)).toBe(true);
 
     const entry = body.layouts.find((l: { slug: string }) => l.slug === 'route-list-basic');
-    expect(entry.author).toEqual({ id: author.id, username: 'route-author', avatarUrl: null });
+    expect(entry.author).toEqual({ id: author.id, username: 'route-author', displayName: 'route-author', avatarUrl: null });
     expect(entry.tags).toEqual(['route-tag']);
     expect(entry.files.layout).toBe('/api/v1/layouts/route-list-basic/download');
   });

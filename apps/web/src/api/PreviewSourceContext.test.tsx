@@ -35,7 +35,7 @@ const summary = (slug: string): LayoutSummary =>
   ({
     slug,
     title: slug,
-    author: { id: null, username: 'someone', avatarUrl: null },
+    author: { id: null, username: 'someone', displayName: 'someone', avatarUrl: null },
     description: '',
     tags: [],
     cols: 21,

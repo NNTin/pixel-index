@@ -7,6 +7,7 @@ import {
   discordAvatarUrl,
   DiscordApiError,
   exchangeCodeForToken,
+  fetchDiscordGuildMember,
   fetchDiscordUser,
   generatePkcePair,
 } from './discord.js';
@@ -47,6 +48,13 @@ describe('buildAuthorizeUrl', () => {
   it('always asks for fresh consent, never a silently reused prior grant', () => {
     const url = new URL(buildAuthorizeUrl(CREDENTIALS, 's', 'c'));
     expect(url.searchParams.get('prompt')).toBe('consent');
+  });
+
+  it('requests the user-scoped guild-member grant only when community integration is enabled', () => {
+    const plain = new URL(buildAuthorizeUrl(CREDENTIALS, 's', 'c'));
+    const community = new URL(buildAuthorizeUrl(CREDENTIALS, 's', 'c', true));
+    expect(plain.searchParams.get('scope')).toBe('identify');
+    expect(community.searchParams.get('scope')).toBe('identify guilds.members.read');
   });
 });
 
@@ -128,6 +136,46 @@ describe('fetchDiscordUser', () => {
     await expect(
       fetchDiscordUser('bad-token', fetchImpl as unknown as typeof fetch),
     ).rejects.toThrow(DiscordApiError);
+  });
+});
+
+describe('fetchDiscordGuildMember', () => {
+  it('reads role ids, guild nickname and pending state from the current-user member endpoint', async () => {
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe('https://discord.com/api/v10/users/@me/guilds/1478428628709802166/member');
+      expect((init.headers as Record<string, string>).authorization).toBe('Bearer discord-access');
+      return Response.json({
+        nick: 'Guild Name',
+        roles: ['1528065925264445622'],
+        pending: true,
+        user: {
+          id: '999999999999999999',
+          username: 'handle',
+          global_name: 'Global Name',
+          avatar: null,
+        },
+      });
+    });
+    await expect(
+      fetchDiscordGuildMember('discord-access', '1478428628709802166', fetchImpl as unknown as typeof fetch),
+    ).resolves.toEqual({
+      nick: 'Guild Name',
+      roles: ['1528065925264445622'],
+      pending: true,
+      user: {
+        id: '999999999999999999',
+        username: 'handle',
+        globalName: 'Global Name',
+        avatar: null,
+      },
+    });
+  });
+
+  it('keeps a not-a-member 404 distinguishable for capability resolution', async () => {
+    const fetchImpl = vi.fn(async () => new Response('Unknown Member', { status: 404 }));
+    await expect(
+      fetchDiscordGuildMember('discord-access', '1478428628709802166', fetchImpl as unknown as typeof fetch),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });
 

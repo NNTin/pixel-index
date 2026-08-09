@@ -39,7 +39,7 @@ describe('createSession', () => {
     const user = await insertUser({ role: 'moderator' });
     const tokens = await createSession(harness.db, user, CONFIG);
     const claims = await verifyAccessToken(tokens.accessToken, CONFIG.sessionSecret);
-    expect(claims).toEqual({ sub: user.id, role: 'moderator' });
+    expect(claims).toEqual({ sub: user.id });
   });
 
   it('stores only the refresh token hash, never the raw value', async () => {
@@ -117,22 +117,6 @@ describe('rotateRefreshToken', () => {
     expect(legitimateAttempt.status).toBe('invalid');
   });
 
-  it('rejects (and revokes) a blocked user, even with a perfectly valid token', async () => {
-    const user = await insertUser();
-    const tokens = await createSession(harness.db, user, CONFIG);
-    await harness.db
-      .update(schema.users)
-      .set({ blockedAt: new Date(), blockedReason: 'testing' })
-      .where(eq(schema.users.id, user.id));
-
-    const outcome = await rotateRefreshToken(harness.db, tokens.refreshToken, CONFIG);
-    expect(outcome.status).toBe('blocked');
-
-    // The block takes effect immediately for refresh, not just at the next
-    // access-token expiry — this is the part that isn't stateless.
-    const again = await rotateRefreshToken(harness.db, tokens.refreshToken, CONFIG);
-    expect(again.status).toBe('invalid');
-  });
 });
 
 describe('revokeSession (logout)', () => {

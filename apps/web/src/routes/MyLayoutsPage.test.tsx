@@ -20,14 +20,14 @@ const AUTH_RESPONSE = {
   accessToken: 'access-token',
   refreshToken: 'refresh-token',
   expiresInMs: 900_000,
-  user: { id: 'owner-1', username: 'someone', avatarUrl: null, role: 'user' },
+  user: { id: 'owner-1', username: 'someone', displayName: 'someone', avatarUrl: null, role: 'user', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null } },
 };
 
 function ownerView(overrides: Record<string, unknown> = {}) {
   return {
     slug: 'my-office',
     title: 'My Office',
-    author: { id: 'owner-1', username: 'someone', avatarUrl: null },
+    author: { id: 'owner-1', username: 'someone', displayName: 'someone', avatarUrl: null },
     description: '',
     tags: [],
     cols: 4,
@@ -51,12 +51,15 @@ function ownerView(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function stubFetch(handleOther: (url: string, init?: RequestInit) => Response) {
+function stubFetch(
+  handleOther: (url: string, init?: RequestInit) => Response,
+  authResponse: unknown = AUTH_RESPONSE,
+) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes('/auth/token')) return Response.json(AUTH_RESPONSE);
+      if (url.includes('/auth/token')) return Response.json(authResponse);
       return handleOther(url, init);
     }),
   );
@@ -104,6 +107,32 @@ describe('MyLayoutsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(screen.getByText('Deleted.')).toBeInTheDocument());
+  });
+
+  it('lets a departed member delete, but hides edit and replacement actions', async () => {
+    stubFetch(
+      (_url, init) => {
+        if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+        return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });
+      },
+      {
+        ...AUTH_RESPONSE,
+        user: {
+          ...AUTH_RESPONSE.user,
+          submission: {
+            allowed: false,
+            reason: 'discord_membership_required' as const,
+            inviteUrl: 'https://discord.gg/pixel-index',
+          },
+        },
+      },
+    );
+    renderPage();
+    await screen.findByText('My Office');
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Replace content')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('Deleted.')).toBeInTheDocument();
   });
 
   it('edits title/description/tags via the inline form', async () => {

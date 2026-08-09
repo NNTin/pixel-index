@@ -104,7 +104,7 @@ jobs:
     # stubbed renderer — fast, but it never proves the actual Docker images
     # boot, migrate, and talk to each other. This does: builds the real
     # services/api and services/renderer images, brings up a real Postgres
-    # alongside them, and drives the whole owner+moderator flow over real
+    # alongside them, and drives the whole owner+admin flow over real
     # HTTP. See services/api/e2e/.
     steps:
       - uses: actions/checkout@v4

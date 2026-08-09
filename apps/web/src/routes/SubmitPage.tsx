@@ -13,7 +13,7 @@ import { useAuth } from '../auth/AuthContext';
  * publishing would have produced, not a client-side approximation of it.
  */
 export function SubmitPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, user, login } = useAuth();
   const navigate = useNavigate();
 
   const [raw, setRaw] = useState('');
@@ -33,6 +33,34 @@ export function SubmitPage() {
     },
     [],
   );
+
+  if (user && !user.submission.allowed) {
+    const reconnect = user.submission.reason === 'discord_reauthorization_required';
+    return (
+      <div className="max-w-2xl">
+        <h1 className="font-display text-2xl text-ink">Submit a layout</h1>
+        <p className="mt-3 text-muted">
+          {reconnect
+            ? 'Reconnect Discord so Pixel Index can verify your community membership.'
+            : 'Layout submission is available to members of the official Discord community.'}
+        </p>
+        {reconnect ? (
+          <button type="button" onClick={login} className="mt-4 border-2 border-accent px-4 py-2 text-accent">
+            Reconnect Discord
+          </button>
+        ) : user.submission.inviteUrl ? (
+          <a
+            href={user.submission.inviteUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-block border-2 border-accent px-4 py-2 text-accent"
+          >
+            Join the Discord server
+          </a>
+        ) : null}
+      </div>
+    );
+  }
 
   function onFileChosen(file: File) {
     file.text().then(setRaw).catch(() => setError(new ApiError(0, 'Could not read that file.')));

@@ -23,6 +23,9 @@ afterAll(async () => {
 
 async function tokenFor(overrides: Parameters<typeof insertUser>[1] = {}) {
   const user = await insertUser(harness.db, overrides);
+  if (overrides.role === 'moderator' || overrides.role === 'admin') {
+    config.discordAdminIds.push(user.discordId!);
+  }
   const accessToken = await signAccessToken(
     { sub: user.id, role: user.role },
     config.sessionSecret,

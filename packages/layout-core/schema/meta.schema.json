@@ -17,7 +17,12 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 60,
-      "description": "Who made the layout. A GitHub username is ideal."
+      "description": "Fallback display credit for the layout author."
+    },
+    "authorDiscordId": {
+      "type": "string",
+      "pattern": "^[0-9]{17,20}$",
+      "description": "Optional Discord user ID used to link a bundled layout to its Pixel Index author profile."
     },
     "description": {
       "type": "string",

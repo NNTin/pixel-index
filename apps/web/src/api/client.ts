@@ -12,6 +12,7 @@ import type {
   ListLayoutsResponse,
   ListTagsResponse,
   MetaResponse,
+  PublicAuthorResponse,
 } from './types';
 
 // `||`, not `??`: an unset GitHub Actions repo variable interpolates to an
@@ -108,6 +109,10 @@ export function listLayouts(params: ListLayoutsParams = {}): Promise<ListLayouts
 
 export function getLayout(slug: string): Promise<LayoutDetail> {
   return apiRequest(`/api/v1/layouts/${encodeURIComponent(slug)}`);
+}
+
+export function getAuthor(id: string): Promise<PublicAuthorResponse> {
+  return apiRequest(`/api/v1/authors/${encodeURIComponent(id)}`);
 }
 
 /** Exact uploaded layout.json text; callers may format it for presentation. */

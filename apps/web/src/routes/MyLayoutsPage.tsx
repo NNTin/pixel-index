@@ -17,7 +17,7 @@ function VisibilityBadge({ layout }: { layout: OwnerLayoutView }) {
   );
 }
 
-function EditRow({ layout, accessToken, onSaved }: { layout: OwnerLayoutView; accessToken: string; onSaved: (updated: OwnerLayoutView) => void }) {
+function EditRow({ layout, accessToken, canEdit, onSaved }: { layout: OwnerLayoutView; accessToken: string; canEdit: boolean; onSaved: (updated: OwnerLayoutView) => void }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(layout.title);
   const [description, setDescription] = useState(layout.description);
@@ -75,6 +75,16 @@ function EditRow({ layout, accessToken, onSaved }: { layout: OwnerLayoutView; ac
 
   if (layout.visibility === 'deleted') {
     return <p className="text-sm text-subtle">Deleted.</p>;
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="mt-2 text-sm">
+        <p className="text-subtle">Reconnect or rejoin Discord to edit this layout.</p>
+        <button type="button" onClick={remove} className="mt-1 text-danger hover:underline">Delete</button>
+        {error && <span className="ml-3 text-danger">{error.message}</span>}
+      </div>
+    );
   }
 
   if (!editing) {
@@ -143,7 +153,7 @@ function EditRow({ layout, accessToken, onSaved }: { layout: OwnerLayoutView; ac
 }
 
 export function MyLayoutsPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const [layouts, setLayouts] = useState<OwnerLayoutView[] | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
 
@@ -174,7 +184,7 @@ export function MyLayoutsPage() {
               {layout.title}
             </Link>
             <VisibilityBadge layout={layout} />
-            {accessToken && <EditRow layout={layout} accessToken={accessToken} onSaved={updateLayout} />}
+            {accessToken && <EditRow layout={layout} accessToken={accessToken} canEdit={user?.submission.allowed ?? false} onSaved={updateLayout} />}
           </li>
         ))}
       </ul>

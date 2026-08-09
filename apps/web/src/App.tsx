@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './components/RequireAuth';
 import { AdminPage } from './routes/AdminPage';
+import { AuthorPage } from './routes/AuthorPage';
 import { Home } from './routes/Home';
 import { LayoutDetailPage } from './routes/LayoutDetailPage';
 import { ModerationPage } from './routes/ModerationPage';
@@ -16,6 +17,7 @@ export function App() {
       <Route element={<Layout />}>
         <Route index element={<Home />} />
         <Route path="layouts/:slug" element={<LayoutDetailPage />} />
+        <Route path="authors/:id" element={<AuthorPage />} />
         <Route
           path="submit"
           element={

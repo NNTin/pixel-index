@@ -33,12 +33,13 @@ export function buildAuthorizeUrl(
   credentials: Pick<DiscordCredentials, 'clientId' | 'redirectUri'>,
   state: string,
   codeChallenge: string,
+  readGuildMember = false,
 ): string {
   const url = new URL(AUTHORIZE_URL);
   url.searchParams.set('client_id', credentials.clientId);
   url.searchParams.set('redirect_uri', credentials.redirectUri);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', 'identify');
+  url.searchParams.set('scope', readGuildMember ? 'identify guilds.members.read' : 'identify');
   url.searchParams.set('state', state);
   url.searchParams.set('code_challenge', codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
@@ -93,9 +94,31 @@ export async function exchangeCodeForToken(
   return (await response.json()) as DiscordTokenResponse;
 }
 
+/** Refresh a retained user OAuth grant; Discord may rotate the refresh token. */
+export async function refreshDiscordToken(
+  credentials: Pick<DiscordCredentials, 'clientId' | 'clientSecret'>,
+  refreshToken: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DiscordTokenResponse> {
+  const response = await fetchImpl(`${DISCORD_API}/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      authorization: `Basic ${Buffer.from(`${credentials.clientId}:${credentials.clientSecret}`).toString('base64')}`,
+    },
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new DiscordApiError(`Discord token refresh failed: ${body || response.statusText}`, response.status);
+  }
+  return (await response.json()) as DiscordTokenResponse;
+}
+
 export interface DiscordUser {
   id: string;
   username: string;
+  globalName?: string | null;
   /** The raw avatar hash. `null` means Discord's default avatar. */
   avatar: string | null;
 }
@@ -111,8 +134,70 @@ export async function fetchDiscordUser(
     const body = await response.text().catch(() => '');
     throw new DiscordApiError(`Discord profile fetch failed: ${body || response.statusText}`, response.status);
   }
-  const user = (await response.json()) as { id: string; username: string; avatar: string | null };
-  return { id: user.id, username: user.username, avatar: user.avatar };
+  const user = (await response.json()) as {
+    id: string;
+    username: string;
+    global_name: string | null;
+    avatar: string | null;
+  };
+  return {
+    id: user.id,
+    username: user.username,
+    globalName: user.global_name,
+    avatar: user.avatar,
+  };
+}
+
+export interface DiscordGuildMember {
+  nick: string | null;
+  roles: string[];
+  pending: boolean;
+  user: DiscordUser | null;
+}
+
+/** The current OAuth user's membership in one configured guild. */
+export async function fetchDiscordGuildMember(
+  accessToken: string,
+  guildId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DiscordGuildMember> {
+  const response = await fetchImpl(
+    `${DISCORD_API}/users/@me/guilds/${encodeURIComponent(guildId)}/member`,
+    { headers: { authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new DiscordApiError(
+      `Discord guild member fetch failed: ${body || response.statusText}`,
+      response.status,
+    );
+  }
+  const member = (await response.json()) as {
+    nick?: string | null;
+    roles: string[];
+    pending?: boolean;
+    user?: {
+      id: string;
+      username: string;
+      global_name: string | null;
+      avatar: string | null;
+    };
+  };
+  return {
+    nick: member.nick ?? null,
+    roles: member.roles,
+    // Product decision: pending members count as members, but retaining the
+    // flag in this boundary keeps Discord's response explicit/testable.
+    pending: member.pending ?? false,
+    user: member.user
+      ? {
+          id: member.user.id,
+          username: member.user.username,
+          globalName: member.user.global_name,
+          avatar: member.user.avatar,
+        }
+      : null,
+  };
 }
 
 /** The CDN URL for a user's avatar, or Discord's default for that user if they have none. */

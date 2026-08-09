@@ -17,7 +17,8 @@ import { layoutStats, sha256, type Layout } from '@pixel-index/layout-core';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
-import { hasAtLeastRole, requireAuth } from '../auth/context.js';
+import { requireSubmissionCapability } from '../auth/capability.js';
+import { requireAuth } from '../auth/context.js';
 import { getUserById } from '../auth/users.js';
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
@@ -84,11 +85,10 @@ function visibilityAuditAction(
   return to === 'hidden' ? 'layout.hide' : 'layout.unhide';
 }
 
-async function requireUnblockedUser(db: AnyDatabase, request: FastifyRequest): Promise<schema.User> {
+async function requireAuthenticatedUser(db: AnyDatabase, request: FastifyRequest): Promise<schema.User> {
   const auth = requireAuth(request);
   const user = await getUserById(db, auth.id);
   if (!user) throw ApiError.unauthorized();
-  if (user.blockedAt !== null) throw ApiError.forbidden('This account is blocked.');
   return user;
 }
 
@@ -97,7 +97,7 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
     '/api/v1/layouts/:slug',
     { schema: { params: slugParamsSchema, body: patchBodySchema } },
     async (request, reply) => {
-      const user = await requireUnblockedUser(db, request);
+      const user = await requireSubmissionCapability(db, config, request);
       const { slug } = request.params as { slug: string };
       const body = request.body as PatchBody;
 
@@ -105,7 +105,7 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       if (!layout) throw ApiError.notFound(`No layout "${slug}".`);
 
       const isOwner = layout.authorUserId === user.id;
-      const isModerator = hasAtLeastRole(user.role, 'moderator');
+      const isModerator = user.role === 'moderator' || user.role === 'admin';
       if (!isOwner && !isModerator) throw ApiError.forbidden();
 
       if (body.visibility !== undefined && !isModerator) {
@@ -202,7 +202,7 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
         }
         const { pin, validator } = upstream;
 
-        const user = await requireUnblockedUser(db, request);
+        const user = await requireSubmissionCapability(db, config, request);
         const { slug } = request.params as { slug: string };
 
         const layout = await getLayoutBySlugAnyVisibility(db, slug);
@@ -303,7 +303,9 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
     '/api/v1/layouts/:slug',
     { schema: { params: slugParamsSchema } },
     async (request, reply) => {
-      const user = await requireUnblockedUser(db, request);
+      // Deleting one's own content remains available after leaving the guild
+      // or when Discord needs reconnecting; edits/replacements above do not.
+      const user = await requireAuthenticatedUser(db, request);
       const { slug } = request.params as { slug: string };
 
       const layout = await getLayoutBySlugAnyVisibility(db, slug);

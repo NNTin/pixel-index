@@ -2,16 +2,14 @@
  * The two halves of the bearer-token session (ADR 0001, decision 10).
  *
  * **Access tokens** are stateless: a short-lived, HS256-signed JWT containing
- * `sub` (user id) and `role`, verified with no database hit. That is what
- * makes them cheap enough to send on every request. The cost is staleness —
- * a role change or a block takes up to `accessTokenTtlMs` to take effect for
- * a token already issued. That window is the deliberate trade for not
- * hitting Postgres on every authenticated request; keep the TTL short enough
- * that the trade stays worth it.
+ * `sub` (user id), verified with no database hit. That is what
+ * makes them cheap enough to send on every request. Capability is not a JWT
+ * claim: protected routes resolve the short Discord-backed cache, so JWT
+ * lifetime never extends a removed moderator/admin capability.
  *
  * **Refresh tokens** are the opposite: opaque random bytes, looked up in
- * `auth_refresh_tokens` by their hash on every use, so revocation (logout,
- * reuse detection) is immediate. Only the hash is ever persisted.
+ * `auth_refresh_tokens` by their hash on every use, so logout and reuse
+ * detection are immediate. Only the hash is ever persisted.
  */
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -22,7 +20,8 @@ import type { Role } from './context.js';
 
 export interface AccessTokenClaims {
   sub: string;
-  role: Role;
+  /** Accepted as input/source compatibility only; never signed or trusted. */
+  role?: Role;
 }
 
 export async function signAccessToken(
@@ -30,7 +29,7 @@ export async function signAccessToken(
   secret: string,
   ttlMs: number,
 ): Promise<string> {
-  return new SignJWT({ role: claims.role })
+  return new SignJWT()
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(claims.sub)
     .setIssuedAt()
@@ -45,16 +44,12 @@ export async function verifyAccessToken(
 ): Promise<AccessTokenClaims | null> {
   try {
     const { payload } = await jwtVerify(token, secretKey(secret), { algorithms: ['HS256'] });
-    if (typeof payload.sub !== 'string' || typeof payload.role !== 'string') return null;
-    if (!isRole(payload.role)) return null;
-    return { sub: payload.sub, role: payload.role };
+    if (typeof payload.sub !== 'string') return null;
+    // A pre-#21 token can still contain `role`; it is intentionally ignored.
+    return { sub: payload.sub };
   } catch {
     return null;
   }
-}
-
-function isRole(value: string): value is Role {
-  return value === 'user' || value === 'moderator' || value === 'admin';
 }
 
 function secretKey(secret: string): Uint8Array {

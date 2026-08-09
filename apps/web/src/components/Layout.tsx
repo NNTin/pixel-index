@@ -9,8 +9,8 @@ import { CandidatePinBanner } from './CandidatePinBanner';
  * button is not authorization" (#15's own scope note). Every link this
  * shows is exactly that: a convenience, not a gate — a normal user who
  * guesses `/moderation` still hits the same 403 the API itself would give
- * them, ModerationPage/AdminPage do not trust this any more than the API
- * trusts the access token's role claim for anything that matters.
+ * them. ModerationPage/AdminPage do not trust this any more than the API:
+ * the API revalidates Discord capability for protected actions.
  */
 function Nav() {
   const { status, user, login, logout } = useAuth();
@@ -47,7 +47,7 @@ function Nav() {
           Admin
         </Link>
       )}
-      <span className="text-muted">{user?.username}</span>
+      <span className="text-muted">{user?.displayName}</span>
       <button type="button" onClick={logout} className="border-2 border-border px-2 py-1 text-ink hover:border-accent">
         Log out
       </button>

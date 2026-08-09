@@ -444,28 +444,3 @@ export async function replaceTags(
   await db.delete(schema.layoutTags).where(eq(schema.layoutTags.layoutId, layoutId));
   await attachTags(db, layoutId, tagNames);
 }
-
-/**
- * Hides every currently-public layout a user owns, in one statement —
- * blocking a user (#10) hides their existing content in the same action,
- * not just future submissions. Returns the affected rows (before they were
- * hidden isn't needed; the caller needs each id to write one audit entry
- * per layout, alongside the single `user.block` entry for the block itself).
- */
-export async function hideAllPublicLayoutsForUser(
-  db: AnyDatabase,
-  userId: string,
-  reason: string,
-  changedBy: string,
-): Promise<schema.Layout[]> {
-  return db
-    .update(schema.layouts)
-    .set({
-      visibility: 'hidden',
-      visibilityReason: reason,
-      visibilityChangedAt: new Date(),
-      visibilityChangedBy: changedBy,
-    })
-    .where(and(eq(schema.layouts.authorUserId, userId), eq(schema.layouts.visibility, 'public')))
-    .returning();
-}

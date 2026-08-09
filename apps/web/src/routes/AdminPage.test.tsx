@@ -18,20 +18,26 @@ const AUTH_RESPONSE = {
   accessToken: 'access-token',
   refreshToken: 'refresh-token',
   expiresInMs: 900_000,
-  user: { id: 'admin-1', username: 'admin-person', avatarUrl: null, role: 'admin' },
+  user: { id: 'admin-1', username: 'admin-person', displayName: 'Admin Person', avatarUrl: null, role: 'admin', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null } },
 };
 
-function targetUser(overrides: Record<string, unknown> = {}) {
-  return { id: 'user-2', username: 'promotable', role: 'user', blocked: false, blockedReason: null, ...overrides };
-}
+const TARGET = {
+  id: 'user-2',
+  username: 'discord-handle',
+  displayName: 'Guild Nickname',
+  avatarUrl: null,
+  capability: 'moderator',
+  capabilityCheckedAt: '2026-08-09T12:00:00.000Z',
+  layoutCount: 3,
+};
 
-function stubFetch(handleOther: (url: string, init?: RequestInit) => Response) {
+function stubFetch() {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/auth/token')) return Response.json(AUTH_RESPONSE);
-      return handleOther(url, init);
+      return Response.json({ users: [TARGET], nextCursor: null });
     }),
   );
 }
@@ -39,77 +45,36 @@ function stubFetch(handleOther: (url: string, init?: RequestInit) => Response) {
 function renderPage() {
   return render(
     <MemoryRouter>
-      <AuthProvider>
-        <AdminPage />
-      </AuthProvider>
+      <AuthProvider><AdminPage /></AuthProvider>
     </MemoryRouter>,
   );
 }
 
-async function waitForAuthReady() {
-  await screen.findByRole('button', { name: 'Search' });
-}
-
 describe('AdminPage', () => {
-  it('searches for a user by username and lists results', async () => {
-    stubFetch((url) => {
-      expect(url).toContain('/api/v1/users');
-      expect(url).toContain('q=promo');
-      return Response.json({ users: [targetUser()] });
-    });
+  it('shows the read-only capability directory and layout count', async () => {
+    stubFetch();
     renderPage();
-    await waitForAuthReady();
-
-    fireEvent.change(screen.getByPlaceholderText('Search by username'), { target: { value: 'promo' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-
-    expect(await screen.findByText('promotable')).toBeInTheDocument();
+    expect(await screen.findByText('Guild Nickname')).toBeInTheDocument();
+    expect(screen.getByText('@discord-handle')).toBeInTheDocument();
+    expect(screen.getAllByText('Moderator')).toHaveLength(2);
+    expect(screen.getByText('3 layouts')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save role/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /block/i })).not.toBeInTheDocument();
   });
 
-  it('promotes a user to moderator', async () => {
-    let sentRole = '';
-    stubFetch((_url, init) => {
-      if (init?.method === 'PATCH') {
-        sentRole = JSON.parse(String(init.body)).role;
-        return Response.json(targetUser({ role: sentRole }));
-      }
-      return Response.json({ users: [targetUser()] });
-    });
+  it('sends username and capability filters to the new admin endpoint', async () => {
+    stubFetch();
     renderPage();
-    await waitForAuthReady();
-
-    fireEvent.change(screen.getByPlaceholderText('Search by username'), { target: { value: 'promotable' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    await screen.findByText('promotable');
-
+    await screen.findByText('Guild Nickname');
+    fireEvent.change(screen.getByPlaceholderText('Search by Discord username'), { target: { value: 'handle' } });
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'moderator' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save role' }));
-
-    await waitFor(() => expect(sentRole).toBe('moderator'));
-  });
-
-  it('requires a reason to block, then shows the blocked state', async () => {
-    stubFetch((_url, init) => {
-      if (init?.method === 'PATCH') {
-        const body = JSON.parse(String(init.body));
-        return Response.json(targetUser({ blocked: true, blockedReason: body.reason }));
-      }
-      return Response.json({ users: [targetUser()] });
-    });
-    renderPage();
-    await waitForAuthReady();
-
-    fireEvent.change(screen.getByPlaceholderText('Search by username'), { target: { value: 'promotable' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    await screen.findByText('promotable');
 
-    const blockButton = screen.getByRole('button', { name: 'Block' });
-    expect(blockButton).toBeDisabled(); // no reason yet
-
-    fireEvent.change(screen.getByPlaceholderText('Reason to block'), { target: { value: 'spam' } });
-    expect(blockButton).toBeEnabled();
-    fireEvent.click(blockButton);
-
-    expect(await screen.findByText(/blocked: spam/)).toBeInTheDocument();
+    await waitFor(() => {
+      const calls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+      expect(calls.some((url) =>
+        url.includes('/api/v1/admin/users') && url.includes('q=handle') && url.includes('capability=moderator'),
+      )).toBe(true);
+    });
   });
 });

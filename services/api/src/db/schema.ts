@@ -117,22 +117,30 @@ export const users = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
 
     /**
-     * The identity. Null only for the synthetic system user that owns seed
-     * layouts — everything else about a user is cached Discord display data
+     * The identity. Null only for the synthetic system user used by legacy
+     * seed layouts — everything else about a user is cached Discord display data
      * that is allowed to go stale.
      */
     discordId: text('discord_id'),
+    /** Stable account handle from Discord's `identify` scope. */
     username: text('username').notNull(),
+    /** Nullable global display name from Discord. */
+    globalName: text('global_name'),
+    /** Nickname in the configured Pixel Index guild, when membership was last verified. */
+    guildNickname: text('guild_nickname'),
     avatarUrl: text('avatar_url'),
 
+    /** Last successfully derived capability cache; Discord/config is authoritative. */
     role: userRole('role').notNull().default('user'),
+
+    /** Null until this account has been checked against a configured guild. */
+    discordGuildMember: boolean('discord_guild_member'),
+    discordMembershipCheckedAt: timestamp('discord_membership_checked_at', {
+      withTimezone: true,
+    }),
 
     /** Marks the seed owner. Excluded from user listings; cannot log in. */
     isSystem: boolean('is_system').notNull().default(false),
-
-    /** Author-level block for repeat offenders, so removal is not whack-a-mole. */
-    blockedAt: timestamp('blocked_at', { withTimezone: true }),
-    blockedReason: text('blocked_reason'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -159,8 +167,8 @@ export const layouts = pgTable(
     description: text('description').notNull().default(''),
 
     /**
-     * Always set. Seed layouts point at the system user; `authorDisplay` then
-     * carries the human credit (the seed layouts are by pablodelucca).
+     * Always set. Bundled seeds use their real Discord-backed author. Legacy
+     * or custom seeds may point at the system user and use `authorDisplay`.
      */
     authorUserId: uuid('author_user_id')
       .notNull()
@@ -429,6 +437,21 @@ export const authRefreshTokens = pgTable(
 );
 
 /**
+ * A user's retained Discord OAuth grant. Tokens are AES-256-GCM ciphertext;
+ * the key is supplied only to the API process and never stored in Postgres.
+ */
+export const discordOauthGrants = pgTable('discord_oauth_grants', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  encryptedAccessToken: text('encrypted_access_token').notNull(),
+  encryptedRefreshToken: text('encrypted_refresh_token').notNull(),
+  accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }).notNull(),
+  scopes: text('scopes').notNull(),
+  updatedAt: updatedAt(),
+});
+
+/**
  * The one-time code used to hand a freshly-minted session to the SPA.
  *
  * `/callback` is a full top-level navigation landing on the API's own origin —
@@ -471,5 +494,7 @@ export type ModerationAction = typeof moderationActions.$inferSelect;
 export type NewModerationAction = typeof moderationActions.$inferInsert;
 export type AuthRefreshToken = typeof authRefreshTokens.$inferSelect;
 export type NewAuthRefreshToken = typeof authRefreshTokens.$inferInsert;
+export type DiscordOauthGrant = typeof discordOauthGrants.$inferSelect;
+export type NewDiscordOauthGrant = typeof discordOauthGrants.$inferInsert;
 export type AuthLoginCode = typeof authLoginCodes.$inferSelect;
 export type NewAuthLoginCode = typeof authLoginCodes.$inferInsert;

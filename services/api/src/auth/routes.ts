@@ -21,14 +21,13 @@
 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 
-import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 import type { AnyDatabase } from '../db/client.js';
-import * as schema from '../db/schema.js';
 import { allowsWebOrigin, type ApiConfig } from '../config.js';
 import { ApiError } from '../errors.js';
 import { requireAuth } from './context.js';
+import { resolveCapability, type ResolvedCapability } from './capability.js';
 import {
   buildAuthorizeUrl,
   DiscordApiError,
@@ -36,6 +35,7 @@ import {
   fetchDiscordUser,
   generatePkcePair,
 } from './discord.js';
+import { saveDiscordGrant } from './discordGrant.js';
 import { writeRateLimitConfig } from '../rateLimit.js';
 import {
   consumeLoginCode,
@@ -44,7 +44,7 @@ import {
   revokeSession,
   rotateRefreshToken,
 } from './sessions.js';
-import { upsertDiscordUser } from './users.js';
+import { getUserById, upsertDiscordUser } from './users.js';
 
 const OAUTH_COOKIE = 'pixelindex_oauth';
 const OAUTH_COOKIE_MAX_AGE_SECONDS = 600;
@@ -143,7 +143,9 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
         maxAge: OAUTH_COOKIE_MAX_AGE_SECONDS,
       });
 
-      return reply.redirect(buildAuthorizeUrl(discordCredentials, state, challenge));
+      return reply.redirect(
+        buildAuthorizeUrl(discordCredentials, state, challenge, config.discordGuild !== undefined),
+      );
     },
   );
 
@@ -165,8 +167,9 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
     if (!query.code) return fail('missing_code');
 
     let discordUser;
+    let token;
     try {
-      const token = await exchangeCodeForToken(
+      token = await exchangeCodeForToken(
         discordCredentials,
         query.code,
         parsedCookie.codeVerifier,
@@ -178,9 +181,21 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
       return fail(reason);
     }
 
-    const user = await upsertDiscordUser(db, discordUser, {
-      ...(config.initialAdminDiscordId ? { initialAdminDiscordId: config.initialAdminDiscordId } : {}),
-    });
+    let user = await upsertDiscordUser(db, discordUser);
+    if (config.discordGuild) {
+      await saveDiscordGrant(
+        db,
+        user.id,
+        token,
+        config.discordGuild.oauthTokenEncryptionKey,
+      );
+    }
+    try {
+      user = (await resolveCapability(db, config, user, { force: true })).user;
+    } catch (error) {
+      request.log.warn({ err: error }, 'Discord membership verification failed');
+      return fail('discord_unreachable');
+    }
 
     const code = await createLoginCode(db, user.id, sessionConfig);
     const target = new URL(returnTo);
@@ -195,8 +210,9 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
     const user = await consumeLoginCode(db, body.code);
     if (!user) throw ApiError.unauthorized('This login code is invalid, used or expired.');
 
-    const tokens = await createSession(db, user, sessionConfig);
-    return reply.send({ ...tokens, user: publicUser(user) });
+    const resolved = await resolveCapability(db, config, user);
+    const tokens = await createSession(db, resolved.user, sessionConfig);
+    return reply.send({ ...tokens, user: publicUser(resolved, config) });
   });
 
   app.post('/api/v1/auth/refresh', writeRateLimitConfig(config), async (request, reply) => {
@@ -221,18 +237,30 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
 
   app.get('/api/v1/me', async (request, reply) => {
     const auth = requireAuth(request);
-    const [user] = await db.select().from(schema.users).where(eq(schema.users.id, auth.id));
+    const user = await getUserById(db, auth.id);
     if (!user) throw ApiError.unauthorized();
-    return reply.send(publicUser(user));
+    const resolved = await resolveCapability(db, config, user);
+    return reply.send(publicUser(resolved, config));
   });
 }
 
-function publicUser(user: schema.User) {
+function publicUser(resolved: ResolvedCapability, config: ApiConfig) {
+  const { user, submission } = resolved;
   return {
     id: user.id,
     username: user.username,
+    displayName: user.guildNickname ?? user.globalName ?? user.username,
     avatarUrl: user.avatarUrl,
     role: user.role,
+    capabilityCheckedAt: user.discordMembershipCheckedAt?.toISOString() ?? null,
+    capabilityCacheTtlMs: config.discordMembershipCacheTtlMs,
+    submission: {
+      allowed: submission.allowed,
+      reason: submission.reason,
+      inviteUrl:
+        !submission.allowed && submission.reason === 'discord_membership_required'
+          ? (config.discordGuild?.inviteUrl ?? null)
+          : null,
+    },
   };
 }
-

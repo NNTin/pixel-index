@@ -14,6 +14,8 @@ export function testConfig(overrides: Partial<ApiConfig> = {}): ApiConfig {
     webOriginPatterns: [],
     discordClientId: 'client-id',
     discordClientSecret: 'client-secret',
+    discordAdminIds: [],
+    discordMembershipCacheTtlMs: 60_000,
     publicApiOrigin: 'https://api.pixel-index.example',
     // 32+ chars, as loadConfig() itself requires.
     sessionSecret: 'test-session-secret-at-least-32-characters-long',

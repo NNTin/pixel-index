@@ -253,7 +253,7 @@ describe('POST /api/v1/auth/token', () => {
     const session = await completeLogin();
     expect(session.user.username).toBe('pixel-fan');
     const claims = await verifyAccessToken(session.accessToken, config.sessionSecret);
-    expect(claims?.role).toBe('user');
+    expect(claims).toEqual({ sub: session.user.id });
   });
 
   it('the same code cannot be exchanged twice', async () => {

@@ -14,7 +14,7 @@ import { createTestDatabase, type Harness } from './test-support/harness.js';
 const BUNDLED_REVISION = bundledLayoutRevision();
 
 /** A throwaway seed/ directory with N valid, distinctly-sized layouts. */
-function writeFixtureSeed(entries: { slug: string; cols: number; title: string; tags?: string[] }[]): string {
+function writeFixtureSeed(entries: { slug: string; cols: number; title: string; tags?: string[]; authorDiscordId?: string }[]): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-index-seed-test-'));
   for (const entry of entries) {
     const layoutDir = path.join(dir, entry.slug);
@@ -35,6 +35,7 @@ function writeFixtureSeed(entries: { slug: string; cols: number; title: string; 
       JSON.stringify({
         title: entry.title,
         author: 'pablodelucca',
+        ...(entry.authorDiscordId ? { authorDiscordId: entry.authorDiscordId } : {}),
         description: `${entry.title} description`,
         tags: entry.tags ?? [],
       }),
@@ -73,6 +74,34 @@ describe('seedIfEmpty', () => {
     const [row] = await harness.db.select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-attrib'));
     expect(row!.authorUserId).toBe(SYSTEM_USER_ID);
     expect(row!.authorDisplay).toBe('pablodelucca');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('associates a seed carrying a Discord author id with a normal clickable user', async () => {
+    harness = await createTestDatabase();
+    const dir = writeFixtureSeed([{
+      slug: 'seed-linked',
+      cols: 4,
+      title: 'Seed Linked',
+      authorDiscordId: '900000000000000010',
+    }]);
+
+    await seedIfEmpty(harness.db, dir);
+
+    const [row] = await harness.db
+      .select({
+        authorUserId: schema.layouts.authorUserId,
+        authorDisplay: schema.layouts.authorDisplay,
+        discordId: schema.users.discordId,
+      })
+      .from(schema.layouts)
+      .innerJoin(schema.users, eq(schema.users.id, schema.layouts.authorUserId))
+      .where(eq(schema.layouts.slug, 'seed-linked'));
+    expect(row).toMatchObject({
+      discordId: '900000000000000010',
+      authorDisplay: null,
+    });
+    expect(row!.authorUserId).not.toBe(SYSTEM_USER_ID);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

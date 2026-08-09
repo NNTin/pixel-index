@@ -151,7 +151,7 @@ describe('CORS', () => {
   // derived a preflight's Allow-Methods header from whatever it introspected
   // off the request path rather than a fixed set — PATCH/PUT/DELETE came
   // back missing even though the actual routes existed, so a real browser
-  // silently blocked every edit/moderate/delete/role/block call before it
+  // silently blocked every edit/moderate/delete call before it
   // ever reached the server. `/health` has no PATCH route of its own, so
   // this proves the allowlist is a fixed, path-independent set, not derived
   // per-route — the exact thing that broke.

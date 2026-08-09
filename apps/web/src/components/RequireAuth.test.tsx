@@ -36,7 +36,7 @@ describe('RequireAuth', () => {
           accessToken: 'a',
           refreshToken: 'r',
           expiresInMs: 900_000,
-          user: { id: '1', username: 'plain-user', avatarUrl: null, role: 'user' },
+          user: { id: '1', username: 'plain-user', displayName: 'plain-user', avatarUrl: null, role: 'user', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null } },
         }),
       ),
     );
@@ -53,7 +53,7 @@ describe('RequireAuth', () => {
           accessToken: 'a',
           refreshToken: 'r',
           expiresInMs: 900_000,
-          user: { id: '1', username: 'plain-user', avatarUrl: null, role: 'user' },
+          user: { id: '1', username: 'plain-user', displayName: 'plain-user', avatarUrl: null, role: 'user', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null } },
         }),
       ),
     );
@@ -71,7 +71,7 @@ describe('RequireAuth', () => {
           accessToken: 'a',
           refreshToken: 'r',
           expiresInMs: 900_000,
-          user: { id: '1', username: 'mod-user', avatarUrl: null, role: 'moderator' },
+          user: { id: '1', username: 'mod-user', displayName: 'mod-user', avatarUrl: null, role: 'moderator', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null } },
         }),
       ),
     );
@@ -88,7 +88,7 @@ describe('RequireAuth', () => {
           accessToken: 'a',
           refreshToken: 'r',
           expiresInMs: 900_000,
-          user: { id: '1', username: 'admin-user', avatarUrl: null, role: 'admin' },
+          user: { id: '1', username: 'admin-user', displayName: 'admin-user', avatarUrl: null, role: 'admin', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null } },
         }),
       ),
     );
@@ -105,7 +105,7 @@ describe('RequireAuth', () => {
           accessToken: 'a',
           refreshToken: 'r',
           expiresInMs: 900_000,
-          user: { id: '1', username: 'mod-user', avatarUrl: null, role: 'moderator' },
+          user: { id: '1', username: 'mod-user', displayName: 'mod-user', avatarUrl: null, role: 'moderator', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null } },
         }),
       ),
     );

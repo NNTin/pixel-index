@@ -8,7 +8,6 @@ import {
   countPublicLayouts,
   getLayoutBySlug,
   getLayoutBySlugAnyVisibility,
-  hideAllPublicLayoutsForUser,
   listLayouts,
   tagsForLayouts,
 } from './query.js';
@@ -85,41 +84,6 @@ describe('getLayoutBySlugAnyVisibility', () => {
 
   it('returns null for an unknown slug', async () => {
     expect(await getLayoutBySlugAnyVisibility(harness.db, 'does-not-exist-either')).toBeNull();
-  });
-});
-
-describe('hideAllPublicLayoutsForUser', () => {
-  it('hides only that user\'s public layouts, leaving others and non-public ones alone', async () => {
-    const target = await insertUser(harness.db);
-    const other = await insertUser(harness.db);
-    const targetPublic = await insertLayout(harness.db, { authorUserId: target.id, visibility: 'public' });
-    const targetAlreadyHidden = await insertLayout(harness.db, {
-      authorUserId: target.id,
-      visibility: 'hidden',
-    });
-    const otherPublic = await insertLayout(harness.db, { authorUserId: other.id, visibility: 'public' });
-
-    const hidden = await hideAllPublicLayoutsForUser(harness.db, target.id, 'account blocked', other.id);
-    expect(hidden.map((r) => r.id)).toEqual([targetPublic.id]);
-
-    const [refetchedTarget] = await harness.db
-      .select()
-      .from(schema.layouts)
-      .where(eq(schema.layouts.id, targetPublic.id));
-    expect(refetchedTarget!.visibility).toBe('hidden');
-    expect(refetchedTarget!.visibilityReason).toBe('account blocked');
-
-    const [refetchedAlreadyHidden] = await harness.db
-      .select()
-      .from(schema.layouts)
-      .where(eq(schema.layouts.id, targetAlreadyHidden.id));
-    expect(refetchedAlreadyHidden!.visibilityReason).toBeNull(); // untouched, not re-stamped
-
-    const [refetchedOther] = await harness.db
-      .select()
-      .from(schema.layouts)
-      .where(eq(schema.layouts.id, otherPublic.id));
-    expect(refetchedOther!.visibility).toBe('public');
   });
 });
 

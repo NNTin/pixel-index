@@ -62,6 +62,21 @@ export interface ApiConfig {
 
   discordClientId: string;
   discordClientSecret: string;
+  /** Discord user ids which receive the Admin capability after membership is verified. */
+  discordAdminIds: string[];
+  /**
+   * Optional community integration. An instance without this keeps ordinary
+   * Discord login and accepts submissions from every authenticated user.
+   */
+  discordGuild?: {
+    id: string;
+    inviteUrl: string;
+    moderatorRoleIds: string[];
+    /** Base64-encoded 32-byte AES-256-GCM key; consumed only by the API. */
+    oauthTokenEncryptionKey: string;
+  };
+  /** Maximum age of a successful Discord membership/capability observation. */
+  discordMembershipCacheTtlMs: number;
   /**
    * This API's own externally-reachable origin. The OAuth `redirect_uri` sent
    * to Discord is always `${publicApiOrigin}/callback` — never derived from
@@ -73,12 +88,6 @@ export interface ApiConfig {
   publicApiOrigin: string;
   /** Signs access tokens (HS256) and the transient OAuth state cookie. */
   sessionSecret: string;
-  /**
-   * A Discord user id to promote to `admin` on login, so a self-hoster can
-   * bootstrap their first admin from `.env` with no SQL and no UI. Optional:
-   * once at least one admin exists, most deployments never need it again.
-   */
-  initialAdminDiscordId?: string;
   /** How long a minted access token is valid without a fresh DB lookup. */
   accessTokenTtlMs: number;
   /** How long an unused refresh token stays valid. */
@@ -367,8 +376,74 @@ function optionalEnv(name: string): string | undefined {
   return raw === undefined || raw.trim() === '' ? undefined : raw;
 }
 
+const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
+
+function discordIdsFromEnv(name: string, problems: string[]): string[] {
+  const raw = optionalEnv(name);
+  if (!raw) return [];
+  const ids = raw.split(',').map((value) => value.trim()).filter(Boolean);
+  for (const id of ids) {
+    if (!DISCORD_SNOWFLAKE_RE.test(id)) {
+      problems.push(`${name} must contain comma-separated Discord snowflakes, got ${JSON.stringify(id)}`);
+    }
+  }
+  if (new Set(ids).size !== ids.length) problems.push(`${name} must not contain duplicate ids`);
+  return ids;
+}
+
+function discordInviteUrl(problems: string[]): string | undefined {
+  const raw = optionalEnv('DISCORD_INVITE_URL');
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') problems.push('DISCORD_INVITE_URL must use https');
+    return url.toString();
+  } catch {
+    problems.push(`DISCORD_INVITE_URL is not a valid URL, got ${JSON.stringify(raw)}`);
+    return raw;
+  }
+}
+
+function discordEncryptionKey(problems: string[]): string | undefined {
+  const raw = optionalEnv('DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY');
+  if (!raw) return undefined;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(raw) || Buffer.from(raw, 'base64').length !== 32) {
+    problems.push(
+      'DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY must be base64 encoding of exactly 32 bytes ' +
+        '(generate with: openssl rand -base64 32)',
+    );
+  }
+  return raw;
+}
+
 export function loadConfig(): ApiConfig {
   const problems: string[] = [];
+  const discordGuildId = optionalEnv('DISCORD_GUILD_ID');
+  const discordAdminIds = discordIdsFromEnv('DISCORD_ADMIN_IDS', problems);
+  const discordModeratorRoleIds = discordIdsFromEnv('DISCORD_MODERATOR_ROLE_IDS', problems);
+  const inviteUrl = discordInviteUrl(problems);
+  const oauthTokenEncryptionKey = discordEncryptionKey(problems);
+
+  if (discordGuildId && !DISCORD_SNOWFLAKE_RE.test(discordGuildId)) {
+    problems.push(`DISCORD_GUILD_ID must be a Discord snowflake, got ${JSON.stringify(discordGuildId)}`);
+  }
+  if (discordGuildId) {
+    if (!inviteUrl) problems.push('DISCORD_INVITE_URL is required when DISCORD_GUILD_ID is set');
+    if (!oauthTokenEncryptionKey) {
+      problems.push('DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY is required when DISCORD_GUILD_ID is set');
+    }
+  } else {
+    if (discordModeratorRoleIds.length > 0) {
+      problems.push('DISCORD_MODERATOR_ROLE_IDS requires DISCORD_GUILD_ID');
+    }
+    if (inviteUrl) problems.push('DISCORD_INVITE_URL requires DISCORD_GUILD_ID');
+    if (oauthTokenEncryptionKey) {
+      problems.push('DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY requires DISCORD_GUILD_ID');
+    }
+  }
+  if (optionalEnv('INITIAL_ADMIN_DISCORD_ID')) {
+    problems.push('INITIAL_ADMIN_DISCORD_ID is no longer supported; use DISCORD_ADMIN_IDS');
+  }
 
   const config: ApiConfig = {
     host: process.env.API_HOST ?? '::',
@@ -386,11 +461,24 @@ export function loadConfig(): ApiConfig {
 
     discordClientId: requireEnv('DISCORD_CLIENT_ID', problems),
     discordClientSecret: requireEnv('DISCORD_CLIENT_SECRET', problems),
+    discordAdminIds,
+    ...(discordGuildId && inviteUrl && oauthTokenEncryptionKey
+      ? {
+          discordGuild: {
+            id: discordGuildId,
+            inviteUrl,
+            moderatorRoleIds: discordModeratorRoleIds,
+            oauthTokenEncryptionKey,
+          },
+        }
+      : {}),
+    discordMembershipCacheTtlMs: intFromEnv(
+      'DISCORD_MEMBERSHIP_CACHE_TTL_MS',
+      60_000,
+      problems,
+    ),
     publicApiOrigin: requireOrigin('PUBLIC_API_ORIGIN', problems),
     sessionSecret: requireSessionSecret(problems),
-    ...(optionalEnv('INITIAL_ADMIN_DISCORD_ID')
-      ? { initialAdminDiscordId: optionalEnv('INITIAL_ADMIN_DISCORD_ID') }
-      : {}),
     accessTokenTtlMs: intFromEnv('ACCESS_TOKEN_TTL_MS', 15 * 60_000, problems),
     refreshTokenTtlMs: intFromEnv('REFRESH_TOKEN_TTL_MS', 30 * 24 * 60 * 60_000, problems),
     loginCodeTtlMs: intFromEnv('LOGIN_CODE_TTL_MS', 60_000, problems),

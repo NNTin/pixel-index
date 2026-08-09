@@ -51,7 +51,14 @@ services:
       DISCORD_CLIENT_ID: "${DISCORD_CLIENT_ID:?DISCORD_CLIENT_ID is required, see .env.example}"
       DISCORD_CLIENT_SECRET: "${DISCORD_CLIENT_SECRET:?DISCORD_CLIENT_SECRET is required, see .env.example}"
       SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET is required, generate one with openssl rand -base64 48}"
-      INITIAL_ADMIN_DISCORD_ID: "${INITIAL_ADMIN_DISCORD_ID:-}"
+      DISCORD_ADMIN_IDS: "${DISCORD_ADMIN_IDS:-}"
+      DISCORD_GUILD_ID: "${DISCORD_GUILD_ID:-}"
+      DISCORD_MODERATOR_ROLE_IDS: "${DISCORD_MODERATOR_ROLE_IDS:-}"
+      DISCORD_INVITE_URL: "${DISCORD_INVITE_URL:-}"
+      # This secret belongs only in the API process. The web, renderer,
+      # Postgres and Pico never receive it.
+      DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY: "${DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY:-}"
+      DISCORD_MEMBERSHIP_CACHE_TTL_MS: "${DISCORD_MEMBERSHIP_CACHE_TTL_MS:-60000}"
       # This compose file has no reverse proxy of its own in front of the
       # api — see docs/deployment.md once you add one, and flip this to
       # true so rate limiting keys on the real client, not the proxy.

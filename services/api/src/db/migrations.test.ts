@@ -17,6 +17,7 @@ describe('migrations', () => {
     expect(await tableNames(harness.client)).toEqual([
       'auth_login_codes',
       'auth_refresh_tokens',
+      'discord_oauth_grants',
       'layout_tags',
       'layouts',
       'moderation_actions',
@@ -33,7 +34,7 @@ describe('migrations', () => {
     expect(await tableNames(harness.client)).toContain('layouts');
 
     const users = await harness.db.select().from(schema.users);
-    expect(users).toHaveLength(1); // the system user, not two of them
+    expect(users).toHaveLength(2); // the system user plus the bundled-layout author
   });
 
   it('creates the synthetic seed owner', async () => {
@@ -45,6 +46,14 @@ describe('migrations', () => {
     expect(systemUser?.isSystem).toBe(true);
     // Nothing can ever authenticate as it.
     expect(systemUser?.discordId).toBeNull();
+  });
+
+  it('creates or reuses the Discord-backed bundled-layout author', async () => {
+    const [author] = await harness.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.discordId, '1528094749993599038'));
+    expect(author).toMatchObject({ username: 'pablodelucca', isSystem: false, role: 'user' });
   });
 
   it('creates the indexes the public read paths depend on', async () => {

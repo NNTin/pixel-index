@@ -7,13 +7,14 @@ import type * as schema from '../db/schema.js';
 
 export interface PublicAuthor {
   /**
-   * `null` for a credited-but-not-a-registered-account author — the seed
-   * layouts, whose real owner is the synthetic system user (#3). Returning
-   * that internal id would leak an implementation detail with no meaning to
-   * a client; `null` says plainly "there is no account behind this credit".
+   * `null` only for legacy credited-but-unlinked system-owned seed data.
+   * Bundled layouts are associated with their known Discord author (#23).
    */
   id: string | null;
+  /** Stable Discord account handle, or the legacy credit for an unlinked seed. */
   username: string;
+  /** Guild nickname, then global Discord name, then username. */
+  displayName: string;
   avatarUrl: string | null;
 }
 
@@ -46,11 +47,20 @@ export interface PublicLayoutDetail extends PublicLayoutSummary {
   layout: unknown;
 }
 
-function publicAuthor(layout: schema.Layout, author: schema.User | null): PublicAuthor {
-  if (layout.authorDisplay) return { id: null, username: layout.authorDisplay, avatarUrl: null };
+export function publicAuthor(layout: schema.Layout, author: schema.User | null): PublicAuthor {
+  if (layout.authorDisplay && (!author || author.isSystem)) {
+    return {
+      id: null,
+      username: layout.authorDisplay,
+      displayName: layout.authorDisplay,
+      avatarUrl: null,
+    };
+  }
+  const username = author?.username ?? 'unknown';
   return {
     id: author?.id ?? null,
-    username: author?.username ?? 'unknown',
+    username,
+    displayName: author?.guildNickname ?? author?.globalName ?? username,
     avatarUrl: author?.avatarUrl ?? null,
   };
 }

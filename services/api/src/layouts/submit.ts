@@ -8,15 +8,14 @@
  * endpoint the only thing standing between a stranger and the front page, so
  * almost everything here is about refusing bad input cheaply, in order,
  * before anything expensive (validation, a database write, a render) runs:
- * auth -> blocked check -> size -> JSON.parse -> layout-core validation ->
+ * auth + Discord membership -> size -> JSON.parse -> layout-core validation ->
  * dedupe -> daily cap -> insert.
  */
 
 import { layoutStats, sha256, type Layout } from '@pixel-index/layout-core';
 import type { FastifyInstance } from 'fastify';
 
-import { requireAuth } from '../auth/context.js';
-import { getUserById } from '../auth/users.js';
+import { requireSubmissionCapability } from '../auth/capability.js';
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
@@ -91,16 +90,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
         }
         const { pin, validator } = upstream;
 
-        const auth = requireAuth(request);
-        // Not resolveUser's job (context.ts) — that is deliberately stateless.
-        // blockedAt cannot be carried by the access token without being exactly
-        // as stale as everything else the token already is, and a write this
-        // abuse-sensitive is exactly the path where that staleness matters.
-        const user = await getUserById(db, auth.id);
-        if (!user) throw ApiError.unauthorized();
-        if (user.blockedAt !== null) {
-          throw ApiError.forbidden('This account is blocked from submitting layouts.');
-        }
+        const user = await requireSubmissionCapability(db, config, request);
 
         const query = request.query as SubmitQuery;
         const tagNames = parseAndValidateTags(query.tags);
@@ -245,12 +235,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
         }
         const { validator } = upstream;
 
-        const auth = requireAuth(request);
-        const user = await getUserById(db, auth.id);
-        if (!user) throw ApiError.unauthorized();
-        if (user.blockedAt !== null) {
-          throw ApiError.forbidden('This account is blocked from submitting layouts.');
-        }
+        await requireSubmissionCapability(db, config, request);
 
         const raw = request.body as string;
         const byteLength = Buffer.byteLength(raw, 'utf-8');

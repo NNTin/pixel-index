@@ -90,13 +90,6 @@ describe('POST /api/v1/layouts — authentication', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('rejects a blocked user', async () => {
-    const { accessToken } = await tokenFor({ blockedAt: new Date(), blockedReason: 'testing' });
-    const response = await submit('title=Blocked+User', validLayoutJson(), {
-      authorization: `Bearer ${accessToken}`,
-    });
-    expect(response.statusCode).toBe(403);
-  });
 });
 
 describe('POST /api/v1/layouts — the happy path', () => {
@@ -111,7 +104,7 @@ describe('POST /api/v1/layouts — the happy path', () => {
     const body = response.json();
     expect(body.slug).toBeTruthy();
     expect(body.title).toBe('My New Office');
-    expect(body.author).toEqual({ id: user.id, username: 'happy-path', avatarUrl: null });
+    expect(body.author).toEqual({ id: user.id, username: 'happy-path', displayName: 'happy-path', avatarUrl: null });
     expect(body.tags.sort()).toEqual(['cosy', 'small']);
     expect(response.headers.location).toBe(`/api/v1/layouts/${body.slug}`);
 
@@ -461,12 +454,6 @@ describe('POST /api/v1/layouts/preview-check', () => {
   it('is impossible anonymously', async () => {
     const response = await previewCheck(validLayoutJson());
     expect(response.statusCode).toBe(401);
-  });
-
-  it('rejects a blocked user', async () => {
-    const { accessToken } = await tokenFor({ blockedAt: new Date(), blockedReason: 'testing' });
-    const response = await previewCheck(validLayoutJson(), { authorization: `Bearer ${accessToken}` });
-    expect(response.statusCode).toBe(403);
   });
 
   it('returns the same actionable validation errors as the real submission path', async () => {

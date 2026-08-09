@@ -1,210 +1,80 @@
-/**
- * Admin/moderator actions on an account: role changes (#10, admin-only) and
- * blocking (#10, moderator+). Not "user management" broadly — there is no
- * `PATCH /users/:id` for arbitrary fields, deliberately: role and block are
- * two specific, narrow, heavily-audited powers, not a general edit surface.
- */
-
-import { eq } from 'drizzle-orm';
+/** Read-only Admin directory of accounts which have interacted with Pixel Index. */
+import { and, asc, eq, gt, ilike, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
-import { hasAtLeastRole, type Role } from '../auth/context.js';
-import { requireFreshRole } from '../auth/freshRole.js';
-import { revokeAllSessionsForUser } from '../auth/sessions.js';
+import { requireCapability } from '../auth/capability.js';
+import type { Role } from '../auth/context.js';
+import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
-import { ApiError } from '../errors.js';
-import { hideAllPublicLayoutsForUser } from '../layouts/query.js';
-import { recordModerationAction } from '../moderation/audit.js';
-import { searchUsersByUsername } from '../auth/users.js';
 
 export interface UserAdminRoutesDeps {
+  config: ApiConfig;
   db: AnyDatabase;
 }
 
-const ROLE_RANK: Record<Role, number> = { user: 0, moderator: 1, admin: 2 };
-
-interface PublicUserView {
-  id: string;
-  username: string;
-  role: Role;
-  blocked: boolean;
-  blockedReason: string | null;
-}
-
-function toPublicUserView(user: schema.User): PublicUserView {
-  return {
-    id: user.id,
-    username: user.username,
-    role: user.role,
-    blocked: user.blockedAt !== null,
-    blockedReason: user.blockedReason,
-  };
-}
-
-async function loadTarget(db: AnyDatabase, id: string): Promise<schema.User> {
-  const [target] = await db.select().from(schema.users).where(eq(schema.users.id, id));
-  if (!target) throw ApiError.notFound('No such user.');
-  if (target.isSystem) {
-    throw ApiError.badRequest('The system user (#3, owns seed layouts) cannot be modified.');
-  }
-  return target;
-}
-
-const roleParamsSchema = {
-  type: 'object',
-  properties: { id: { type: 'string', format: 'uuid' } },
-  required: ['id'],
-} as const;
-
-const roleBodySchema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: { role: { type: 'string', enum: ['user', 'moderator', 'admin'] } },
-  required: ['role'],
-} as const;
-
-const blockBodySchema = {
+const listQuerySchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    blocked: { type: 'boolean' },
-    reason: { type: 'string', minLength: 1, maxLength: 300 },
+    limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+    cursor: { type: 'string', format: 'uuid' },
+    q: { type: 'string', minLength: 1, maxLength: 100 },
+    capability: { type: 'string', enum: ['user', 'moderator', 'admin'] },
   },
-  required: ['blocked'],
 } as const;
 
-const searchQuerySchema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: { q: { type: 'string', minLength: 1, maxLength: 100 } },
-  required: ['q'],
-} as const;
+interface ListQuery {
+  limit?: number;
+  cursor?: string;
+  q?: string;
+  capability?: Role;
+}
 
-export function registerUserAdminRoutes(app: FastifyInstance, { db }: UserAdminRoutesDeps): void {
+export function registerUserAdminRoutes(
+  app: FastifyInstance,
+  { config, db }: UserAdminRoutesDeps,
+): void {
   app.get(
-    '/api/v1/users',
-    { schema: { querystring: searchQuerySchema } },
+    '/api/v1/admin/users',
+    { schema: { querystring: listQuerySchema } },
     async (request) => {
-      // Admin-only, and a fresh check for the same reason role/block are:
-      // this is a lookup step immediately before a privileged action.
-      await requireFreshRole(db, request, 'admin');
-      const { q } = request.query as { q: string };
-      const users = await searchUsersByUsername(db, q);
-      return { users: users.filter((u) => !u.isSystem).map(toPublicUserView) };
-    },
-  );
+      await requireCapability(db, config, request, 'admin');
+      const query = request.query as ListQuery;
+      const limit = query.limit ?? 50;
+      const conditions = [eq(schema.users.isSystem, false)];
+      if (query.cursor) conditions.push(gt(schema.users.id, query.cursor));
+      if (query.q) conditions.push(ilike(schema.users.username, `%${query.q}%`));
+      if (query.capability) conditions.push(eq(schema.users.role, query.capability));
 
-  app.patch(
-    '/api/v1/users/:id/role',
-    { schema: { params: roleParamsSchema, body: roleBodySchema } },
-    async (request, reply) => {
-      // Role escalation is admin-only, and itself audited (#10's own
-      // acceptance criterion) — a moderator granting more power, even to
-      // someone else, is exactly the privilege escalation this guards.
-      const actor = await requireFreshRole(db, request, 'admin');
-      const { id } = request.params as { id: string };
-      const { role: newRole } = request.body as { role: Role };
+      const page = await db
+        .select({
+          id: schema.users.id,
+          username: schema.users.username,
+          globalName: schema.users.globalName,
+          guildNickname: schema.users.guildNickname,
+          avatarUrl: schema.users.avatarUrl,
+          capability: schema.users.role,
+          capabilityCheckedAt: schema.users.discordMembershipCheckedAt,
+          layoutCount: sql<number>`count(${schema.layouts.id})::int`,
+        })
+        .from(schema.users)
+        .leftJoin(schema.layouts, eq(schema.layouts.authorUserId, schema.users.id))
+        .where(and(...conditions))
+        .groupBy(schema.users.id)
+        .orderBy(asc(schema.users.id))
+        .limit(limit + 1);
 
-      if (id === actor.id) throw ApiError.forbidden('Cannot change your own role.');
-      const target = await loadTarget(db, id);
-
-      if (target.role === newRole) return reply.send(toPublicUserView(target));
-
-      const action = ROLE_RANK[newRole] > ROLE_RANK[target.role] ? 'user.role_grant' : 'user.role_revoke';
-      const updated = await db.transaction(async (tx: AnyDatabase) => {
-        const [row] = await tx
-          .update(schema.users)
-          .set({ role: newRole })
-          .where(eq(schema.users.id, id))
-          .returning();
-        await recordModerationAction(tx, {
-          actorUserId: actor.id,
-          actorLabel: actor.username,
-          action,
-          targetType: 'user',
-          targetId: id,
-          before: { role: target.role },
-          after: { role: newRole },
-        });
-        return row!;
-      });
-
-      return reply.send(toPublicUserView(updated));
-    },
-  );
-
-  app.patch(
-    '/api/v1/users/:id/block',
-    { schema: { params: roleParamsSchema, body: blockBodySchema } },
-    async (request, reply) => {
-      const actor = await requireFreshRole(db, request, 'moderator');
-      const { id } = request.params as { id: string };
-      const { blocked, reason } = request.body as { blocked: boolean; reason?: string };
-
-      if (id === actor.id) throw ApiError.forbidden('Cannot block your own account.');
-      const target = await loadTarget(db, id);
-
-      // A moderator can block a regular user; blocking a moderator or an
-      // admin — de-privileging a privileged account — is admin-only, the
-      // same boundary role changes already draw.
-      if (target.role !== 'user' && !hasAtLeastRole(actor.role, 'admin')) {
-        throw ApiError.forbidden('Only an admin can block a moderator or admin account.');
-      }
-
-      if (blocked && !reason) {
-        throw ApiError.badRequest('A reason is required to block an account.');
-      }
-
-      const updated = await db.transaction(async (tx: AnyDatabase) => {
-        const [row] = await tx
-          .update(schema.users)
-          .set({
-            blockedAt: blocked ? new Date() : null,
-            blockedReason: blocked ? (reason ?? null) : null,
-          })
-          .where(eq(schema.users.id, id))
-          .returning();
-
-        await recordModerationAction(tx, {
-          actorUserId: actor.id,
-          actorLabel: actor.username,
-          action: blocked ? 'user.block' : 'user.unblock',
-          targetType: 'user',
-          targetId: id,
-          reason: blocked ? (reason ?? null) : null,
-          before: { blocked: target.blockedAt !== null },
-          after: { blocked },
-        });
-
-        // Blocking hides existing content in the same action, not just
-        // future submissions (#8 already refuses those via blockedAt) —
-        // one audit entry per affected layout, alongside the user.block
-        // entry above, so the history says exactly what was hidden and why.
-        // Unblocking does NOT auto-restore them: an account back in good
-        // standing does not retroactively validate everything it published.
-        if (blocked) {
-          const hidden = await hideAllPublicLayoutsForUser(tx, id, reason!, actor.id);
-          for (const layout of hidden) {
-            await recordModerationAction(tx, {
-              actorUserId: actor.id,
-              actorLabel: actor.username,
-              action: 'layout.hide',
-              targetType: 'layout',
-              targetId: layout.id,
-              reason,
-              before: { visibility: 'public' },
-              after: { visibility: 'hidden' },
-            });
-          }
-        }
-
-        return row!;
-      });
-
-      if (blocked) await revokeAllSessionsForUser(db, id);
-
-      return reply.send(toPublicUserView(updated));
+      const hasMore = page.length > limit;
+      const users = hasMore ? page.slice(0, limit) : page;
+      return {
+        users: users.map(({ globalName, guildNickname, capabilityCheckedAt, ...user }) => ({
+          ...user,
+          displayName: guildNickname ?? globalName ?? user.username,
+          capabilityCheckedAt: capabilityCheckedAt?.toISOString() ?? null,
+        })),
+        nextCursor: hasMore ? users.at(-1)!.id : null,
+      };
     },
   );
 }
