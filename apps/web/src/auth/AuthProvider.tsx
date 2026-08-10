@@ -53,7 +53,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           refreshTokenRef.current = pair.refreshToken;
           setStoredRefreshToken(pair.refreshToken);
           setAccessToken(pair.accessToken);
-          getMe(pair.accessToken).then(setUser).catch(() => {});
+          getMe(pair.accessToken)
+            .then(setUser)
+            .catch(() => {
+              // The rotation already succeeded, so the session is live whether
+              // or not /me answers. Failing here would throw away a token pair
+              // we have just committed to.
+            });
           schedule(pair.expiresInMs);
         } catch {
           // Rotation reuse or expiry means the session is over rather than
@@ -153,7 +159,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .then((next) => {
           if (!signal.aborted) setUser(next);
         })
-        .catch(() => {}); // Temporary Discord/API failure must not destroy the session.
+        .catch(() => {
+          // Two things land here and neither is a reason to log anyone out: a
+          // temporary Discord/API failure, and the AbortError this effect's own
+          // cleanup raises on unmount.
+        });
     };
     const interval = window.setInterval(refreshUser, Math.max(user.capabilityCacheTtlMs, 5_000));
     window.addEventListener('focus', refreshUser);
@@ -174,7 +184,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     const stored = refreshTokenRef.current;
     clearSession();
-    if (stored) void logoutSession(stored).catch(() => {}); // best-effort — the client-side session is already gone either way
+    if (stored) {
+      void logoutSession(stored).catch(() => {
+        // Best-effort: clearSession() has already run, so the client-side
+        // session is gone whether or not the server hears about it.
+      });
+    }
   }, [clearSession]);
 
   const value: AuthContextValue = { status, user, accessToken, login, logout };

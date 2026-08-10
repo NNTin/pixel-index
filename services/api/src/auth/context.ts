@@ -32,7 +32,7 @@ async function resolveUser(
   sessionSecret: string,
 ): Promise<AuthUser | null> {
   const header = request.headers.authorization;
-  if (!header || !header.startsWith(BEARER_PREFIX)) return null;
+  if (!header?.startsWith(BEARER_PREFIX)) return null;
 
   const token = header.slice(BEARER_PREFIX.length).trim();
   if (token === '') return null;

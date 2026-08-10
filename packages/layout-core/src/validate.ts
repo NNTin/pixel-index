@@ -199,9 +199,9 @@ export function validateLayout(layout: unknown, options: ValidateLayoutOptions =
 export interface Validator {
   requiredRevision: number;
   catalog: FurnitureCatalog;
-  validateLayout(layout: unknown): ValidationResult;
-  validateMeta(meta: unknown): ValidationResult;
-  validateSlug(slug: string): ValidationResult;
+  validateLayout: (layout: unknown) => ValidationResult;
+  validateMeta: (meta: unknown) => ValidationResult;
+  validateSlug: (slug: string) => ValidationResult;
 }
 
 /**

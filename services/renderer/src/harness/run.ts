@@ -37,9 +37,9 @@ export interface RunPinDeps {
 }
 
 export interface RendererLike {
-  start(): Promise<void>;
-  render(layout: Layout): Promise<Buffer>;
-  close(): Promise<void>;
+  start: () => Promise<void>;
+  render: (layout: Layout) => Promise<Buffer>;
+  close: () => Promise<void>;
 }
 
 const DEFAULT_CONCURRENCY = 2;
@@ -112,7 +112,11 @@ export async function runPin(
       onProgress?.(done, layouts.length);
     }
   } finally {
-    await renderer.close().catch(() => {});
+    await renderer.close().catch(() => {
+      // A browser that will not shut down cleanly must not mask whatever is
+      // already propagating out of the try, and must not stop devServer.stop()
+      // on the next line from running.
+    });
     devServer.stop();
   }
 

@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
@@ -33,7 +33,9 @@ describe('Discord OAuth grant encryption', () => {
   it('rejects tampering instead of returning corrupted plaintext', () => {
     const encrypted = encryptDiscordToken('secret-token', KEY);
     const parts = encrypted.split('.');
-    parts[3] = `${parts[3]![0] === 'A' ? 'B' : 'A'}${parts[3]!.slice(1)}`;
+    const ciphertext = parts[3];
+    assert(ciphertext !== undefined, 'an encrypted grant has four dot-separated parts');
+    parts[3] = `${ciphertext.startsWith('A') ? 'B' : 'A'}${ciphertext.slice(1)}`;
     expect(() => decryptDiscordToken(parts.join('.'), KEY)).toThrow();
   });
 });

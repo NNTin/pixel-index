@@ -14,7 +14,8 @@ const ENV_KEYS = [
 ] as const;
 
 afterEach(() => {
-  for (const key of ENV_KEYS) delete process.env[key];
+  // See services/api/src/config.test.ts for why this is Reflect.deleteProperty.
+  for (const key of ENV_KEYS) Reflect.deleteProperty(process.env, key);
 });
 
 describe('loadConfig', () => {

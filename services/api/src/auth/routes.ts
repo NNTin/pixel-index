@@ -23,7 +23,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 import type { FastifyInstance } from 'fastify';
 
-import { allowsWebOrigin, type ApiConfig } from '../config.js';
+import { allowsWebOrigin, type ApiConfig, webHomeUrl } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import { ApiError } from '../errors.js';
 import { writeRateLimitConfig } from '../rateLimit.js';
@@ -64,7 +64,7 @@ export interface AuthRoutesDeps {
  * successfully and then fails on the first credentialed API call.
  */
 function resolveReturnTo(candidate: string | undefined, config: ApiConfig): string {
-  const fallback = `${config.webOrigins[0]}/`;
+  const fallback = webHomeUrl(config);
   if (!candidate) return fallback;
   try {
     const url = new URL(candidate);
@@ -157,7 +157,7 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
     reply.clearCookie(OAUTH_COOKIE, { path: '/callback' });
 
     const parsedCookie = cookieValue ? unpackCookie(cookieValue) : null;
-    const returnTo = parsedCookie?.returnTo ?? `${config.webOrigins[0]}/`;
+    const returnTo = parsedCookie?.returnTo ?? webHomeUrl(config);
     const fail = (reason: string) => reply.redirect(`${returnTo}${returnTo.includes('?') ? '&' : '?'}authError=${reason}`);
 
     if (query.error) return fail(query.error);

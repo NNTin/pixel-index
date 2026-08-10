@@ -74,7 +74,7 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
     const validation = validator.validateLayout(parsedLayout);
     if (!validation.valid) {
       throw new Error(
-        `Seed layout "${slug}" fails validation against pixel-agents ${pin.version}: ` +
+        `Seed layout "${slug}" fails validation against pixel-agents ${pin.version ?? 'unknown'}: ` +
           JSON.stringify(validation.issues),
       );
     }

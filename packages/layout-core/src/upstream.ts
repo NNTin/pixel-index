@@ -58,6 +58,19 @@ export function assertUpstream(upstreamDir?: string): void {
   }
 }
 
+/**
+ * Parse a JSON file, or `null` if it is missing or malformed.
+ *
+ * `T` is used once, which is `no-unnecessary-type-parameters`' definition of a
+ * type parameter that is really an assertion — and the rule is right. It is
+ * kept because the alternative is worse: dropping it moves a bare `as` to all
+ * five call sites, and the shape (`response.json<T>()` in Fastify, `res.json()`
+ * in fetch) is the conventional one for "parse this and tell me what you expect".
+ * Making it return `unknown` and validating at each site is the honest long-term
+ * answer; one of those sites is a recursive furniture manifest, so it is its own
+ * piece of work rather than a lint fix.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
 export function readJsonOrNull<T = unknown>(file: string): T | null {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as T;

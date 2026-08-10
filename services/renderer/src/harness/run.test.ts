@@ -30,15 +30,32 @@ const validLayout = JSON.parse(
 
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 
-function fakeDeps(renderer: Partial<RendererLike>): RunPinDeps {
+/**
+ * A harness whose browser and dev server do nothing.
+ *
+ * `overrides` exists because two tests need a different `startDevServer` — one
+ * that throws, and one holding a `stop` spy — and used to inline a whole second
+ * copy of the fake renderer to get it.
+ */
+function fakeDeps(renderer: Partial<RendererLike>, overrides: Partial<RunPinDeps> = {}): RunPinDeps {
   return {
-    startDevServer: async () => ({ url: 'http://127.0.0.1:1234', stop: () => {} }),
+    startDevServer: async () => ({
+      url: 'http://127.0.0.1:1234',
+      stop: () => {
+        // No child process was started, so there is nothing to stop.
+      },
+    }),
     createRenderer: () => ({
-      start: async () => {},
-      close: async () => {},
+      start: async () => {
+        // No browser to launch.
+      },
+      close: async () => {
+        // ...and none to close.
+      },
       render: async () => PNG,
       ...renderer,
     }),
+    ...overrides,
   };
 }
 
@@ -110,16 +127,14 @@ describe('runPin', () => {
     await expect(
       runPin(layouts, {
         source: 'seed/',
-        deps: {
-          startDevServer: async () => {
-            throw new Error('Vite dev server did not start in time.');
+        deps: fakeDeps(
+          {},
+          {
+            startDevServer: async () => {
+              throw new Error('Vite dev server did not start in time.');
+            },
           },
-          createRenderer: () => ({
-            start: async () => {},
-            close: async () => {},
-            render: async () => PNG,
-          }),
-        },
+        ),
       }),
     ).rejects.toThrow(HarnessInfraError);
   });
@@ -128,16 +143,14 @@ describe('runPin', () => {
     const stop = vi.fn();
     await runPin(layouts, {
       source: 'seed/',
-      deps: {
-        startDevServer: async () => ({ url: 'http://127.0.0.1:1234', stop }),
-        createRenderer: () => ({
-          start: async () => {},
-          close: async () => {},
+      deps: fakeDeps(
+        {
           render: async () => {
             throw new Error('boom');
           },
-        }),
-      },
+        },
+        { startDevServer: async () => ({ url: 'http://127.0.0.1:1234', stop }) },
+      ),
     });
     expect(stop).toHaveBeenCalled();
   });

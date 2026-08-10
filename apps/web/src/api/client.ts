@@ -141,7 +141,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
   return (await response.json()) as T;
 }
 
-function toQueryString<T extends object>(params: T): string {
+function toQueryString(params: object): string {
   const entries = Object.entries(params).filter(([, value]) => value !== undefined) as [string, string | number][];
   if (entries.length === 0) return '';
   return `?${new URLSearchParams(entries.map(([key, value]) => [key, String(value)])).toString()}`;

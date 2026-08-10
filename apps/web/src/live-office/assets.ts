@@ -21,7 +21,7 @@ async function getJson<T>(base: string, filename: string): Promise<T> {
 export async function loadLiveOfficeAssets(): Promise<void> {
   const base = `${import.meta.env.BASE_URL}assets/pixel-agents/${__PIXEL_AGENTS_COMMIT__}`;
   const [characters, floors, walls, carpets, catalog, furniture, petAssets] = await Promise.all([
-    getJson<Array<{ down: string[][][]; up: string[][][]; right: string[][][] }>>(
+    getJson<{ down: string[][][]; up: string[][][]; right: string[][][] }[]>(
       base,
       'characters.json',
     ),

@@ -43,7 +43,7 @@ export function SubmitPage() {
     return <p className="text-muted">Loading…</p>;
   }
 
-  if (!user || !user.submission.allowed) {
+  if (!user?.submission.allowed) {
     const loggedOut = !user;
     const reconnect = !loggedOut && user.submission.reason === 'discord_reauthorization_required';
     return (

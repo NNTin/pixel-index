@@ -39,8 +39,17 @@ export interface ApiConfig {
   databaseUrl: string;
   /** The renderer service (#4), proxied by GET /layouts/:slug/{preview,thumbnail}.png (#6). */
   rendererUrl: string;
-  /** Exact origins allowed to call the API with credentials. No wildcards. */
-  webOrigins: string[];
+  /**
+   * Exact origins allowed to call the API with credentials. No wildcards.
+   *
+   * A non-empty tuple, because `loadConfig` refuses to boot without at least
+   * one and `resolveReturnTo` (auth/routes.ts) needs the first one to be a
+   * `string` rather than `string | undefined`. It used to be a plain array, and
+   * `${config.webOrigins[0]}/` therefore built the relative path `"undefined/"`
+   * if the list were ever empty — on the OAuth callback's error path, where
+   * that string is handed straight to `reply.redirect()`.
+   */
+  webOrigins: [string, ...string[]];
   /**
    * Opt-in, narrowly scoped patterns for origins that cannot be listed
    * exactly because the platform mints a fresh hostname per deploy — a
@@ -184,9 +193,9 @@ function requireUrl(name: string, problems: string[], schemes: string[]): string
  * query string or trailing slash sneaking in and silently never matching a
  * real browser Origin header.
  */
-function requireOriginList(name: string, problems: string[]): string[] {
+function requireOriginList(name: string, problems: string[]): [string, ...string[]] {
   const raw = requireEnv(name, problems);
-  if (raw === '') return [];
+  if (raw === '') return [PLACEHOLDER_ORIGIN];
 
   const origins = raw
     .split(',')
@@ -195,7 +204,7 @@ function requireOriginList(name: string, problems: string[]): string[] {
 
   if (origins.length === 0) {
     problems.push(`${name} must contain at least one origin`);
-    return [];
+    return [PLACEHOLDER_ORIGIN];
   }
 
   const valid: string[] = [];
@@ -213,7 +222,31 @@ function requireOriginList(name: string, problems: string[]): string[] {
       problems.push(`${name} entry ${JSON.stringify(origin)} is not a valid origin`);
     }
   }
-  return valid;
+
+  const [primary, ...rest] = valid;
+  if (primary === undefined) return [PLACEHOLDER_ORIGIN];
+  return [primary, ...rest];
+}
+
+/**
+ * What `requireOriginList` returns once it has recorded a problem — the same
+ * convention `requireEnv` uses when it returns `''`. `loadConfig` throws on any
+ * recorded problem before the config object escapes, so this value is
+ * unreachable by design; having one is what lets `webOrigins` be a non-empty
+ * tuple instead of an array whose first element is `string | undefined`.
+ */
+const PLACEHOLDER_ORIGIN = '';
+
+/**
+ * The site's own home page: where login sends a browser back when the caller
+ * asked for nowhere, or asked for somewhere not allowed.
+ *
+ * Named because both auth routes need it and one of them feeds it to
+ * `reply.redirect()` — a duplicated `${config.webOrigins[0]}/` is how the two
+ * copies drift.
+ */
+export function webHomeUrl(config: Pick<ApiConfig, 'webOrigins'>): string {
+  return `${config.webOrigins[0]}/`;
 }
 
 /**

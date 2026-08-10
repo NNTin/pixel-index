@@ -87,7 +87,11 @@ export async function rotateRefreshToken(
     .from(schema.authRefreshTokens)
     .where(eq(schema.authRefreshTokens.tokenHash, hash));
 
-  if (!row || row.revokedAt !== null || row.expiresAt.getTime() < Date.now()) {
+  // Two statements, not `row?.revokedAt !== null || …`: that reads the same but
+  // does not narrow `row`, so `row.expiresAt` here and `row.rotatedToId` below
+  // would both become "possibly undefined" under noUncheckedIndexedAccess.
+  if (!row) return { status: 'invalid' };
+  if (row.revokedAt !== null || row.expiresAt.getTime() < Date.now()) {
     return { status: 'invalid' };
   }
   if (row.rotatedToId !== null) {

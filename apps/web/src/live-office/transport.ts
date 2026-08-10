@@ -12,17 +12,31 @@ class PreviewTransport implements MessageTransport {
   readonly state: TransportState = 'connected';
   readonly ready = Promise.resolve();
 
-  send(): void {}
+  send(): void {
+    // Nothing is listening. The preview renders a layout it was handed; it
+    // never talks back to an extension host.
+  }
 
   onMessage(): () => void {
-    return () => {};
+    // The returned value is an unsubscribe function upstream will call on
+    // teardown, so it has to be callable — and, since nothing was subscribed,
+    // has to do nothing.
+    return () => {
+      // Nothing was subscribed.
+    };
   }
 
   onStateChange(): () => void {
-    return () => {};
+    // `state` is a readonly 'connected' above, so it never changes and no
+    // listener would ever fire. Same unsubscribe contract as onMessage.
+    return () => {
+      // Nothing was subscribed.
+    };
   }
 
-  dispose(): void {}
+  dispose(): void {
+    // No socket, no timer, no listener: nothing to release.
+  }
 }
 
 export const transport: MessageTransport = new PreviewTransport();

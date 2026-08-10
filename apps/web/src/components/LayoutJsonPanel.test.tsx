@@ -9,7 +9,7 @@ afterEach(() => {
 
 describe('LayoutJsonPanel', () => {
   it('auto-formats compact JSON and copies the formatted result', async () => {
-    const writeText = vi.fn(async () => {});
+    const writeText = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText },
