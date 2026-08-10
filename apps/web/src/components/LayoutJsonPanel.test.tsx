@@ -31,6 +31,66 @@ describe('LayoutJsonPanel', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Copied formatted layout.json.');
   });
 
+  it('falls back to a selection copy where there is no async clipboard', async () => {
+    // The path taken on a plain-HTTP deploy, in older Safari, and in jsdom —
+    // all of which lack navigator.clipboard entirely. It had no coverage at
+    // all until platform/clipboard.ts made the absence expressible in the
+    // types; the afterEach above already leaves the clipboard undefined.
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+
+    try {
+      render(
+        <LayoutJsonPanel
+          state={{ status: 'ready', source: '{"version":1}' }}
+          slug="no-clipboard"
+          downloadPath="/api/v1/layouts/no-clipboard/download"
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Copy layout.json' }));
+      await waitFor(() => expect(execCommand).toHaveBeenCalledWith('copy'));
+      expect(screen.getByRole('status')).toHaveTextContent('Copied formatted layout.json.');
+    } finally {
+      Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
+
+  it('reports a refused copy instead of failing silently', async () => {
+    const execCommand = vi.fn(() => false);
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+
+    try {
+      render(
+        <LayoutJsonPanel
+          state={{ status: 'ready', source: '{"version":1}' }}
+          slug="refused"
+          downloadPath="/api/v1/layouts/refused/download"
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Copy layout.json' }));
+      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Could not copy/));
+    } finally {
+      Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
+
+  it('reports a failure where neither clipboard API exists at all', async () => {
+    // jsdom's own baseline: no navigator.clipboard and no document.execCommand.
+    // The button must say so rather than appear to have worked.
+    render(
+      <LayoutJsonPanel
+        state={{ status: 'ready', source: '{"version":1}' }}
+        slug="nothing-at-all"
+        downloadPath="/api/v1/layouts/nothing-at-all/download"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy layout.json' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Could not copy/));
+  });
+
   it('shows malformed JSON as an error and disables copy', () => {
     render(
       <LayoutJsonPanel
