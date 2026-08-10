@@ -94,6 +94,11 @@ export function ModerationPage() {
 
   useEffect(() => {
     if (!accessToken) return;
+    // Two dependencies and a setState that replaces rather than appends: flip
+    // the filter twice quickly and, without this, the slower of the two
+    // responses wins — leaving a moderator acting on rows that belong to a
+    // filter the page is no longer showing.
+    const controller = new AbortController();
     // As in Home.tsx: clear before refetching so the moderator does not act on
     // the previous visibility filter's rows. See useApi.ts for the note.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -101,11 +106,20 @@ export function ModerationPage() {
     getModerationLayouts(
       { limit: 50, ...(visibilityFilter ? { visibility: visibilityFilter as OwnerLayoutView['visibility'] } : {}) },
       accessToken,
+      controller.signal,
     )
-      .then((response) => setLayouts(response.layouts))
-      .catch((caught: unknown) =>
-        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.')),
-      );
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        setLayouts(response.layouts);
+      })
+      .catch((caught: unknown) => {
+        // A superseded request's failure is not this page's failure.
+        if (controller.signal.aborted) return;
+        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+      });
+    return () => {
+      controller.abort();
+    };
   }, [accessToken, visibilityFilter]);
 
   function updateLayout(updated: OwnerLayoutView) {

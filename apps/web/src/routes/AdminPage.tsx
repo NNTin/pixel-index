@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '../api/client';
 import { getAdminUsers } from '../api/moderationClient';
@@ -24,9 +24,16 @@ export function AdminPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** The current search's request. loadMore() rides on it — see the effect. */
+  const requestRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!accessToken) return;
+    // Three dependencies the user changes (the query and the capability filter
+    // among them), so without this a slow response for an abandoned search can
+    // replace the results of the one on screen.
+    const controller = new AbortController();
+    requestRef.current = controller;
     getAdminUsers(
       {
         limit: 50,
@@ -34,18 +41,27 @@ export function AdminPage() {
         ...(capability ? { capability } : {}),
       },
       accessToken,
+      controller.signal,
     )
       .then((response) => {
+        if (controller.signal.aborted) return;
         setUsers(response.users);
         setCursor(response.nextCursor);
       })
-      .catch((caught: unknown) =>
-        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.')),
-      );
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+      });
+    return () => {
+      controller.abort();
+    };
   }, [accessToken, submittedQuery, capability]);
 
   function loadMore() {
     if (!accessToken || !cursor) return;
+    // Shares the effect's controller: a new search aborts this page too, so it
+    // cannot be appended to results it does not belong to.
+    const signal = requestRef.current?.signal;
     setLoadingMore(true);
     getAdminUsers(
       {
@@ -55,15 +71,20 @@ export function AdminPage() {
         ...(capability ? { capability } : {}),
       },
       accessToken,
+      signal,
     )
       .then((response) => {
+        if (signal?.aborted) return;
         setUsers((current) => [...(current ?? []), ...response.users]);
         setCursor(response.nextCursor);
       })
-      .catch((caught: unknown) =>
-        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.')),
-      )
-      .finally(() => setLoadingMore(false));
+      .catch((caught: unknown) => {
+        if (signal?.aborted) return;
+        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+      })
+      .finally(() => {
+        if (!signal?.aborted) setLoadingMore(false);
+      });
   }
 
   return (

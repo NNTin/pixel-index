@@ -165,11 +165,19 @@ export function MyLayoutsPage() {
 
   useEffect(() => {
     if (!accessToken) return;
-    getMyLayouts({ limit: 100 }, accessToken)
-      .then((response) => setLayouts(response.layouts))
-      .catch((caught: unknown) =>
-        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.')),
-      );
+    const controller = new AbortController();
+    getMyLayouts({ limit: 100 }, accessToken, controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        setLayouts(response.layouts);
+      })
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+      });
+    return () => {
+      controller.abort();
+    };
   }, [accessToken]);
 
   function updateLayout(updated: OwnerLayoutView) {

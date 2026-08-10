@@ -38,9 +38,21 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
   useEffect(() => setText(filters.q), [filters.q]);
 
   useEffect(() => {
-    listTags()
-      .then((response) => setTags(response.tags))
-      .catch(() => setTags([])); // The tag picker is a convenience, not core to the page loading.
+    const controller = new AbortController();
+    listTags(controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        setTags(response.tags);
+      })
+      // The tag picker is a convenience, not core to the page loading — but an
+      // *aborted* fetch must not blank an already-populated picker.
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setTags([]);
+      });
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   // Debounced: a request per keystroke would defeat "stays responsive with
