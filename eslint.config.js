@@ -180,26 +180,6 @@ export default defineConfig([
     files: ['apps/web/src/**/*.{ts,tsx}'],
     extends: [reactHooks.configs.flat.recommended, reactRefresh.configs.vite],
     languageOptions: { globals: globals.browser },
-    rules: {
-      /**
-       * Off in the browser only. It earns its keep in the services — it is what
-       * caught three route handlers claiming `request.body` is always an object
-       * when an empty POST really does arrive as undefined — but every one of
-       * its seven reports here was a false positive, from two causes it cannot
-       * see past:
-       *
-       * - lib.dom overstates what exists. `window.matchMedia` and
-       *   `navigator.clipboard` are non-optional in the types and genuinely
-       *   absent in jsdom and in an insecure context; the guards around them
-       *   are the reason those paths work.
-       * - TypeScript cannot follow a captured cancellation flag. `let cancelled
-       *   = false`, reassigned in the effect's *cleanup*, narrows to `false`
-       *   inside the async body — so the `if (cancelled) return` that stops a
-       *   resolved fetch writing to an unmounted component reads as dead code.
-       *   That idiom is used in four effects here and is not negotiable.
-       */
-      '@typescript-eslint/no-unnecessary-condition': 'off',
-    },
   },
   {
     // Build-time code in the SPA workspace: Node, not a browser.
