@@ -14,11 +14,11 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }
 
 export function LayoutDetailPage() {
   const { slug } = useParams<{ slug: string }>();
-  const layoutState = useApi(() => getLayout(slug!), [slug]);
-  const layoutJsonState = useApi(() => getLayoutJson(slug!), [slug]);
+  const layoutState = useApi((signal) => getLayout(slug!, signal), [slug]);
+  const layoutJsonState = useApi((signal) => getLayoutJson(slug!, signal), [slug]);
   // Meta is used only for the layoutRevision warning below — its own
   // failure is not this page's failure, so it gets no error branch here.
-  const metaState = useApi(() => getMeta(), []);
+  const metaState = useApi((signal) => getMeta(signal), []);
   // Read before the early returns below — hooks cannot be called conditionally,
   // and resolving the URL needs `layout.files`, which only exists after them.
   const previewSource = usePreviewSource();

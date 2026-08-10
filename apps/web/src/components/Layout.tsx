@@ -20,7 +20,7 @@ import { CandidatePinBanner } from './CandidatePinBanner';
  */
 function Nav() {
   const { status, user, login, logout } = useAuth();
-  const metaState = useApi(() => getMeta(), []);
+  const metaState = useApi((signal) => getMeta(signal), []);
   const inviteUrl = metaState.status === 'ready' ? metaState.data.discordInviteUrl : null;
 
   return (
