@@ -13,12 +13,18 @@ import { LiveOfficePreview } from '../components/LiveOfficePreview';
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 
 export function LayoutDetailPage() {
+  // react-router types every param as optional because it cannot prove the
+  // route pattern; App.tsx registers this component only under
+  // `layouts/:slug`, so an absent slug is a routing bug, not a request to
+  // handle. Thrown before any hook runs, so the hook count cannot vary.
   const { slug } = useParams<{ slug: string }>();
-  const layoutState = useApi(() => getLayout(slug!), [slug]);
-  const layoutJsonState = useApi(() => getLayoutJson(slug!), [slug]);
+  if (slug === undefined) throw new Error('LayoutDetailPage rendered without a :slug param.');
+
+  const layoutState = useApi((signal) => getLayout(slug, signal), [slug]);
+  const layoutJsonState = useApi((signal) => getLayoutJson(slug, signal), [slug]);
   // Meta is used only for the layoutRevision warning below — its own
   // failure is not this page's failure, so it gets no error branch here.
-  const metaState = useApi(() => getMeta(), []);
+  const metaState = useApi((signal) => getMeta(signal), []);
   // Read before the early returns below — hooks cannot be called conditionally,
   // and resolving the URL needs `layout.files`, which only exists after them.
   const previewSource = usePreviewSource();

@@ -16,7 +16,7 @@ import { useAuth } from '../auth/authState';
 export function SubmitPage() {
   const { status, accessToken, user, login } = useAuth();
   const navigate = useNavigate();
-  const metaState = useApi(() => getMeta(), []);
+  const metaState = useApi((signal) => getMeta(signal), []);
   // Public, not gated behind login — someone deciding whether to join the
   // community must not need to sign in first just to see the invite.
   const inviteUrl = metaState.status === 'ready' ? metaState.data.discordInviteUrl : null;
@@ -43,7 +43,7 @@ export function SubmitPage() {
     return <p className="text-muted">Loading…</p>;
   }
 
-  if (!user || !user.submission.allowed) {
+  if (!user?.submission.allowed) {
     const loggedOut = !user;
     const reconnect = !loggedOut && user.submission.reason === 'discord_reauthorization_required';
     return (

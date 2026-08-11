@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { ApiError, getAuthor, listLayouts } from '../api/client';
@@ -15,35 +15,53 @@ export function AuthorPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** The current author's request. loadMore() rides on it — see the effect. */
+  const requestRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    let cancelled = false;
-    Promise.all([getAuthor(id), listLayouts({ author: id, limit: PAGE_SIZE })])
+    // Shared with loadMore() through the ref, so a page fetched for the
+    // previous author cannot be appended to this one's list.
+    const controller = new AbortController();
+    requestRef.current = controller;
+    Promise.all([
+      getAuthor(id, controller.signal),
+      listLayouts({ author: id, limit: PAGE_SIZE }, controller.signal),
+    ])
       .then(([author, page]) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setProfile(author);
         setLayouts(page.layouts);
         setCursor(page.nextCursor);
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+        if (controller.signal.aborted) return;
+        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
       });
-    return () => { cancelled = true; };
+    return () => {
+      controller.abort();
+    };
   }, [id]);
 
   function loadMore() {
     if (!id || !cursor) return;
+    // Shares the effect's controller, so navigating to another author aborts
+    // this page too rather than appending it to the new author's list.
+    const signal = requestRef.current?.signal;
     setLoadingMore(true);
-    listLayouts({ author: id, limit: PAGE_SIZE, cursor })
+    listLayouts({ author: id, limit: PAGE_SIZE, cursor }, signal)
       .then((page) => {
+        if (signal?.aborted) return;
         setLayouts((current) => [...(current ?? []), ...page.layouts]);
         setCursor(page.nextCursor);
       })
-      .catch((caught: unknown) =>
-        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.')),
-      )
-      .finally(() => setLoadingMore(false));
+      .catch((caught: unknown) => {
+        if (signal?.aborted) return;
+        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+      })
+      .finally(() => {
+        if (!signal?.aborted) setLoadingMore(false);
+      });
   }
 
   if (error) return <ErrorNotice error={error} />;

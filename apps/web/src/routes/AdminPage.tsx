@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '../api/client';
 import { getAdminUsers } from '../api/moderationClient';
@@ -6,14 +6,29 @@ import type { AdminUserView, Role } from '../api/types';
 import { useAuth } from '../auth/authState';
 import { ErrorNotice } from '../components/ErrorNotice';
 
-const CAPABILITIES: Array<{ value: '' | Role; label: string }> = [
+/**
+ * One place that knows what a capability is called.
+ *
+ * The filter options and the per-row label used to spell the same three names
+ * out separately, and the row label derived two of them by upper-casing
+ * `role[0]` — which needs a non-null assertion to say what the union already
+ * guarantees. A lookup keyed by `Role` says it in the type instead, and adding
+ * a capability now fails to compile until it is named here.
+ */
+const CAPABILITY_LABELS: Record<Role, string> = {
+  user: 'Basic',
+  moderator: 'Moderator',
+  admin: 'Admin',
+};
+
+const ROLES = ['user', 'moderator', 'admin'] as const satisfies readonly Role[];
+
+const CAPABILITIES: { value: '' | Role; label: string }[] = [
   { value: '', label: 'Any capability' },
-  { value: 'user', label: 'Basic' },
-  { value: 'moderator', label: 'Moderator' },
-  { value: 'admin', label: 'Admin' },
+  ...ROLES.map((value) => ({ value, label: CAPABILITY_LABELS[value] })),
 ];
 
-const capabilityLabel = (role: Role) => (role === 'user' ? 'Basic' : role[0]!.toUpperCase() + role.slice(1));
+const capabilityLabel = (role: Role) => CAPABILITY_LABELS[role];
 
 export function AdminPage() {
   const { accessToken } = useAuth();
@@ -24,9 +39,16 @@ export function AdminPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** The current search's request. loadMore() rides on it — see the effect. */
+  const requestRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!accessToken) return;
+    // Three dependencies the user changes (the query and the capability filter
+    // among them), so without this a slow response for an abandoned search can
+    // replace the results of the one on screen.
+    const controller = new AbortController();
+    requestRef.current = controller;
     getAdminUsers(
       {
         limit: 50,
@@ -34,18 +56,27 @@ export function AdminPage() {
         ...(capability ? { capability } : {}),
       },
       accessToken,
+      controller.signal,
     )
       .then((response) => {
+        if (controller.signal.aborted) return;
         setUsers(response.users);
         setCursor(response.nextCursor);
       })
-      .catch((caught: unknown) =>
-        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.')),
-      );
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+      });
+    return () => {
+      controller.abort();
+    };
   }, [accessToken, submittedQuery, capability]);
 
   function loadMore() {
     if (!accessToken || !cursor) return;
+    // Shares the effect's controller: a new search aborts this page too, so it
+    // cannot be appended to results it does not belong to.
+    const signal = requestRef.current?.signal;
     setLoadingMore(true);
     getAdminUsers(
       {
@@ -55,15 +86,20 @@ export function AdminPage() {
         ...(capability ? { capability } : {}),
       },
       accessToken,
+      signal,
     )
       .then((response) => {
+        if (signal?.aborted) return;
         setUsers((current) => [...(current ?? []), ...response.users]);
         setCursor(response.nextCursor);
       })
-      .catch((caught: unknown) =>
-        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.')),
-      )
-      .finally(() => setLoadingMore(false));
+      .catch((caught: unknown) => {
+        if (signal?.aborted) return;
+        setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+      })
+      .finally(() => {
+        if (!signal?.aborted) setLoadingMore(false);
+      });
   }
 
   return (

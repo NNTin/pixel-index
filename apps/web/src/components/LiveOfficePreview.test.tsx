@@ -119,7 +119,7 @@ describe('LiveOfficePreview', () => {
   it('sends the layout after readiness and accepts agent removal from the viewer', async () => {
     renderPreview();
     const frameWindow = liveOfficeWindow();
-    const postMessage = vi.spyOn(frameWindow, 'postMessage').mockImplementation(() => {});
+    const postMessage = vi.spyOn(frameWindow, 'postMessage').mockReturnValue(undefined);
 
     fireEvent(
       window,

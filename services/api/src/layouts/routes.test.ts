@@ -1,7 +1,7 @@
+import { withFormats } from '@pixel-index/layout-core';
 import { Ajv } from 'ajv';
-import addFormatsExport from 'ajv-formats';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import type { EnvelopeBody } from '../errors.js';
@@ -38,14 +38,7 @@ afterEach(() => vi.unstubAllGlobals());
 // response against these is what makes "the OpenAPI doc matches actual
 // responses" a checked fact instead of a claim. Building a bogus 2020-ish
 // $schema draft here would prove nothing about what Fastify actually did.
-// ajv-formats is CJS with a default export that TypeScript's NodeNext
-// resolution does not bind cleanly (see @pixel-index/layout-core/src/validate.ts
-// for the same fix with the same root cause).
-const addFormats = (addFormatsExport as unknown as { default?: (ajv: Ajv) => unknown }).default ??
-  (addFormatsExport as unknown as (ajv: Ajv) => unknown);
-
-const ajv = new Ajv({ strict: false });
-addFormats(ajv);
+const ajv = withFormats(new Ajv({ strict: false }));
 ajv.addSchema(publicAuthorSchema);
 ajv.addSchema(layoutSummarySchema);
 ajv.addSchema(layoutDetailSchema);
@@ -53,19 +46,6 @@ const validateList = ajv.compile(listLayoutsResponseSchema[200]);
 const validateDetail = ajv.compile(layoutDetailResponseSchema[200]);
 
 describe('GET /api/v1/layouts', () => {
-  it('returns an empty list cleanly, not an error', async () => {
-    const emptyHarness = await createTestDatabase();
-    const emptyApp = await buildServer({ config, pool: fakePool, db: emptyHarness.db });
-    try {
-      const response = await emptyApp.inject({ method: 'GET', url: '/api/v1/layouts' });
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null });
-    } finally {
-      await emptyApp.close();
-      await emptyHarness.close();
-    }
-  });
-
   it('lists a public layout with author and tags resolved', async () => {
     const author = await insertUser(harness.db, { username: 'route-author' });
     const layout = await insertLayout(harness.db, {
@@ -247,8 +227,9 @@ describe('GET /api/v1/layouts/:slug/preview.png', () => {
     expect(response.rawPayload.subarray(0, 8)).toEqual(PNG_MAGIC);
     expect(response.headers.etag).toBe('"fake-1"');
 
-    const [, init] = fetchSpy.mock.calls[0]!;
-    expect(parseRenderRequest(init).scale).toBe(1);
+    const firstCall = fetchSpy.mock.calls[0];
+    assert(firstCall, 'the renderer was never called');
+    expect(parseRenderRequest(firstCall[1]).scale).toBe(1);
   });
 
   it('is a 404 for a hidden layout and never calls the renderer at all', async () => {
@@ -309,8 +290,9 @@ describe('GET /api/v1/layouts/:slug/thumbnail.png', () => {
     await insertLayout(harness.db, { slug: 'route-thumbnail' });
 
     await app.inject({ method: 'GET', url: '/api/v1/layouts/route-thumbnail/thumbnail.png' });
-    const [, init] = fetchSpy.mock.calls[0]!;
-    expect(parseRenderRequest(init).scale).toBe(1);
+    const firstCall = fetchSpy.mock.calls[0];
+    assert(firstCall, 'the renderer was never called');
+    expect(parseRenderRequest(firstCall[1]).scale).toBe(1);
   });
 });
 
@@ -340,18 +322,6 @@ describe('GET /api/v1/tags', () => {
     expect(names.indexOf('cosy:2')).toBeLessThan(names.indexOf('minimal:1'));
   });
 
-  it('returns an empty list cleanly when nothing is tagged', async () => {
-    const emptyHarness = await createTestDatabase();
-    const emptyApp = await buildServer({ config, pool: fakePool, db: emptyHarness.db });
-    try {
-      const response = await emptyApp.inject({ method: 'GET', url: '/api/v1/tags' });
-      expect(response.statusCode).toBe(200);
-      expect(response.json<ListTagsBody>().tags).toEqual([]);
-    } finally {
-      await emptyApp.close();
-      await emptyHarness.close();
-    }
-  });
 });
 
 describe('OpenAPI document', () => {

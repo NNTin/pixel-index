@@ -38,13 +38,33 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
   useEffect(() => setText(filters.q), [filters.q]);
 
   useEffect(() => {
-    listTags()
-      .then((response) => setTags(response.tags))
-      .catch(() => setTags([])); // The tag picker is a convenience, not core to the page loading.
+    const controller = new AbortController();
+    listTags(controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        setTags(response.tags);
+      })
+      // The tag picker is a convenience, not core to the page loading — but an
+      // *aborted* fetch must not blank an already-populated picker.
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setTags([]);
+      });
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   // Debounced: a request per keystroke would defeat "stays responsive with
   // a few hundred layouts" the moment someone actually types.
+  //
+  // `filters` and `onChange` are omitted from the deps deliberately, and that
+  // omission is what makes the debounce work: the parent re-renders while a
+  // request is in flight, so including `filters` would restart the 300ms timer
+  // on every one of those renders and the timeout would never fire. Both are
+  // read inside the callback, so the timer that eventually fires uses the
+  // render's values — which is correct here, because a filter change from
+  // anywhere else re-syncs `text` through the effect above.
   useEffect(() => {
     if (text === filters.q) return;
     const timer = setTimeout(() => onChange({ ...filters, q: text }), 300);

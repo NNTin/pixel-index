@@ -10,13 +10,15 @@ import type {
 export function getModerationLayouts(
   params: ListModerationLayoutsParams,
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<ListOwnerLayoutsResponse> {
-  return apiRequest(`/api/v1/moderation/layouts${toQueryString(params)}`, { accessToken });
+  return apiRequest(`/api/v1/moderation/layouts${toQueryString(params)}`, { accessToken, signal });
 }
 
 export function getAdminUsers(
   params: { limit?: number; cursor?: string; q?: string; capability?: Role },
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<ListAdminUsersResponse> {
-  return apiRequest(`/api/v1/admin/users${toQueryString(params)}`, { accessToken });
+  return apiRequest(`/api/v1/admin/users${toQueryString(params)}`, { accessToken, signal });
 }

@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { formBody } from '../test-support/bodies.js';
@@ -33,7 +34,9 @@ describe('Discord OAuth grant encryption', () => {
   it('rejects tampering instead of returning corrupted plaintext', () => {
     const encrypted = encryptDiscordToken('secret-token', KEY);
     const parts = encrypted.split('.');
-    parts[3] = `${parts[3]![0] === 'A' ? 'B' : 'A'}${parts[3]!.slice(1)}`;
+    const ciphertext = parts[3];
+    assert(ciphertext !== undefined, 'an encrypted grant has four dot-separated parts');
+    parts[3] = `${ciphertext.startsWith('A') ? 'B' : 'A'}${ciphertext.slice(1)}`;
     expect(() => decryptDiscordToken(parts.join('.'), KEY)).toThrow();
   });
 });
@@ -48,12 +51,14 @@ describe('retained Discord OAuth grants', () => {
       token_type: 'Bearer',
       scope: 'identify guilds.members.read',
     }, KEY);
-    const [row] = await harness.db
-      .select()
-      .from(schema.discordOauthGrants)
-      .where(eq(schema.discordOauthGrants.userId, user.id));
-    expect(row!.encryptedAccessToken).not.toContain('plain-access');
-    expect(row!.encryptedRefreshToken).not.toContain('plain-refresh');
+    const row = one(
+      await harness.db
+        .select()
+        .from(schema.discordOauthGrants)
+        .where(eq(schema.discordOauthGrants.userId, user.id)),
+    );
+    expect(row.encryptedAccessToken).not.toContain('plain-access');
+    expect(row.encryptedRefreshToken).not.toContain('plain-refresh');
     await expect(
       usableDiscordAccessToken(harness.db, user.id, config, KEY),
     ).resolves.toEqual({ status: 'ok', accessToken: 'plain-access' });
@@ -93,12 +98,14 @@ describe('retained Discord OAuth grants', () => {
         now: new Date('2026-08-09T12:01:00.000Z'),
       }),
     ).resolves.toEqual({ status: 'ok', accessToken: 'fresh-access' });
-    const [row] = await harness.db
-      .select()
-      .from(schema.discordOauthGrants)
-      .where(eq(schema.discordOauthGrants.userId, user.id));
-    expect(decryptDiscordToken(row!.encryptedAccessToken, KEY)).toBe('fresh-access');
-    expect(decryptDiscordToken(row!.encryptedRefreshToken, KEY)).toBe('rotated-refresh');
+    const row = one(
+      await harness.db
+        .select()
+        .from(schema.discordOauthGrants)
+        .where(eq(schema.discordOauthGrants.userId, user.id)),
+    );
+    expect(decryptDiscordToken(row.encryptedAccessToken, KEY)).toBe('fresh-access');
+    expect(decryptDiscordToken(row.encryptedRefreshToken, KEY)).toBe('rotated-refresh');
   });
 
   it('serializes concurrent refreshes so a rotating refresh token is spent once', async () => {

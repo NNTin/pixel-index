@@ -2,7 +2,12 @@ import type { ListLayoutsParams } from '../api/types';
 
 export type SizeBucket = 'small' | 'medium' | 'large';
 export type PetsFilter = 'has' | 'none';
-export type SortKey = 'newest' | 'furniture' | 'largest' | 'title';
+export const SORT_KEYS = ['newest', 'furniture', 'largest', 'title'] as const;
+export type SortKey = (typeof SORT_KEYS)[number];
+
+function isSortKey(value: string | null): value is SortKey {
+  return SORT_KEYS.some((key) => key === value);
+}
 
 /**
  * Both axes, ANDed — a known imprecision the issue itself calls out ("tile
@@ -50,7 +55,10 @@ export function filtersFromSearchParams(params: URLSearchParams): Filters {
   const maxFurniture = params.get('maxFurniture');
   return {
     q: params.get('q') ?? '',
-    sort: (params.get('sort') as SortKey | null) ?? 'newest',
+    // Checked, not asserted. This was the one cast in this function, three
+    // lines from `size` and `pets` doing the honest thing — and `?sort=nope`
+    // flowed straight through to the API on the strength of it.
+    sort: isSortKey(params.get('sort')) ? (params.get('sort') as SortKey) : 'newest',
     size: size === 'small' || size === 'medium' || size === 'large' ? size : null,
     minFurniture: minFurniture !== null && minFurniture !== '' ? Number(minFurniture) : null,
     maxFurniture: maxFurniture !== null && maxFurniture !== '' ? Number(maxFurniture) : null,

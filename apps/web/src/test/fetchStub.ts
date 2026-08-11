@@ -32,7 +32,13 @@ export function requestBody(init: RequestInit | undefined): string {
   return body;
 }
 
-/** The request body parsed as JSON, as the shape the caller expects. */
+/**
+ * The request body parsed as JSON, as the shape the caller expects.
+ *
+ * Same deliberate assertion-in-disguise as layout-core's `readJsonOrNull` — see
+ * the note there. Removing `T` puts a bare `as` at each call site instead.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
 export function requestJson<T>(init: RequestInit | undefined): T {
   return JSON.parse(requestBody(init)) as T;
 }

@@ -27,7 +27,7 @@ export function makeLayout(overrides: LayoutOverrides = {}): Layout {
   // undefined, so the fixture produces the same shape a real exported layout
   // with that field missing has — which is what those tests mean to exercise.
   for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete base[key as keyof Layout];
+    if (value === undefined) Reflect.deleteProperty(base, key);
     else Object.assign(base, { [key]: value });
   }
 

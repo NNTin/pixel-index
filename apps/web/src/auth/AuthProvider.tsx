@@ -53,7 +53,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           refreshTokenRef.current = pair.refreshToken;
           setStoredRefreshToken(pair.refreshToken);
           setAccessToken(pair.accessToken);
-          getMe(pair.accessToken).then(setUser).catch(() => {});
+          getMe(pair.accessToken)
+            .then(setUser)
+            .catch(() => {
+              // The rotation already succeeded, so the session is live whether
+              // or not /me answers. Failing here would throw away a token pair
+              // we have just committed to.
+            });
           schedule(pair.expiresInMs);
         } catch {
           // Rotation reuse or expiry means the session is over rather than
@@ -66,14 +72,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    let cancelled = false;
+    // Guard only. Nothing below is handed the signal, and that is the point of
+    // this comment.
+    //
+    // establishSession() interleaves awaits with side effects that cannot be
+    // taken back: consumeLoginCodeFromHash() has already destroyed a
+    // single-use code via history.replaceState before the first await runs;
+    // refreshTokens() ROTATES the refresh token server-side, so a request
+    // aborted in flight may still have retired the token this browser holds;
+    // and setStoredRefreshToken() writes localStorage. An abort would not undo
+    // a login, it would leave the browser holding a dead token — and the catch
+    // below reads any throw as "the session is over" and calls clearSession().
+    // Under StrictMode that would be a logout on every development page load,
+    // and on a slow connection a real one.
+    //
+    // What the flag is for is narrower and still necessary: stopping a
+    // resolved response writing state into an unmounted tree.
+    const controller = new AbortController();
+    const { signal } = controller;
+    // A call, not a property read — see the note in PreviewSourceProvider.tsx:
+    // lib.dom declares `aborted` readonly, so TypeScript keeps a narrowing from
+    // one guard across the await before the next one.
+    const superseded = () => signal.aborted;
 
     async function establishSession() {
       const code = consumeLoginCodeFromHash();
       try {
         if (code) {
           const result = await exchangeLoginCode(code);
-          if (cancelled) return;
+          if (superseded()) return;
           refreshTokenRef.current = result.refreshToken;
           setStoredRefreshToken(result.refreshToken);
           setAccessToken(result.accessToken);
@@ -85,30 +112,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const stored = getStoredRefreshToken();
         if (!stored) {
-          if (!cancelled) setStatus('anonymous');
+          if (!superseded()) setStatus('anonymous');
           return;
         }
         const pair = await refreshTokens(stored);
-        if (cancelled) return;
+        if (superseded()) return;
         refreshTokenRef.current = pair.refreshToken;
         setStoredRefreshToken(pair.refreshToken);
+        // No signal, per the note above: a half-abandoned bootstrap is worse
+        // than a completed one.
         const me = await getMe(pair.accessToken);
-        if (cancelled) return;
+        if (superseded()) return;
         setAccessToken(pair.accessToken);
         setUser(me);
         setStatus('authenticated');
         scheduleRefresh(pair.expiresInMs);
       } catch {
-        if (!cancelled) clearSession();
+        // The guard matters more here than anywhere else in this file:
+        // reaching clearSession() on an unmount would destroy a working
+        // session.
+        if (!superseded()) clearSession();
       }
     }
 
     void establishSession();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-    // Runs once on mount only — re-establishing on every render would spam
-    // the refresh/token endpoints.
+    // Mount only. The rule wants `scheduleRefresh` and `clearSession`, both
+    // recreated per render; including them would re-run the whole bootstrap on
+    // every render, which means hammering /auth/refresh and /auth/token and —
+    // via the catch above — tearing down a session that is working. The second
+    // effect in this file has a real dep array and no suppression, which is the
+    // difference between this being a decision and being a habit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -117,18 +153,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // and immediately when the user returns to it after changing a role.
   useEffect(() => {
     if (status !== 'authenticated' || !accessToken || !user) return;
-    let cancelled = false;
+    // Unlike the bootstrap above, this one is safe to abort: /me is a plain
+    // read with no side effects, and a refresh nobody is waiting for is waste.
+    const controller = new AbortController();
+    const { signal } = controller;
     const refreshUser = () => {
       if (document.visibilityState === 'hidden') return;
-      getMe(accessToken)
-        .then((next) => { if (!cancelled) setUser(next); })
-        .catch(() => {}); // Temporary Discord/API failure must not destroy the session.
+      getMe(accessToken, signal)
+        .then((next) => {
+          if (!signal.aborted) setUser(next);
+        })
+        .catch(() => {
+          // Two things land here and neither is a reason to log anyone out: a
+          // temporary Discord/API failure, and the AbortError this effect's own
+          // cleanup raises on unmount.
+        });
     };
     const interval = window.setInterval(refreshUser, Math.max(user.capabilityCacheTtlMs, 5_000));
     window.addEventListener('focus', refreshUser);
     document.addEventListener('visibilitychange', refreshUser);
     return () => {
-      cancelled = true;
+      controller.abort();
       window.clearInterval(interval);
       window.removeEventListener('focus', refreshUser);
       document.removeEventListener('visibilitychange', refreshUser);
@@ -143,7 +188,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     const stored = refreshTokenRef.current;
     clearSession();
-    if (stored) void logoutSession(stored).catch(() => {}); // best-effort — the client-side session is already gone either way
+    if (stored) {
+      void logoutSession(stored).catch(() => {
+        // Best-effort: clearSession() has already run, so the client-side
+        // session is gone whether or not the server hears about it.
+      });
+    }
   }, [clearSession]);
 
   const value: AuthContextValue = { status, user, accessToken, login, logout };

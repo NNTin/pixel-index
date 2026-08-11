@@ -81,7 +81,7 @@ export async function buildServer({
     upstreamVersion: pin.version,
   });
 
-  app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health', () => ({ status: 'ok' }));
 
   /**
    * Readiness is not liveness. A health check that always returns 200 is how a

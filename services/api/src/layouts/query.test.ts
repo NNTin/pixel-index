@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, assert, beforeAll, describe, expect, it } from 'vitest';
 
 import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
@@ -257,7 +257,9 @@ describe('listLayouts — keyset pagination', () => {
       limit: 1,
     });
     expect(page1.rows[0]?.id).toBe(first.id);
-    expect(page1.nextCursor).toBeTruthy();
+    // assert, not expect(...).toBeTruthy(): only the former narrows, which is
+    // what the cursor below needs.
+    assert(page1.nextCursor !== null);
 
     // A brand new highest-furniture row lands "before" page 1 in sort order.
     await insertLayout(harness.db, { slug: 'stable-inserted-later', furnitureCount: BASE + 1000 });
@@ -266,7 +268,7 @@ describe('listLayouts — keyset pagination', () => {
       filters: { furniture: { min: BASE } },
       sort: 'furniture',
       limit: 1,
-      cursor: page1.nextCursor!,
+      cursor: page1.nextCursor,
     });
     expect(page2.rows[0]?.id).toBe(second.id);
   });
