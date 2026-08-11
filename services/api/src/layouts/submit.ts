@@ -14,6 +14,7 @@
 
 import { type Layout, layoutStats, sha256 } from '@pixel-index/layout-core';
 import type { FastifyInstance } from 'fastify';
+import type { FromSchema } from 'json-schema-to-ts';
 
 import { requireSubmissionCapability } from '../auth/capability.js';
 import type { ApiConfig } from '../config.js';
@@ -46,12 +47,6 @@ const submitQuerySchema = {
   required: ['title'],
 } as const;
 
-interface SubmitQuery {
-  title: string;
-  description?: string;
-  tags?: string;
-}
-
 export interface SubmitRoutesDeps {
   config: ApiConfig;
   db: AnyDatabase;
@@ -76,7 +71,12 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
       done(null, body);
     });
 
-    instance.post(
+      // `Body: string` rather than a schema: the scoped content-type parser above
+      // hands this route the request bytes verbatim, which is the whole point —
+      // the layout is stored byte-for-byte. `Params`/`Querystring` still come
+      // from the schemas, via FromSchema, because supplying any explicit route
+      // generic switches the type provider off for the whole route.
+    instance.post<{ Body: string; Querystring: FromSchema<typeof submitQuerySchema> }>(
       '/api/v1/layouts',
       { ...writeRateLimitConfig(config), schema: { querystring: submitQuerySchema } },
       async (request, reply) => {
@@ -93,10 +93,10 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
 
         const user = await requireSubmissionCapability(db, config, request);
 
-        const query = request.query as SubmitQuery;
+        const query = request.query;
         const tagNames = parseAndValidateTags(query.tags);
 
-        const raw = request.body as string;
+        const raw = request.body;
         const byteLength = Buffer.byteLength(raw, 'utf-8');
         if (byteLength > config.maxLayoutBytes) {
           throw new ApiError(
@@ -223,7 +223,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
     // the same actionable, field-naming errors), then a direct proxy to the
     // renderer, exactly like #6's own preview.png route, just without a
     // slug to address it by yet.
-    instance.post(
+    instance.post<{ Body: string }>(
       '/api/v1/layouts/preview-check',
       writeRateLimitConfig(config),
       async (request, reply) => {
@@ -240,7 +240,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
 
         await requireSubmissionCapability(db, config, request);
 
-        const raw = request.body as string;
+        const raw = request.body;
         const byteLength = Buffer.byteLength(raw, 'utf-8');
         if (byteLength > config.maxLayoutBytes) {
           throw new ApiError(

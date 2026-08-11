@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
+import type { EnvelopeBody } from '../errors.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
 import type { SessionBody } from './routes.js';
@@ -311,6 +312,18 @@ describe('POST /api/v1/auth/token', () => {
   it('rejects a missing code with 400, not 500', async () => {
     const response = await app.inject({ method: 'POST', url: '/api/v1/auth/token', payload: {} });
     expect(response.statusCode).toBe(400);
+    expect(response.json<EnvelopeBody>().error).toBe('bad_request');
+  });
+
+  it('rejects an entirely absent body with the same envelope', async () => {
+    // These three POST routes accept an optional body on purpose — Fastify
+    // delivers `undefined` for an empty one — so the hand-written checks in the
+    // handlers, not a JSON Schema, are what answer here. This pins that: a body
+    // schema would make Fastify reject the request first, with a different
+    // message, and /auth/logout would stop being a 204.
+    const response = await app.inject({ method: 'POST', url: '/api/v1/auth/token' });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<EnvelopeBody>().error).toBe('bad_request');
   });
 });
 
@@ -393,6 +406,11 @@ describe('POST /api/v1/auth/logout', () => {
       url: '/api/v1/auth/logout',
       payload: { refreshToken: 'never-issued' },
     });
+    expect(response.statusCode).toBe(204);
+  });
+
+  it('accepts an empty body — logging out twice is not an error', async () => {
+    const response = await app.inject({ method: 'POST', url: '/api/v1/auth/logout' });
     expect(response.statusCode).toBe(204);
   });
 });

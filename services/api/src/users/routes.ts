@@ -3,10 +3,10 @@ import { and, asc, eq, gt, ilike, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 import { requireCapability } from '../auth/capability.js';
-import type { Role } from '../auth/context.js';
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
+import type { RequestSchemas } from '../http.js';
 
 /** One row of `GET /api/v1/admin/users`. Deliberately no discordId or roleIds. */
 export interface AdminUserView {
@@ -41,24 +41,24 @@ const listQuerySchema = {
   },
 } as const;
 
-interface ListQuery {
-  limit?: number;
-  cursor?: string;
-  q?: string;
-  capability?: Role;
-}
-
 export function registerUserAdminRoutes(
   app: FastifyInstance,
   { config, db }: UserAdminRoutesDeps,
 ): void {
-  app.get(
+  // Types for `request.query`/`params`/`body` come from the JSON Schemas already
+  // on each route below, instead of being restated as an interface and cast to.
+  // `withTypeProvider` is compile-time only — it changes no runtime behaviour and
+  // no schema — so the two can no longer drift apart in silence.
+  const typed = app.withTypeProvider<RequestSchemas>();
+
+  typed.get(
     '/api/v1/admin/users',
     { schema: { querystring: listQuerySchema } },
     async (request): Promise<ListAdminUsersBody> => {
       await requireCapability(db, config, request, 'admin');
-      const query = request.query as ListQuery;
-      const limit = query.limit ?? 50;
+      const query = request.query;
+      // Defaulted by the schema, applied by ajv — see layouts/routes.ts.
+      const limit = query.limit;
       const conditions = [eq(schema.users.isSystem, false)];
       if (query.cursor) conditions.push(gt(schema.users.id, query.cursor));
       if (query.q) conditions.push(ilike(schema.users.username, `%${query.q}%`));

@@ -16,6 +16,7 @@
 import { type Layout, layoutStats, sha256 } from '@pixel-index/layout-core';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FromSchema } from 'json-schema-to-ts';
 
 import { requireSubmissionCapability } from '../auth/capability.js';
 import { requireAuth } from '../auth/context.js';
@@ -25,6 +26,7 @@ import type { AnyDatabase } from '../db/client.js';
 import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
+import type { RequestSchemas } from '../http.js';
 import { recordModerationAction } from '../moderation/audit.js';
 import { writeRateLimitConfig } from '../rateLimit.js';
 import { requestPreview } from '../renderer/client.js';
@@ -68,14 +70,6 @@ const patchBodySchema = {
   },
 } as const;
 
-interface PatchBody {
-  title?: string;
-  description?: string;
-  tags?: string[];
-  visibility?: ModeratorVisibility;
-  reason?: string;
-}
-
 /** `hidden`/`removed`/`public` transitions map onto the four enum actions schema.ts already has. */
 function visibilityAuditAction(
   from: schema.Layout['visibility'],
@@ -94,13 +88,19 @@ async function requireAuthenticatedUser(db: AnyDatabase, request: FastifyRequest
 }
 
 export function registerManageRoutes(app: FastifyInstance, { config, db, upstream }: ManageRoutesDeps): void {
-  app.patch(
+  // Types for `request.query`/`params`/`body` come from the JSON Schemas already
+  // on each route below, instead of being restated as an interface and cast to.
+  // `withTypeProvider` is compile-time only — it changes no runtime behaviour and
+  // no schema — so the two can no longer drift apart in silence.
+  const typed = app.withTypeProvider<RequestSchemas>();
+
+  typed.patch(
     '/api/v1/layouts/:slug',
     { schema: { params: slugParamsSchema, body: patchBodySchema } },
     async (request, reply) => {
       const user = await requireSubmissionCapability(db, config, request);
-      const { slug } = request.params as { slug: string };
-      const body = request.body as PatchBody;
+      const { slug } = request.params;
+      const body = request.body;
 
       const layout = await getLayoutBySlugAnyVisibility(db, slug);
       if (!layout) throw ApiError.notFound(`No layout "${slug}".`);
@@ -193,7 +193,12 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       done(null, body);
     });
 
-    instance.put(
+      // `Body: string` rather than a schema: the scoped content-type parser above
+      // hands this route the request bytes verbatim, which is the whole point —
+      // the layout is stored byte-for-byte. `Params`/`Querystring` still come
+      // from the schemas, via FromSchema, because supplying any explicit route
+      // generic switches the type provider off for the whole route.
+    instance.put<{ Body: string; Params: FromSchema<typeof slugParamsSchema> }>(
       '/api/v1/layouts/:slug/layout',
       { ...writeRateLimitConfig(config), schema: { params: slugParamsSchema } },
       async (request, reply) => {
@@ -209,7 +214,7 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
         const { pin, validator } = upstream;
 
         const user = await requireSubmissionCapability(db, config, request);
-        const { slug } = request.params as { slug: string };
+        const { slug } = request.params;
 
         const layout = await getLayoutBySlugAnyVisibility(db, slug);
         if (!layout) throw ApiError.notFound(`No layout "${slug}".`);
@@ -219,7 +224,7 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
         // hides or removes it (PATCH visibility) rather than rewriting it.
         if (layout.authorUserId !== user.id) throw ApiError.forbidden();
 
-        const raw = request.body as string;
+        const raw = request.body;
         const byteLength = Buffer.byteLength(raw, 'utf-8');
         if (byteLength > config.maxLayoutBytes) {
           throw new ApiError(
@@ -307,14 +312,14 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
     );
   });
 
-  app.delete(
+  typed.delete(
     '/api/v1/layouts/:slug',
     { schema: { params: slugParamsSchema } },
     async (request, reply) => {
       // Deleting one's own content remains available after leaving the guild
       // or when Discord needs reconnecting; edits/replacements above do not.
       const user = await requireAuthenticatedUser(db, request);
-      const { slug } = request.params as { slug: string };
+      const { slug } = request.params;
 
       const layout = await getLayoutBySlugAnyVisibility(db, slug);
       if (!layout) throw ApiError.notFound(`No layout "${slug}".`);
@@ -359,17 +364,18 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
     },
   } as const;
 
-  app.get(
+  typed.get(
     '/api/v1/me/layouts',
     { schema: { querystring: meLayoutsQuerySchema } },
     async (request) => {
       const user = requireAuth(request);
-      const query = request.query as { limit?: number; cursor?: string };
+      const query = request.query;
 
       const { rows, total, nextCursor } = await listLayouts(db, {
         filters: {},
         sort: 'newest',
-        limit: query.limit ?? 24,
+        // Defaulted by the schema, applied by ajv — see layouts/routes.ts.
+        limit: query.limit,
         ...(query.cursor ? { cursor: query.cursor } : {}),
         scope: { type: 'owner', userId: user.id },
       });

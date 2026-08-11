@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
+import type { RequestSchemas } from '../http.js';
 
 export interface AuthorRoutesDeps {
   db: AnyDatabase;
@@ -29,11 +30,17 @@ const responseSchema = {
 } as const;
 
 export function registerAuthorRoutes(app: FastifyInstance, { db }: AuthorRoutesDeps): void {
-  app.get(
+  // Types for `request.query`/`params`/`body` come from the JSON Schemas already
+  // on each route below, instead of being restated as an interface and cast to.
+  // `withTypeProvider` is compile-time only — it changes no runtime behaviour and
+  // no schema — so the two can no longer drift apart in silence.
+  const typed = app.withTypeProvider<RequestSchemas>();
+
+  typed.get(
     '/api/v1/authors/:id',
     { schema: { params: paramsSchema, response: responseSchema } },
     async (request) => {
-      const { id } = request.params as { id: string };
+      const { id } = request.params;
       const [row] = await db
         .select({
           id: schema.users.id,
