@@ -107,3 +107,42 @@ Two conventions the config makes load-bearing rather than decorative:
 Where a rule is switched off, or a suppression is narrowed to one line, the reason is
 written next to it. If you need a new exception, write the reason too — a bare
 `eslint-disable` is not reviewable.
+
+## Commit messages, PR titles, and secrets
+
+`npm install` (or `npm ci`) wires up two git hooks via [husky](https://typicode.github.io/husky/)
+(`.husky/`, driven by the root `prepare` script). Both also run again in CI, so a hook
+that was skipped or bypassed locally still gets caught before merge.
+
+**Commit messages must follow [Conventional Commits](https://www.conventionalcommits.org/)**
+(`type(scope): summary`, e.g. `fix(api): reject expired sessions`), checked by the
+`commit-msg` hook via [commitlint](https://commitlint.js.org/) against
+[`commitlint.config.js`](commitlint.config.js). The allowed `type`s are the standard set
+(`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`,
+`revert`) plus `debug`, which this repo already used before anything enforced it.
+`scope` is free-form and optional. If a commit is rejected, amend the message
+(`git commit --amend`) and try again — the hook only checks the message, not the diff.
+
+**Staged changes are scanned for secrets before every commit** by the `pre-commit` hook,
+via [gitleaks](https://github.com/gitleaks/gitleaks). Gitleaks is a standalone Go
+binary, not an npm package (the `gitleaks` package on the npm registry is an unrelated
+third-party project) — install it yourself once:
+
+```bash
+brew install gitleaks                              # macOS
+go install github.com/gitleaks/gitleaks/v8@latest  # any platform with Go
+# or grab a release binary: https://github.com/gitleaks/gitleaks#installing
+```
+
+The hook checks for `gitleaks` on your `PATH` and prints these same instructions if it's
+missing, rather than silently skipping the scan. If it flags something that isn't
+actually a secret, either rework the line so it doesn't look like one (preferred), or, if
+that's not practical, use an [inline `gitleaks:allow`
+comment](https://github.com/gitleaks/gitleaks#allowlist) or a `.gitleaks.toml` allowlist
+entry — and say why in the same commit.
+
+**PR titles are also checked**, separately from the commit-msg hook, by
+[`pr-title.yml`](.github/workflows/pr-title.yml) using the same Conventional Commits
+rule. This is a second check rather than reuse of the hook because the PR title becomes
+the squash commit's message on merge, and it can be edited in the GitHub UI without ever
+running a local hook.
