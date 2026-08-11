@@ -6,6 +6,7 @@ import type { LayoutSummary } from '../api/types';
 import { ErrorNotice } from '../components/ErrorNotice';
 import { FilterBar } from '../components/FilterBar';
 import { LayoutCard } from '../components/LayoutCard';
+import { Masonry } from '../components/Masonry';
 import { describeActiveFilters, filtersFromSearchParams, filtersToApiParams, filtersToSearchParams, isDefault } from './filters';
 
 const PAGE_SIZE = 24;
@@ -150,13 +151,12 @@ function GalleryBody({
       <p className="mb-4 text-sm text-muted">
         {total} layout{total === 1 ? '' : 's'}
       </p>
-      <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-6 p-0">
-        {layouts.map((layout) => (
-          <li key={layout.slug}>
-            <LayoutCard layout={layout} />
-          </li>
-        ))}
-      </ul>
+      <Masonry
+        items={layouts}
+        keyFor={(layout) => layout.slug}
+        renderItem={(layout) => <LayoutCard layout={layout} />}
+        className="list-none p-0"
+      />
       {cursor && (
         <div className="mt-6 flex justify-center">
           <button
