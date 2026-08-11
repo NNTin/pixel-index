@@ -23,15 +23,12 @@ export interface Harness {
   close: () => Promise<void>;
 }
 
-function harnessFor(client: PGlite): Harness {
-  return { db: drizzle(client, { schema }), client, close: () => client.close() };
-}
-
 /** A fresh, empty database with every migration applied. */
 export async function createTestDatabase(): Promise<Harness> {
-  const harness = harnessFor(new PGlite());
-  await migrate(harness.db, { migrationsFolder: MIGRATIONS_FOLDER });
-  return harness;
+  const client = new PGlite();
+  const db = drizzle(client, { schema });
+  await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+  return { db, client, close: () => client.close() };
 }
 
 /** Apply migrations again on an existing database, to prove idempotence. */
