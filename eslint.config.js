@@ -153,6 +153,119 @@ const coreCorrectnessRules = {
   'no-implicit-coercion': 'error',
 };
 
+/**
+ * Architectural boundaries, as `no-restricted-imports` pattern groups.
+ *
+ * Every one of these was at zero when it was added, which is the point: they
+ * are not a cleanup, they are the shape of the repository written down where
+ * the next import that breaks it gets caught. Until now each was enforced by a
+ * comment and a reviewer noticing.
+ *
+ * Composed rather than repeated because `no-restricted-imports` does not merge
+ * across config objects — a later `files` block replaces the whole setting — so
+ * an area that relaxes one boundary has to restate the others. `boundaries()`
+ * below is what keeps that from turning into four divergent copies.
+ */
+
+/**
+ * The vendored upstream is reachable from the live-office wrapper and its build
+ * script, and nowhere else.
+ *
+ * Not tidiness: `apps/web/tsconfig.app.json` runs at full strictness and
+ * *excludes* `src/live-office`, because vendor sources only compile under
+ * `tsconfig.live-office.json` with `noUncheckedIndexedAccess` and
+ * `exactOptionalPropertyTypes` turned back off. An import from anywhere else
+ * pulls those sources into the strict project, which is precisely how #44's
+ * `apps/web` flags were blocked in the first place.
+ */
+const noVendorOutsideLiveOffice = {
+  group: ['**/vendor/pixel-agents/**'],
+  message:
+    'Only apps/web/src/live-office/** and apps/web/build/** may import the vendored upstream — ' +
+    'everything else compiles at a strictness those sources do not meet. Go through ' +
+    '@pixel-index/layout-core, or through the live-office wrapper.',
+};
+
+/**
+ * Workspaces talk to each other by package name, never by relative path.
+ *
+ * A `../../../packages/layout-core/src/...` import compiles and then ships a
+ * second copy of the module, bypassing the `exports` map that decides what is
+ * public. Only an import that escapes a workspace can contain these segments;
+ * an intra-workspace `../db/client.js` does not.
+ */
+const noCrossWorkspaceReachAround = {
+  group: ['**/packages/**', '**/services/**', '**/apps/**'],
+  message:
+    'Import another workspace by its package name (@pixel-index/…), not by relative path. ' +
+    'Reaching around the package boundary bypasses its exports map and duplicates the module.',
+};
+
+/** The `exports` map publishes one entry point per package; deep imports route around it. */
+const noDeepWorkspaceImport = {
+  group: ['@pixel-index/*/dist/**', '@pixel-index/*/src/**'],
+  message:
+    'Import the package root (@pixel-index/layout-core). Its exports map deliberately publishes ' +
+    'no deep subpath, so a deep import depends on a file layout that is free to change.',
+};
+
+/**
+ * Test scaffolding does not belong in shipped code.
+ *
+ * This is why `one()` lives in `src/db/rows.ts` rather than beside the other
+ * insert helpers in `src/test-support/` — twenty of its call sites are
+ * production. `vitest` is named exactly, not `vitest/*`: `vitest/config` is a
+ * build-config import and the four vitest config files legitimately use it.
+ */
+const TEST_SCAFFOLDING_MESSAGE =
+  'Production code cannot import test scaffolding. Move the shared helper into src/ if both ' +
+  'need it — see services/api/src/db/rows.ts.';
+
+const noTestScaffoldingInProduction = {
+  group: ['**/test-support/**', '**/*.test.*'],
+  message: TEST_SCAFFOLDING_MESSAGE,
+};
+
+/**
+ * An exact path, not a pattern: `vitest/config` is a build-config import that
+ * the four vitest config files legitimately use, and a slash-less pattern would
+ * catch it — along with `@testing-library/jest-dom/vitest`.
+ */
+const noVitestInProduction = { name: 'vitest', message: TEST_SCAFFOLDING_MESSAGE };
+
+/** apps/web/src is a browser bundle. A Node builtin there is a build failure or a silent polyfill. */
+const noNodeBuiltinsInTheSpa = {
+  group: ['node:*'],
+  message:
+    'apps/web/src ships to a browser. Node builtins belong in build/, e2e/ or a config file.',
+};
+
+/**
+ * Composes boundary entries into one `no-restricted-imports` setting.
+ *
+ * Entries with `name` become exact `paths`, entries with `group` become glob
+ * `patterns`. The distinction matters: ESLint matches a slash-less pattern
+ * gitignore-style, so `patterns: ['vitest']` also catches `vitest/config` and
+ * `@testing-library/jest-dom/vitest`. `paths` compares the whole specifier.
+ */
+const boundaries = (...entries) => ({
+  'no-restricted-imports': [
+    'error',
+    {
+      paths: entries.filter((entry) => 'name' in entry),
+      patterns: entries.filter((entry) => 'group' in entry),
+    },
+  ],
+});
+
+/** Everything that is allowed to import test scaffolding, because it is test scaffolding. */
+const TEST_FILES = [
+  '**/*.test.{ts,tsx}',
+  '**/test-support/**/*.ts',
+  '**/e2e/**/*.{ts,tsx}',
+  'apps/web/src/test/**/*.{ts,tsx}',
+];
+
 export default defineConfig([
   globalIgnores([
     '**/dist/**',
@@ -180,6 +293,10 @@ export default defineConfig([
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
       ...coreCorrectnessRules,
+      // Structural boundaries only: tools/ has its own vitest suites, and every
+      // .mjs here is a Node script, so the test-scaffolding and browser
+      // boundaries would both be wrong.
+      ...boundaries(noVendorOutsideLiveOffice, noCrossWorkspaceReachAround, noDeepWorkspaceImport),
     },
   },
   {
@@ -218,6 +335,13 @@ export default defineConfig([
        * type-safety rule wearing a style rule's name.
        */
       '@typescript-eslint/method-signature-style': 'error',
+      ...boundaries(
+        noVendorOutsideLiveOffice,
+        noCrossWorkspaceReachAround,
+        noDeepWorkspaceImport,
+        noTestScaffoldingInProduction,
+        noVitestInProduction,
+      ),
       ...coreCorrectnessRules,
       ...presetExceptions,
       ...unusedVarsWithUnderscoreEscape,
@@ -241,8 +365,14 @@ export default defineConfig([
      * It stays on for source, where it found three handlers whose `async` really
      * was gratuitous.
      */
-    files: ['**/*.test.{ts,tsx}', '**/test-support/**/*.ts', '**/e2e/**/*.ts'],
-    rules: { '@typescript-eslint/require-await': 'off' },
+    files: TEST_FILES,
+    rules: {
+      '@typescript-eslint/require-await': 'off',
+      // A test may import test scaffolding; that is what it is for. Every other
+      // boundary still applies here — a test reaching into another workspace by
+      // relative path is the same mistake it would be anywhere else.
+      ...boundaries(noVendorOutsideLiveOffice, noCrossWorkspaceReachAround, noDeepWorkspaceImport),
+    },
   },
 
   // --------------------------------------------------------------- apps/web
@@ -252,8 +382,71 @@ export default defineConfig([
     languageOptions: { globals: globals.browser },
   },
   {
-    // Build-time code in the SPA workspace: Node, not a browser.
+    // `ignores` rather than ordering: no-restricted-imports does not merge, so
+    // without it this block would put the production-only boundaries back on
+    // apps/web's own test files.
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    ignores: TEST_FILES,
+    rules: {
+      ...boundaries(
+        noVendorOutsideLiveOffice,
+        noCrossWorkspaceReachAround,
+        noDeepWorkspaceImport,
+        noTestScaffoldingInProduction,
+        noVitestInProduction,
+        noNodeBuiltinsInTheSpa,
+      ),
+    },
+  },
+  {
+    /**
+     * The one place the vendored upstream may be imported from `src`.
+     *
+     * This directory is the whole reason apps/web has three TypeScript projects
+     * rather than one: `tsconfig.live-office.json` compiles these files together
+     * with vendor sources at reduced strictness, and `tsconfig.app.json` excludes
+     * it. Keeping the exception exactly this wide is what stops the strict
+     * project from acquiring vendor types by accident.
+     */
+    files: ['apps/web/src/live-office/**/*.{ts,tsx}'],
+    ignores: TEST_FILES,
+    rules: {
+      ...boundaries(
+        noCrossWorkspaceReachAround,
+        noDeepWorkspaceImport,
+        noTestScaffoldingInProduction,
+        noVitestInProduction,
+        noNodeBuiltinsInTheSpa,
+      ),
+    },
+  },
+  {
+    /**
+     * ...except protocol.ts, which is inside live-office but must stay
+     * vendor-free: `components/LiveOfficePreview.tsx` imports it, and that file
+     * belongs to the strict app project. A vendor type reaching it re-breaks
+     * `noUncheckedIndexedAccess` for the whole SPA. This was a comment until now.
+     */
+    files: ['apps/web/src/live-office/protocol.ts'],
+    rules: {
+      ...boundaries(
+        noVendorOutsideLiveOffice,
+        noCrossWorkspaceReachAround,
+        noDeepWorkspaceImport,
+        noTestScaffoldingInProduction,
+        noVitestInProduction,
+        noNodeBuiltinsInTheSpa,
+      ),
+    },
+  },
+  {
+    // Build-time code in the SPA workspace: Node, not a browser — so no
+    // browser boundary, and build/ decodes the vendored sprite assets at build
+    // time, which is the second half of the live-office exception.
     files: ['apps/web/{vite,vitest}.config.ts', 'apps/web/build/**/*.ts'],
     languageOptions: { globals: globals.node },
+    rules: {
+      ...boundaries(noCrossWorkspaceReachAround, noDeepWorkspaceImport),
+    },
   },
 ]);

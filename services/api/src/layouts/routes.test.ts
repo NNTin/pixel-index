@@ -46,28 +46,6 @@ const validateList = ajv.compile(listLayoutsResponseSchema[200]);
 const validateDetail = ajv.compile(layoutDetailResponseSchema[200]);
 
 describe('GET /api/v1/layouts', () => {
-  it('pages at the schema default of 24 when no limit is given', async () => {
-    // The handlers dropped their `?? 24` / `?? 'newest'` fallbacks once the
-    // schema-derived types showed them to be dead: the schema declares the
-    // defaults and Fastify's ajv applies them. This is the assertion that keeps
-    // that true — remove `default: 24` from the schema and pagination silently
-    // becomes unbounded rather than failing anywhere obvious.
-    const pageHarness = await createTestDatabase();
-    const pageApp = await buildServer({ config, pool: fakePool, db: pageHarness.db });
-    try {
-      for (let i = 0; i < 25; i += 1) {
-        await insertLayout(pageHarness.db, { slug: `default-limit-${i}` });
-      }
-      const response = await pageApp.inject({ method: 'GET', url: '/api/v1/layouts' });
-      const body = response.json<ListLayoutsBody>();
-      expect(body.layouts).toHaveLength(24);
-      expect(body.nextCursor).not.toBeNull();
-    } finally {
-      await pageApp.close();
-      await pageHarness.close();
-    }
-  });
-
   it('returns an empty list cleanly, not an error', async () => {
     const emptyHarness = await createTestDatabase();
     const emptyApp = await buildServer({ config, pool: fakePool, db: emptyHarness.db });

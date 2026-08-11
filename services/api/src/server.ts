@@ -45,6 +45,24 @@ export interface BuildServerDeps {
   db: AnyDatabase;
 }
 
+/**
+ * The request-validation options every route's schema is compiled with.
+ *
+ * Fastify's ajv default is `removeAdditional: true`, which SILENTLY STRIPS
+ * unrecognised query/body properties even when a schema declares
+ * `additionalProperties: false` — "no error" is the ajv default whenever both
+ * options are set. For a filtering API that is the worst failure mode:
+ * `?minCols=…` typo'd as `?mincols=…` would be dropped rather than rejected,
+ * and the caller gets a silently-unfiltered result they never asked for
+ * instead of a 400 telling them what they got wrong.
+ *
+ * Exported because route handlers now rely on ajv's *other* default,
+ * `useDefaults`, to apply `default:` from the schema — the reason they no
+ * longer carry `?? 24` fallbacks. schemas.test.ts pins that against this exact
+ * object rather than a copy of it.
+ */
+export const AJV_OPTIONS = { customOptions: { removeAdditional: false } };
+
 export async function buildServer({ config, pool, db }: BuildServerDeps): Promise<FastifyInstance> {
   const app = Fastify({
     bodyLimit: config.bodyLimitBytes,
@@ -52,14 +70,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
     // Without this, every client shares the proxy's IP and one bucket.
     trustProxy: config.trustProxy,
     logger: { level: config.logLevel },
-    // Fastify's ajv default is removeAdditional: true, which SILENTLY STRIPS
-    // unrecognised query/body properties even when a schema declares
-    // additionalProperties: false — "no error" is the ajv default whenever
-    // both options are set. For a filtering API that is the worst failure
-    // mode: `?minCols=…` typo'd as `?mincols=…` would be dropped rather than
-    // rejected, and the caller gets a silently-unfiltered result they never
-    // asked for instead of a 400 telling them what they got wrong.
-    ajv: { customOptions: { removeAdditional: false } },
+    ajv: AJV_OPTIONS,
   });
 
   registerErrorHandling(app);
