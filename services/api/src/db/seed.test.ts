@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { bundledLayoutRevision } from '@pixel-index/layout-core';
 import { eq } from 'drizzle-orm';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SYSTEM_USER_ID } from './constants.js';
 import { one } from './rows.js';
@@ -45,7 +45,19 @@ function writeFixtureSeed(entries: { slug: string; cols: number; title: string; 
   return dir;
 }
 
+/**
+ * A fresh database per test, built in a hook rather than in each test body.
+ *
+ * `seedIfEmpty` is a no-op once any layout exists, so these tests genuinely
+ * cannot share one database. Doing it here is what keeps the ~430ms build off
+ * vitest's 5000ms per-test budget — `beforeEach` is billed to `hookTimeout`
+ * instead. Nine `harness = await createTestDatabase()` lines inside `it()`
+ * bodies were the entire reason this file flaked under parallel load.
+ */
 let harness: Harness | undefined;
+beforeEach(async () => {
+  harness = await createTestDatabase();
+});
 afterEach(async () => {
   // Only unset if the test threw before creating one, which is exactly when
   // this must not throw a second error on top of the first.
@@ -65,7 +77,6 @@ function db(): Harness['db'] {
 
 describe('seedIfEmpty', () => {
   it('loads every layout under seed/ into an empty database', async () => {
-    harness = await createTestDatabase();
     const dir = writeFixtureSeed([
       { slug: 'seed-a', cols: 4, title: 'Seed A', tags: ['cosy'] },
       { slug: 'seed-b', cols: 5, title: 'Seed B' },
@@ -80,7 +91,6 @@ describe('seedIfEmpty', () => {
   });
 
   it('attributes seed layouts to the system user, with the human credit in authorDisplay', async () => {
-    harness = await createTestDatabase();
     const dir = writeFixtureSeed([{ slug: 'seed-attrib', cols: 4, title: 'Seed Attrib' }]);
 
     await seedIfEmpty(db(), dir);
@@ -92,7 +102,6 @@ describe('seedIfEmpty', () => {
   });
 
   it('associates a seed carrying a Discord author id with a normal clickable user', async () => {
-    harness = await createTestDatabase();
     const dir = writeFixtureSeed([{
       slug: 'seed-linked',
       cols: 4,
@@ -122,7 +131,6 @@ describe('seedIfEmpty', () => {
   });
 
   it('attaches tags from meta.json', async () => {
-    harness = await createTestDatabase();
     const dir = writeFixtureSeed([{ slug: 'seed-tagged', cols: 4, title: 'Seed Tagged', tags: ['cosy', 'small'] }]);
 
     await seedIfEmpty(db(), dir);
@@ -138,7 +146,6 @@ describe('seedIfEmpty', () => {
   });
 
   it('records a layout.create audit entry per seeded layout', async () => {
-    harness = await createTestDatabase();
     const dir = writeFixtureSeed([{ slug: 'seed-audited', cols: 4, title: 'Seed Audited' }]);
 
     await seedIfEmpty(db(), dir);
@@ -154,7 +161,6 @@ describe('seedIfEmpty', () => {
   });
 
   it('is idempotent — does nothing when any layout already exists', async () => {
-    harness = await createTestDatabase();
     const dir = writeFixtureSeed([{ slug: 'seed-once', cols: 4, title: 'Seed Once' }]);
 
     const first = await seedIfEmpty(db(), dir);
@@ -171,7 +177,6 @@ describe('seedIfEmpty', () => {
   });
 
   it('is a no-op when the database already has a layout from somewhere else', async () => {
-    harness = await createTestDatabase();
     await db().insert(schema.layouts).values({
       slug: 'not-from-seed',
       title: 'Not From Seed',
@@ -192,7 +197,6 @@ describe('seedIfEmpty', () => {
   });
 
   it('rejects a seed layout that would fail real submission validation, rather than silently publishing it', async () => {
-    harness = await createTestDatabase();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-index-seed-bad-'));
     fs.mkdirSync(path.join(dir, 'broken'), { recursive: true });
     fs.writeFileSync(
@@ -209,7 +213,6 @@ describe('seedIfEmpty', () => {
   });
 
   it('is a clean no-op when the directory does not exist', async () => {
-    harness = await createTestDatabase();
     const seeded = await seedIfEmpty(db(), '/does/not/exist');
     expect(seeded).toBe(0);
   });

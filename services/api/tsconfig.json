@@ -15,6 +15,6 @@
   // drizzle.config.ts is in here, not just src/**/*: it was previously outside
   // every tsconfig, so it was neither typechecked nor lintable. It is the file
   // that decides where migrations are generated from.
-  "include": ["src/**/*", "drizzle.config.ts"],
+  "include": ["src/**/*", "drizzle.config.ts", "vitest.config.ts"],
   "exclude": ["dist"]
 }

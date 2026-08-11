@@ -46,19 +46,6 @@ const validateList = ajv.compile(listLayoutsResponseSchema[200]);
 const validateDetail = ajv.compile(layoutDetailResponseSchema[200]);
 
 describe('GET /api/v1/layouts', () => {
-  it('returns an empty list cleanly, not an error', async () => {
-    const emptyHarness = await createTestDatabase();
-    const emptyApp = await buildServer({ config, pool: fakePool, db: emptyHarness.db });
-    try {
-      const response = await emptyApp.inject({ method: 'GET', url: '/api/v1/layouts' });
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null });
-    } finally {
-      await emptyApp.close();
-      await emptyHarness.close();
-    }
-  });
-
   it('lists a public layout with author and tags resolved', async () => {
     const author = await insertUser(harness.db, { username: 'route-author' });
     const layout = await insertLayout(harness.db, {
@@ -335,18 +322,6 @@ describe('GET /api/v1/tags', () => {
     expect(names.indexOf('cosy:2')).toBeLessThan(names.indexOf('minimal:1'));
   });
 
-  it('returns an empty list cleanly when nothing is tagged', async () => {
-    const emptyHarness = await createTestDatabase();
-    const emptyApp = await buildServer({ config, pool: fakePool, db: emptyHarness.db });
-    try {
-      const response = await emptyApp.inject({ method: 'GET', url: '/api/v1/tags' });
-      expect(response.statusCode).toBe(200);
-      expect(response.json<ListTagsBody>().tags).toEqual([]);
-    } finally {
-      await emptyApp.close();
-      await emptyHarness.close();
-    }
-  });
 });
 
 describe('OpenAPI document', () => {

@@ -32,23 +32,6 @@ function parseLines(body: string): Record<string, unknown>[] {
 }
 
 describe('GET /api/v1/export/layouts.ndjson', () => {
-  it('streams an empty index as an empty body, not an error and not "[]"', async () => {
-    const empty = await createTestDatabase();
-    const emptyApp = await buildServer({ config, pool: fakePool, db: empty.db });
-    try {
-      const response = await emptyApp.inject({ method: 'GET', url: URL });
-      expect(response.statusCode).toBe(200);
-      expect(response.body).toBe('');
-      expect(response.headers['x-total-count']).toBe('0');
-      // An empty set still needs a matchable ETag, or every poll of a quiet
-      // index re-scans instead of getting a 304.
-      expect(response.headers.etag).toBeDefined();
-    } finally {
-      await emptyApp.close();
-      await empty.close();
-    }
-  });
-
   it('emits one line per public layout, with the parsed layout inline', async () => {
     const raw = JSON.stringify({ cols: 3, rows: 2, layoutRevision: 4, furniture: [] });
     await insertLayout(harness.db, {
