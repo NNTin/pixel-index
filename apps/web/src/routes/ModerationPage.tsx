@@ -31,6 +31,7 @@ function ModerationRow({
    *  anything currently in the list. */
   onSaved: (previousSlug: string, updated: OwnerLayoutView) => void;
 }) {
+  const { user } = useAuth();
   const [visibility, setVisibility] = useState<'public' | 'hidden' | 'removed'>(
     layout.visibility === 'deleted' ? 'public' : layout.visibility,
   );
@@ -66,9 +67,22 @@ function ModerationRow({
 
   return (
     <li className="border-2 border-border p-4">
-      <Link to={`/layouts/${layout.slug}`} className="font-medium text-ink hover:underline">
-        {layout.title}
-      </Link>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <Link to={`/layouts/${layout.slug}`} className="font-medium text-ink hover:underline">
+          {layout.title}
+        </Link>
+        {/* Admin-only, not moderator: the history page itself is admin-gated
+         *  (RequireAuth role="admin"), so a moderator following this link
+         *  would only hit "this page is for admins only". */}
+        {user?.role === 'admin' && (
+          <Link
+            to={`/admin/history?slug=${encodeURIComponent(layout.slug)}`}
+            className="text-xs text-muted hover:text-accent"
+          >
+            View history
+          </Link>
+        )}
+      </div>
       <p className="text-sm text-muted">
         by {layout.author.username} · currently <strong>{layout.visibility}</strong>
         {layout.visibilityReason && <> — {layout.visibilityReason}</>}

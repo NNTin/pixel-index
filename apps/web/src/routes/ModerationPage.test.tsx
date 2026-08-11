@@ -22,6 +22,11 @@ const AUTH_RESPONSE = {
   user: { id: 'mod-1', username: 'mod-person', displayName: 'mod-person', avatarUrl: null, role: 'moderator', capabilityCheckedAt: null, capabilityCacheTtlMs: 60000, submission: { allowed: true, reason: null, inviteUrl: null } },
 };
 
+const ADMIN_AUTH_RESPONSE = {
+  ...AUTH_RESPONSE,
+  user: { ...AUTH_RESPONSE.user, id: 'admin-1', username: 'admin-person', role: 'admin' },
+};
+
 function ownerView(overrides: Record<string, unknown> = {}) {
   return {
     slug: 'reported-office',
@@ -51,12 +56,15 @@ function ownerView(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function stubFetch(handleOther: (url: string, init?: RequestInit) => Response) {
+function stubFetch(
+  handleOther: (url: string, init?: RequestInit) => Response,
+  authResponse: typeof AUTH_RESPONSE = AUTH_RESPONSE,
+) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
-      if (url.includes('/auth/token')) return Response.json(AUTH_RESPONSE);
+      if (url.includes('/auth/token')) return Response.json(authResponse);
       return handleOther(url, init);
     }),
   );
@@ -224,6 +232,28 @@ describe('ModerationPage', () => {
     // Exactly one row — the rename updated it in place rather than leaving a
     // stale duplicate behind under the pre-rename slug.
     expect(screen.getAllByLabelText('Slug')).toHaveLength(1);
+  });
+
+  it('does not show a "View history" link for a moderator (#29 follow-up)', async () => {
+    stubFetch(() =>
+      Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null }),
+    );
+    renderPage();
+    await screen.findByText('Reported Office');
+    expect(screen.queryByRole('link', { name: 'View history' })).not.toBeInTheDocument();
+  });
+
+  it('shows a "View history" link for an admin, deep-linking to that layout\'s filtered history', async () => {
+    stubFetch(
+      () => Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null }),
+      ADMIN_AUTH_RESPONSE,
+    );
+    renderPage();
+    await screen.findByText('Reported Office');
+    expect(screen.getByRole('link', { name: 'View history' })).toHaveAttribute(
+      'href',
+      '/admin/history?slug=reported-office',
+    );
   });
 
   it('re-fetches when the visibility filter changes', async () => {

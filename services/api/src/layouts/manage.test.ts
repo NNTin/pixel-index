@@ -335,6 +335,96 @@ describe('PATCH /api/v1/layouts/:slug — vanity slug (#29)', () => {
     expect(evictionEntry).toBeDefined();
     expect(evictionEntry?.actorUserId).toBe(moderator.id);
     expect(evictionEntry?.before).toMatchObject({ slug: 'evicted-office' });
+    // The exact reason the moderator typed, not a synthesized paraphrase of
+    // it — the automatic-reassignment context is already implicit in the
+    // action label and the before/after snapshot.
+    expect(evictionEntry?.reason).toBe('newer version');
+  });
+});
+
+describe('PATCH /api/v1/layouts/:slug — audit trail granularity', () => {
+  async function moderationActionsFor(targetId: string) {
+    return harness.db
+      .select()
+      .from(schema.moderationActions)
+      .where(eq(schema.moderationActions.targetId, targetId))
+      .orderBy(schema.moderationActions.createdAt);
+  }
+
+  it('writes one row per category of change, all sharing the same reason', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(
+      layout.slug,
+      { title: 'Retitled', visibility: 'hidden', reason: 'combined moderation pass' },
+      modToken,
+    );
+    expect(response.statusCode).toBe(200);
+
+    const entries = await moderationActionsFor(layout.id);
+    const actions = entries.map((entry) => entry.action).sort();
+    expect(actions).toEqual(['layout.hide', 'layout.moderate_edit'].sort());
+    expect(entries.every((entry) => entry.reason === 'combined moderation pass')).toBe(true);
+  });
+
+  it('writes three rows when metadata, visibility and slug all change in one request', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(
+      layout.slug,
+      { title: 'Retitled', visibility: 'hidden', slug: 'three-at-once', reason: 'full sweep' },
+      modToken,
+    );
+    expect(response.statusCode).toBe(200);
+
+    const entries = await moderationActionsFor(layout.id);
+    const actions = entries.map((entry) => entry.action).sort();
+    expect(actions).toEqual(['layout.hide', 'layout.moderate_edit', 'layout.rename_slug'].sort());
+  });
+
+  it('scopes the metadata row\'s before/after to only the fields that actually changed', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const response = await patch(layout.slug, { title: 'New Title Only' }, accessToken);
+    expect(response.statusCode).toBe(200);
+
+    const entries = await moderationActionsFor(layout.id);
+    const metadataEntry = entries.find((entry) => entry.action === 'layout.update');
+    expect(metadataEntry?.before).toEqual({ title: layout.title });
+    expect(metadataEntry?.after).toEqual({ title: 'New Title Only' });
+  });
+
+  it('captures a tag change in the metadata row even though title/description are untouched', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const response = await patch(layout.slug, { tags: ['cosy', 'small'] }, accessToken);
+    expect(response.statusCode).toBe(200);
+
+    const entries = await moderationActionsFor(layout.id);
+    const metadataEntry = entries.find((entry) => entry.action === 'layout.update');
+    expect(metadataEntry).toBeDefined();
+    expect(metadataEntry?.before).toEqual({ tags: [] });
+    expect(metadataEntry?.after).toEqual({ tags: ['cosy', 'small'] });
+  });
+
+  it('writes nothing for a no-op resubmission of the same title', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const before = await moderationActionsFor(layout.id);
+    const response = await patch(layout.slug, { title: layout.title }, accessToken);
+    expect(response.statusCode).toBe(200);
+
+    const after = await moderationActionsFor(layout.id);
+    expect(after).toHaveLength(before.length);
+  });
+
+  it('writes nothing for a no-op resubmission of the same tag set, regardless of order', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    await patch(layout.slug, { tags: ['cosy', 'small'] }, accessToken);
+    const before = await moderationActionsFor(layout.id);
+
+    const response = await patch(layout.slug, { tags: ['small', 'cosy'] }, accessToken);
+    expect(response.statusCode).toBe(200);
+
+    const after = await moderationActionsFor(layout.id);
+    expect(after).toHaveLength(before.length);
   });
 });
 

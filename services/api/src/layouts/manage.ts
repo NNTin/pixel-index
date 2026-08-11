@@ -90,6 +90,13 @@ function visibilityAuditAction(
   return to === 'hidden' ? 'layout.hide' : 'layout.unhide';
 }
 
+/** Order-insensitive — a tag list is a set, not a sequence. */
+function sameTagSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setB = new Set(b);
+  return a.every((tag) => setB.has(tag));
+}
+
 async function requireAuthenticatedUser(db: AnyDatabase, request: FastifyRequest): Promise<schema.User> {
   const auth = requireAuth(request);
   const user = await getUserById(db, auth.id);
@@ -158,16 +165,27 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       // for why.
 
       const tags = body.tags !== undefined ? validateTagNames(body.tags) : undefined;
+      // Only fetched when tags are actually part of this request — the one
+      // extra read that lets a same-set resubmission be recognised as a
+      // no-op below, the same way `newSlug` already treats an unchanged slug.
+      const currentTags = tags !== undefined ? (await tagsForLayouts(db, [layout.id])).get(layout.id) ?? [] : undefined;
 
-      const before = {
-        title: layout.title,
-        description: layout.description,
-        visibility: layout.visibility,
-        slug: layout.slug,
-      };
+      // Diff-based, like `newSlug` above: presence in the body is not the
+      // same as an actual change, and a no-op resubmission (an untouched
+      // form field) should not write a DB row or an audit entry for a
+      // change that never happened. Narrowed to string-or-null / array-or-null
+      // rather than re-testing `body.title` etc. below, for the same reason
+      // `newSlug` is — nothing downstream needs a non-null assertion.
+      const titleUpdate = body.title !== undefined && body.title !== layout.title ? body.title : null;
+      const descriptionUpdate =
+        body.description !== undefined && body.description !== layout.description ? body.description : null;
+      const tagsUpdate =
+        tags !== undefined && currentTags !== undefined && !sameTagSet(tags, currentTags) ? tags : null;
+      const metadataChanged = titleUpdate !== null || descriptionUpdate !== null || tagsUpdate !== null;
+
       const columns: Partial<schema.NewLayout> = {};
-      if (body.title !== undefined) columns.title = body.title;
-      if (body.description !== undefined) columns.description = body.description;
+      if (titleUpdate !== null) columns.title = titleUpdate;
+      if (descriptionUpdate !== null) columns.description = descriptionUpdate;
       if (body.visibility !== undefined) {
         columns.visibility = body.visibility;
         columns.visibilityReason = body.reason ?? null;
@@ -176,13 +194,10 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       }
       if (newSlug !== null) columns.slug = newSlug;
 
-      const action = slugChanged
-        ? 'layout.rename_slug'
-        : body.visibility
-          ? visibilityAuditAction(layout.visibility, body.visibility)
-          : isOwner
-            ? 'layout.update'
-            : 'layout.moderate_edit';
+      // Every moderator-attributed change from this request shares this one
+      // reason — nobody types a separate justification per field that
+      // happened to change in the same PATCH.
+      const moderationReason = actingAsModerator ? (body.reason ?? null) : null;
 
       let updated: schema.Layout;
       try {
@@ -217,16 +232,21 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
                 .update(schema.layouts)
                 .set({ slug: evictedSlug })
                 .where(eq(schema.layouts.id, holder.id));
+              // Same reason as the request that triggered this, verbatim —
+              // not a paraphrase of it. That it was an automatic reassignment
+              // is already implicit in the action label and the before/after
+              // below; it does not need re-explaining inside the reason text
+              // too, and this way the two rows this one request produces
+              // (this one, and the one below for the layout being patched)
+              // carry the exact same reason a reviewer would expect from a
+              // single moderation decision.
               await recordModerationAction(tx, {
                 actorUserId: user.id,
                 actorLabel: user.username,
                 action: 'layout.rename_slug',
                 targetType: 'layout',
                 targetId: holder.id,
-                // `body.reason` is guaranteed non-empty here: `newSlug !== null`
-                // implies `slugChanged`, which forces `actingAsModerator` and
-                // the earlier reason check, above.
-                reason: `Slug reassigned automatically — "${newSlug}" was claimed by another layout. (${body.reason ?? ''})`,
+                reason: moderationReason,
                 before: { slug: holder.slug },
                 after: { slug: evictedSlug },
               });
@@ -248,21 +268,60 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
               : layout;
           if (tags !== undefined) await replaceTags(tx, layout.id, tags);
 
-          await recordModerationAction(tx, {
-            actorUserId: user.id,
-            actorLabel: user.username,
-            action,
-            targetType: 'layout',
-            targetId: layout.id,
-            reason: actingAsModerator ? (body.reason ?? null) : null,
-            before,
-            after: {
-              title: row.title,
-              description: row.description,
-              visibility: row.visibility,
-              slug: row.slug,
-            },
-          });
+          // Up to three rows, one per orthogonal category of change, rather
+          // than one row picking a single "most important" label — a request
+          // that changes both visibility and slug at once should show up as
+          // two distinct, separately filterable history entries, not one
+          // that only names whichever change happened to win a priority
+          // order. All three share `moderationReason`: one reason typed once
+          // per request, not one per field.
+          if (metadataChanged) {
+            await recordModerationAction(tx, {
+              actorUserId: user.id,
+              actorLabel: user.username,
+              action: isOwner ? 'layout.update' : 'layout.moderate_edit',
+              targetType: 'layout',
+              targetId: layout.id,
+              reason: moderationReason,
+              before: {
+                ...(titleUpdate !== null ? { title: layout.title } : {}),
+                ...(descriptionUpdate !== null ? { description: layout.description } : {}),
+                ...(tagsUpdate !== null ? { tags: currentTags } : {}),
+              },
+              after: {
+                ...(titleUpdate !== null ? { title: titleUpdate } : {}),
+                ...(descriptionUpdate !== null ? { description: descriptionUpdate } : {}),
+                ...(tagsUpdate !== null ? { tags: tagsUpdate } : {}),
+              },
+            });
+          }
+
+          if (body.visibility !== undefined) {
+            await recordModerationAction(tx, {
+              actorUserId: user.id,
+              actorLabel: user.username,
+              action: visibilityAuditAction(layout.visibility, body.visibility),
+              targetType: 'layout',
+              targetId: layout.id,
+              reason: moderationReason,
+              before: { visibility: layout.visibility },
+              after: { visibility: row.visibility },
+            });
+          }
+
+          if (newSlug !== null) {
+            await recordModerationAction(tx, {
+              actorUserId: user.id,
+              actorLabel: user.username,
+              action: 'layout.rename_slug',
+              targetType: 'layout',
+              targetId: layout.id,
+              reason: moderationReason,
+              before: { slug: layout.slug },
+              after: { slug: row.slug },
+            });
+          }
+
           return row;
         });
       } catch (error) {

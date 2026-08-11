@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './components/RequireAuth';
 import { AdminPage } from './routes/AdminPage';
+import { AuditLogPage } from './routes/AuditLogPage';
 import { AuthorPage } from './routes/AuthorPage';
 import { Home } from './routes/Home';
 import { LayoutDetailPage } from './routes/LayoutDetailPage';
@@ -40,6 +41,14 @@ export function App() {
           element={
             <RequireAuth role="admin">
               <AdminPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="admin/history"
+          element={
+            <RequireAuth role="admin">
+              <AuditLogPage />
             </RequireAuth>
           }
         />

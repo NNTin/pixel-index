@@ -184,6 +184,54 @@ export interface ListAdminUsersResponse {
   nextCursor: string | null;
 }
 
+/** Matches schema.ts's `audit_action` pgEnum, services/api. */
+export type AuditAction =
+  | 'layout.create'
+  | 'layout.update'
+  | 'layout.replace'
+  | 'layout.delete'
+  | 'layout.hide'
+  | 'layout.unhide'
+  | 'layout.remove'
+  | 'layout.restore'
+  | 'layout.moderate_edit'
+  | 'layout.rename_slug'
+  | 'report.create'
+  | 'report.resolve'
+  | 'report.dismiss';
+
+/** One row of `GET /api/v1/admin/moderation-actions` — admin-only (#29 follow-up). */
+export interface AuditLogEntry {
+  id: string;
+  action: AuditAction;
+  targetType: 'layout' | 'user' | 'report';
+  targetId: string;
+  actorUserId: string | null;
+  actorLabel: string | null;
+  reason: string | null;
+  before: unknown;
+  after: unknown;
+  createdAt: string;
+  /** Resolved from the target's CURRENT slug/title, not what `before`/`after` mentions — null for a non-layout target. */
+  layoutSlug: string | null;
+  layoutTitle: string | null;
+}
+
+export interface ListAuditLogResponse {
+  actions: AuditLogEntry[];
+  nextCursor: string | null;
+}
+
+export interface ListAuditLogParams {
+  limit?: number;
+  cursor?: string;
+  /** Exact — the layout's current slug. */
+  slug?: string;
+  /** Broad search across the current layout's slug/title. */
+  q?: string;
+  action?: AuditAction;
+}
+
 export interface PublicAuthorResponse {
   schemaVersion: number;
   author: PublicAuthor;

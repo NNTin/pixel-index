@@ -30,6 +30,7 @@ import { sharedSchemas } from './layouts/schemas.js';
 import { registerSubmitRoutes } from './layouts/submit.js';
 import { buildUpstreamValidator } from './layouts/upstreamValidator.js';
 import { registerMetaRoutes } from './meta.js';
+import { registerAuditRoutes } from './moderation/auditRoutes.js';
 import { registerModerationRoutes } from './moderation/routes.js';
 import { registerUserAdminRoutes } from './users/routes.js';
 
@@ -159,6 +160,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
   registerManageRoutes(app, { config, db, upstream });
   registerUserAdminRoutes(app, { config, db });
   registerModerationRoutes(app, { config, db });
+  registerAuditRoutes(app, { config, db });
 
   app.get('/health', { schema: { hide: true } }, () => ({ status: 'ok' }));
 
