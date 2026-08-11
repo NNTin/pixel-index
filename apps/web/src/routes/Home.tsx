@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { ApiError, listLayouts } from '../api/client';
@@ -12,10 +12,13 @@ const PAGE_SIZE = 24;
 
 export function Home() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const filters = filtersFromSearchParams(searchParams);
-  // Keyed by the filter state itself (via the URL's own query string) —
-  // every filter change is a full re-fetch from page one, never an append.
-  const filterKey = searchParams.toString();
+  // Memoised on `searchParams`, which react-router keeps stable per location.
+  // The effect below used to depend on `searchParams.toString()` and suppress
+  // exhaustive-deps, because `filters` was rebuilt on every render and would
+  // have re-fetched on every render. Deriving it once makes the dependency the
+  // rule wants and the dependency the effect needs the same object — every
+  // filter change is still a full re-fetch from page one, never an append.
+  const filters = useMemo(() => filtersFromSearchParams(searchParams), [searchParams]);
 
   const [layouts, setLayouts] = useState<LayoutSummary[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -53,10 +56,7 @@ export function Home() {
     return () => {
       controller.abort();
     };
-    // Re-runs on every filter change (encoded in filterKey), not on every
-    // render — filters itself is a new object each render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey]);
+  }, [filters]);
 
   function loadMore() {
     if (!cursor) return;

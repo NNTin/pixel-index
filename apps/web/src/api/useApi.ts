@@ -58,6 +58,10 @@ export function useApi<T>(
     return () => {
       controller.abort();
     };
+    // `deps` is this hook's own parameter — a runtime array the rule cannot
+    // analyse, which is the one case where there is nothing to restructure.
+    // `fetcher` is deliberately not among them: every caller passes a fresh
+    // arrow each render, so depending on it would re-request on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 

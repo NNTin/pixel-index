@@ -125,10 +125,6 @@ const presetExceptions = {
    * converged on for simple and compound types alike.
    */
   '@typescript-eslint/array-type': ['error', { default: 'array' }],
-
-  // --- Turned on by a later commit in this series, once its fixes land. ---
-  // Kept off here only so every commit is green; deleted before the push.
-  '@typescript-eslint/require-await': 'off',
 };
 
 /**
@@ -226,6 +222,27 @@ export default defineConfig([
       ...presetExceptions,
       ...unusedVarsWithUnderscoreEscape,
     },
+  },
+
+  // ------------------------------------------------------------------ tests
+  {
+    /**
+     * `require-await`, off here and on everywhere else.
+     *
+     * The rule exists to catch a function that looks asynchronous by accident.
+     * In a test `async` is never accidental — it is the declared interface:
+     * `vi.fn(async () => new Response(...))` has to match `typeof fetch`, and
+     * the renderer harness's `startDevServer`/`createRenderer` fakes have to
+     * match members that return promises. The rule cannot see a contextual
+     * type, so all 75 of its findings in test files were that, and the two ways
+     * to satisfy it — a hand-rolled `Promise.resolve`, or 75 disable comments —
+     * both make the code worse.
+     *
+     * It stays on for source, where it found three handlers whose `async` really
+     * was gratuitous.
+     */
+    files: ['**/*.test.{ts,tsx}', '**/test-support/**/*.ts', '**/e2e/**/*.ts'],
+    rules: { '@typescript-eslint/require-await': 'off' },
   },
 
   // --------------------------------------------------------------- apps/web

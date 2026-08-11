@@ -55,6 +55,12 @@ export interface SubmitRoutesDeps {
 }
 
 export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstream }: SubmitRoutesDeps): void {
+  // `async` selects Fastify's FastifyPluginAsync overload. Without it the
+  // callback overload applies, which takes a third `done` argument and must
+  // call it — so the plugin would never finish booting. The body has no
+  // `await` because addContentTypeParser and the route registration below are
+  // both synchronous; the `async` is the encapsulation contract, not a smell.
+  // eslint-disable-next-line @typescript-eslint/require-await
   app.register(async (instance) => {
     // Scoped to this plugin only — every other application/json route (list,
     // detail, auth) keeps Fastify's normal parsed-object behaviour. Overriding

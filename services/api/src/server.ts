@@ -130,7 +130,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
     },
   });
   await app.register(swaggerUi, { routePrefix: '/docs' });
-  app.get('/openapi.json', { schema: { hide: true } }, async () => app.swagger());
+  app.get('/openapi.json', { schema: { hide: true } }, () => app.swagger());
 
   for (const schema of sharedSchemas) app.addSchema(schema);
 
@@ -149,7 +149,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
   registerUserAdminRoutes(app, { config, db });
   registerModerationRoutes(app, { config, db });
 
-  app.get('/health', { schema: { hide: true } }, async () => ({ status: 'ok' }));
+  app.get('/health', { schema: { hide: true } }, () => ({ status: 'ok' }));
 
   /**
    * Readiness is not liveness. A health check that always returns 200 is how

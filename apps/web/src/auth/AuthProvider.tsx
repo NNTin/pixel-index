@@ -139,8 +139,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       controller.abort();
     };
-    // Runs once on mount only — re-establishing on every render would spam
-    // the refresh/token endpoints.
+    // Mount only. The rule wants `scheduleRefresh` and `clearSession`, both
+    // recreated per render; including them would re-run the whole bootstrap on
+    // every render, which means hammering /auth/refresh and /auth/token and —
+    // via the catch above — tearing down a session that is working. The second
+    // effect in this file has a real dep array and no suppression, which is the
+    // difference between this being a decision and being a habit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

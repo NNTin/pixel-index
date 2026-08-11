@@ -185,6 +185,12 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
     },
   );
 
+  // `async` selects Fastify's FastifyPluginAsync overload. Without it the
+  // callback overload applies, which takes a third `done` argument and must
+  // call it — so the plugin would never finish booting. The body has no
+  // `await` because addContentTypeParser and the route registration below are
+  // both synchronous; the `async` is the encapsulation contract, not a smell.
+  // eslint-disable-next-line @typescript-eslint/require-await
   app.register(async (instance) => {
     // Same reasoning, same trick as submit.ts: the replacement layout is the
     // raw request body so it can be stored byte-for-byte, not a field nested
