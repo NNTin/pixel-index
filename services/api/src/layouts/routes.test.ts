@@ -1,5 +1,5 @@
+import { withFormats } from '@pixel-index/layout-core';
 import { Ajv } from 'ajv';
-import addFormatsExport from 'ajv-formats';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -38,14 +38,7 @@ afterEach(() => vi.unstubAllGlobals());
 // response against these is what makes "the OpenAPI doc matches actual
 // responses" a checked fact instead of a claim. Building a bogus 2020-ish
 // $schema draft here would prove nothing about what Fastify actually did.
-// ajv-formats is CJS with a default export that TypeScript's NodeNext
-// resolution does not bind cleanly (see @pixel-index/layout-core/src/validate.ts
-// for the same fix with the same root cause).
-const addFormats = (addFormatsExport as unknown as { default?: (ajv: Ajv) => unknown }).default ??
-  (addFormatsExport as unknown as (ajv: Ajv) => unknown);
-
-const ajv = new Ajv({ strict: false });
-addFormats(ajv);
+const ajv = withFormats(new Ajv({ strict: false }));
 ajv.addSchema(publicAuthorSchema);
 ajv.addSchema(layoutSummarySchema);
 ajv.addSchema(layoutDetailSchema);

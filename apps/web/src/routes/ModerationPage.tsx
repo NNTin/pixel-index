@@ -10,6 +10,15 @@ import { ErrorNotice } from '../components/ErrorNotice';
 
 const VISIBILITY_OPTIONS = ['public', 'hidden', 'removed', 'deleted'] as const;
 
+/** '' means "any visibility" — the filter's default. */
+type VisibilityFilter = OwnerLayoutView['visibility'] | '';
+
+function asVisibilityFilter(value: string): VisibilityFilter {
+  return VISIBILITY_OPTIONS.some((option) => option === value)
+    ? (value as OwnerLayoutView['visibility'])
+    : '';
+}
+
 function ModerationRow({
   layout,
   accessToken,
@@ -88,7 +97,10 @@ function ModerationRow({
 
 export function ModerationPage() {
   const { accessToken } = useAuth();
-  const [visibilityFilter, setVisibilityFilter] = useState<string>('');
+  // Typed as the union the API actually accepts, plus '' for "any". Declaring
+  // it `string` meant the request had to assert the value back into the union
+  // on the way out.
+  const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>('');
   const [layouts, setLayouts] = useState<OwnerLayoutView[] | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
 
@@ -104,7 +116,7 @@ export function ModerationPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLayouts(null);
     getModerationLayouts(
-      { limit: 50, ...(visibilityFilter ? { visibility: visibilityFilter as OwnerLayoutView['visibility'] } : {}) },
+      { limit: 50, ...(visibilityFilter ? { visibility: visibilityFilter } : {}) },
       accessToken,
       controller.signal,
     )
@@ -146,7 +158,7 @@ export function ModerationPage() {
         Visibility
         <select
           value={visibilityFilter}
-          onChange={(event) => setVisibilityFilter(event.target.value)}
+          onChange={(event) => setVisibilityFilter(asVisibilityFilter(event.target.value))}
           className="border border-border bg-canvas px-2 py-1 text-ink"
         >
           <option value="">Any</option>

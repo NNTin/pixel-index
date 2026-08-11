@@ -151,7 +151,7 @@ export class Renderer {
       // Turn on upstream's test hooks so we can wait on real render state
       // instead of sleeping and hoping.
       await context.addInitScript(() => {
-        (window as unknown as Record<string, unknown>).__PIXEL_AGENTS_E2E = true;
+        window.__PIXEL_AGENTS_E2E = true;
       });
       const page = await context.newPage();
 
@@ -171,9 +171,7 @@ export class Renderer {
       // The browser mock decodes every PNG in-page; the hooks appear once the
       // app has mounted.
       await page.waitForFunction(
-        () =>
-          typeof (window as unknown as { __pixelAgentsTestHooks?: { getFurnitureCount?: unknown } })
-            .__pixelAgentsTestHooks?.getFurnitureCount === 'function',
+        () => typeof window.__pixelAgentsTestHooks?.getFurnitureCount === 'function',
         null,
         { timeout: HOOKS_TIMEOUT_MS },
       );
@@ -185,12 +183,7 @@ export class Renderer {
       // present — no defensive `?.` pretending otherwise.
       const expected = layout.furniture.length;
       await page.waitForFunction(
-        (count) =>
-          (
-            window as unknown as {
-              __pixelAgentsTestHooks?: { getFurnitureCount?: () => number };
-            }
-          ).__pixelAgentsTestHooks?.getFurnitureCount?.() === count,
+        (count) => window.__pixelAgentsTestHooks?.getFurnitureCount?.() === count,
         expected,
         { timeout: FURNITURE_TIMEOUT_MS },
       );
