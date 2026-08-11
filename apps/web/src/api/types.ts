@@ -34,6 +34,7 @@ export interface LayoutSummary {
   areas: number;
   pets: number;
   carpets: number;
+  seats: number;
   layoutRevision: number;
   pixelAgentsVersion: string | null;
   bytes: number;

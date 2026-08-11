@@ -74,6 +74,15 @@ export interface LayoutStats {
   pets: number;
   carpets: number;
   layoutRevision: number;
+  /**
+   * How many agents this layout can seat — the max a live-preview slider
+   * should allow. Not one per chair-category item: a multi-tile item (e.g. a
+   * SOFA) seats one agent per footprint tile that isn't a background row,
+   * matching upstream's own `layoutToSeats()`
+   * (webview-ui/src/office/layout/layoutSerializer.ts), which is what
+   * actually assigns agents to seats.
+   */
+  seats: number;
 }
 
 /**

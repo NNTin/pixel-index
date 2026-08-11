@@ -43,6 +43,7 @@ export const layoutSummarySchema = {
     areas: { type: 'integer' },
     pets: { type: 'integer' },
     carpets: { type: 'integer' },
+    seats: { type: 'integer' },
     layoutRevision: { type: 'integer' },
     pixelAgentsVersion: { type: ['string', 'null'] },
     bytes: { type: 'integer' },
@@ -53,7 +54,7 @@ export const layoutSummarySchema = {
   },
   required: [
     'slug', 'title', 'author', 'description', 'tags', 'cols', 'rows', 'furniture',
-    'areas', 'pets', 'carpets', 'layoutRevision', 'pixelAgentsVersion', 'bytes',
+    'areas', 'pets', 'carpets', 'seats', 'layoutRevision', 'pixelAgentsVersion', 'bytes',
     'sha256', 'createdAt', 'updatedAt', 'files',
   ],
 } as const;

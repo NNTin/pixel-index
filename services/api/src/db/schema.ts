@@ -195,6 +195,8 @@ export const layouts = pgTable(
     areaCount: integer('area_count').notNull().default(0),
     petCount: integer('pet_count').notNull().default(0),
     carpetCount: integer('carpet_count').notNull().default(0),
+    /** How many agents this layout can seat — see LayoutStats.seats. */
+    seatCount: integer('seat_count').notNull().default(0),
     layoutRevision: integer('layout_revision').notNull().default(0),
 
     /** Which upstream it validated against, so #6 can warn a stale consumer. */

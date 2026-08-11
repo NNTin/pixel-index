@@ -773,9 +773,18 @@ to a synthetic system user created by migration 0002 at a fixed id
 
 **Stats are denormalised from `@pixel-index/layout-core`.** `layoutStats()` is the single
 source of truth for `cols`, `rows`, `furniture_count`, `area_count`, `pet_count`,
-`carpet_count` and `layout_revision`, and must be applied on every write. A test asserts
-the stored columns equal what `layoutStats()` returns for a real layout, so the two
-cannot drift.
+`carpet_count`, `seat_count` and `layout_revision`, and must be applied on every write. A
+test asserts the stored columns equal what `layoutStats()` returns for a real layout, so
+the two cannot drift.
+
+`seat_count` (how many mock agents the live preview's slider allows, [#48](https://github.com/NNTin/pixel-index/issues/48))
+is the one denormalised stat that needs the furniture catalog, not just the layout's own
+JSON — a seat is a footprint tile of a chair-category item (`layoutStats()`'s `seats`
+mirrors upstream's own `layoutToSeats()`, so a multi-tile item like a SOFA counts as more
+than one seat). That is also why a schema migration alone cannot backfill it for rows
+written before the column existed: `db/backfill-seats.ts` recomputes it from each row's
+stored `layout` column and corrects any that disagree, run once per boot from
+`docker-entrypoint.sh` alongside `migrate.ts` and `seed.ts`, idempotently.
 
 **`search_vector` is a generated column**, not something the application maintains, so it
 can never disagree with the title and description it indexes.

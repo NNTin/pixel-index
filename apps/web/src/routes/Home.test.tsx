@@ -28,6 +28,7 @@ function summary(overrides: Record<string, unknown> = {}) {
     areas: 4,
     pets: 2,
     carpets: 0,
+    seats: 3,
     layoutRevision: 1,
     pixelAgentsVersion: '1.4.0',
     bytes: 10,

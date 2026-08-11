@@ -36,6 +36,7 @@ describe('AuthorPage', () => {
             areas: 0,
             pets: 0,
             carpets: 0,
+            seats: 3,
             layoutRevision: 1,
             pixelAgentsVersion: null,
             bytes: 10,

@@ -80,7 +80,7 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
       );
     }
 
-    const stats = layoutStats(parsedLayout as Layout);
+    const stats = layoutStats(parsedLayout as Layout, { catalog: validator.catalog });
     const tags = validateTagNames(meta.tags ?? []);
 
     await db.transaction(async (tx: AnyDatabase) => {
@@ -123,6 +123,7 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
           areaCount: stats.areas,
           petCount: stats.pets,
           carpetCount: stats.carpets,
+          seatCount: stats.seats,
           layoutRevision: stats.layoutRevision,
           pixelAgentsVersion: pin.version,
         })
