@@ -7,17 +7,43 @@
  * timeout.
  */
 
-import { createValidator, sha256, upstreamPin, type Layout } from '@pixel-index/layout-core';
+import {
+  createValidator,
+  type Layout,
+  sha256,
+  type UpstreamPin,
+  upstreamPin,
+  type ValidationIssue,
+} from '@pixel-index/layout-core';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 
 import { cacheKey, PreviewCache } from './cache.js';
 import type { RendererConfig } from './config.js';
-import { RenderTimeoutError, type Renderer } from './render.js';
+import { type Renderer, RenderTimeoutError } from './render.js';
 
 export interface BuildServerDeps {
   config: RendererConfig;
   renderer: Renderer;
   cache: PreviewCache;
+}
+
+/**
+ * `GET /ready` when the browser is up. Exported so the integration suite reads
+ * a checked shape rather than `any` — a typo in a field name there would
+ * otherwise assert `undefined === undefined` and pass.
+ */
+export interface ReadyBody {
+  status: 'ok';
+  pixelAgents: UpstreamPin;
+  inFlight: number;
+  concurrency: number;
+}
+
+/** Every error this service returns. `issues` is only set for invalid_layout. */
+export interface RenderErrorBody {
+  error: 'invalid_scale' | 'invalid_layout' | 'render_timeout' | 'render_failed';
+  message?: string;
+  issues?: ValidationIssue[];
 }
 
 /** Fractions only, and only ones that land on whole pixels for pixel art. */
@@ -55,7 +81,7 @@ export async function buildServer({
     upstreamVersion: pin.version,
   });
 
-  app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health', () => ({ status: 'ok' }));
 
   /**
    * Readiness is not liveness. A health check that always returns 200 is how a
@@ -111,7 +137,9 @@ export async function buildServer({
     try {
       const png = await renderer.render(layout as Layout, { scale });
       await cache.set(key, png);
-      return sendPng(reply, png, { key, cache: 'miss' });
+      // Awaited inside the try on purpose: an un-awaited return would let a
+      // send failure escape the catch below as an unhandled rejection.
+      return await sendPng(reply, png, { key, cache: 'miss' });
     } catch (error) {
       if (error instanceof RenderTimeoutError) {
         request.log.warn({ err: error }, 'render timed out');

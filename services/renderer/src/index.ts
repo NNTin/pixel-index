@@ -8,9 +8,9 @@
  * dev server holding memory and a port until the container is killed.
  */
 
-import { loadConfig } from './config.js';
 import { PreviewCache } from './cache.js';
-import { startDevServer, type DevServer } from './devServer.js';
+import { loadConfig } from './config.js';
+import { type DevServer, startDevServer } from './devServer.js';
 import { Renderer } from './render.js';
 import { buildServer } from './server.js';
 

@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 
 import type { AnyDatabase } from '../db/client.js';
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { generateOpaqueToken, hashToken, signAccessToken } from './tokens.js';
 
@@ -35,24 +36,38 @@ export async function createSession(
   config: SessionConfig,
 ): Promise<TokenPair> {
   const familyId = randomUUID();
-  return issueTokenPair(db, user, familyId, config);
+  const { tokens } = await issueTokenPair(db, user, familyId, config);
+  return tokens;
 }
 
+/**
+ * Returns the stored row's id alongside the pair.
+ *
+ * `rotateRefreshToken` needs it to link a spent token to its successor, and
+ * used to recover it by hashing the token it had just been handed and selecting
+ * the row back out — a second round trip, and an assertion, for a value the
+ * insert already knew.
+ */
 async function issueTokenPair(
   db: AnyDatabase,
   user: { id: string },
   familyId: string,
   config: SessionConfig,
-): Promise<TokenPair> {
+): Promise<{ tokens: TokenPair; refreshTokenId: string }> {
   const refresh = generateOpaqueToken();
   const expiresAt = new Date(Date.now() + config.refreshTokenTtlMs);
 
-  await db.insert(schema.authRefreshTokens).values({
-    userId: user.id,
-    tokenHash: refresh.hash,
-    familyId,
-    expiresAt,
-  });
+  const stored = one(
+    await db
+      .insert(schema.authRefreshTokens)
+      .values({
+        userId: user.id,
+        tokenHash: refresh.hash,
+        familyId,
+        expiresAt,
+      })
+      .returning({ id: schema.authRefreshTokens.id }),
+  );
 
   const accessToken = await signAccessToken(
     { sub: user.id },
@@ -60,7 +75,10 @@ async function issueTokenPair(
     config.accessTokenTtlMs,
   );
 
-  return { accessToken, refreshToken: refresh.value, expiresInMs: config.accessTokenTtlMs };
+  return {
+    tokens: { accessToken, refreshToken: refresh.value, expiresInMs: config.accessTokenTtlMs },
+    refreshTokenId: stored.id,
+  };
 }
 
 export type RefreshOutcome =
@@ -87,7 +105,11 @@ export async function rotateRefreshToken(
     .from(schema.authRefreshTokens)
     .where(eq(schema.authRefreshTokens.tokenHash, hash));
 
-  if (!row || row.revokedAt !== null || row.expiresAt.getTime() < Date.now()) {
+  // Two statements, not `row?.revokedAt !== null || …`: that reads the same but
+  // does not narrow `row`, so `row.expiresAt` here and `row.rotatedToId` below
+  // would both become "possibly undefined" under noUncheckedIndexedAccess.
+  if (!row) return { status: 'invalid' };
+  if (row.revokedAt !== null || row.expiresAt.getTime() < Date.now()) {
     return { status: 'invalid' };
   }
   if (row.rotatedToId !== null) {
@@ -98,17 +120,11 @@ export async function rotateRefreshToken(
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, row.userId));
   if (!user) return { status: 'invalid' };
 
-  const tokens = await issueTokenPair(db, user, row.familyId, config);
-  // Link the spent token to its successor by hash lookup, since issueTokenPair
-  // does not return the new row's id.
-  const newHash = hashToken(tokens.refreshToken);
-  const [newRow] = await db
-    .select({ id: schema.authRefreshTokens.id })
-    .from(schema.authRefreshTokens)
-    .where(eq(schema.authRefreshTokens.tokenHash, newHash));
+  const { tokens, refreshTokenId } = await issueTokenPair(db, user, row.familyId, config);
+  // Link the spent token to its successor.
   await db
     .update(schema.authRefreshTokens)
-    .set({ rotatedToId: newRow!.id })
+    .set({ rotatedToId: refreshTokenId })
     .where(eq(schema.authRefreshTokens.id, row.id));
 
   return { status: 'ok', tokens };

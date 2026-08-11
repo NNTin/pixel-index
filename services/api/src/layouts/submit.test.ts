@@ -4,10 +4,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 
 import { signAccessToken } from '../auth/tokens.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
+import type { EnvelopeBody } from '../errors.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
 import { insertLayout, insertUser } from '../test-support/layouts.js';
 import { countPublicLayouts } from './query.js';
+import type { SubmitLayoutBody } from './responses.js';
 
 const config = testConfig({
   // Isolated from every other test file's write-bucket assumptions.
@@ -101,7 +103,7 @@ describe('POST /api/v1/layouts — the happy path', () => {
       { authorization: `Bearer ${accessToken}` },
     );
     expect(response.statusCode).toBe(201);
-    const body = response.json();
+    const body = response.json<SubmitLayoutBody>();
     expect(body.slug).toBeTruthy();
     expect(body.title).toBe('My New Office');
     expect(body.author).toEqual({ id: user.id, username: 'happy-path', displayName: 'happy-path', avatarUrl: null });
@@ -117,7 +119,7 @@ describe('POST /api/v1/layouts — the happy path', () => {
     const raw = `{"version": 1,\n  "layoutRevision":  ${BUNDLED_REVISION},\n"cols":2,"rows":2,"tiles":[0,0,0,0],"furniture":[]}`;
     const response = await submit('title=Byte+Exact', raw, { authorization: `Bearer ${accessToken}` });
     expect(response.statusCode).toBe(201);
-    const slug = response.json().slug;
+    const slug = response.json<SubmitLayoutBody>().slug;
 
     const download = await app.inject({ method: 'GET', url: `/api/v1/layouts/${slug}/download` });
     expect(download.body).toBe(raw);
@@ -128,7 +130,7 @@ describe('POST /api/v1/layouts — the happy path', () => {
     const response = await submit('title=Version+Recorded', validLayoutJson(), {
       authorization: `Bearer ${accessToken}`,
     });
-    expect(response.json().pixelAgentsVersion).toMatch(/^\d+\.\d+\.\d+/);
+    expect(response.json<SubmitLayoutBody>().pixelAgentsVersion).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   it('marks previewReady true when the renderer succeeds, and warms it without blocking success when it fails', async () => {
@@ -136,7 +138,7 @@ describe('POST /api/v1/layouts — the happy path', () => {
     const ok = await submit('title=Preview+Ok', validLayoutJson(), {
       authorization: `Bearer ${tokenA}`,
     });
-    expect(ok.json().previewReady).toBe(true);
+    expect(ok.json<SubmitLayoutBody>().previewReady).toBe(true);
 
     const { accessToken: tokenB } = await tokenFor();
     const down = await submit(
@@ -148,7 +150,7 @@ describe('POST /api/v1/layouts — the happy path', () => {
     // Publication succeeds regardless — a secondary feature (preview) being
     // down must never take down the core one (submission).
     expect(down.statusCode).toBe(201);
-    expect(down.json().previewReady).toBe(false);
+    expect(down.json<SubmitLayoutBody>().previewReady).toBe(false);
   });
 });
 
@@ -161,11 +163,9 @@ describe('POST /api/v1/layouts — layout-core validation', () => {
       { authorization: `Bearer ${accessToken}` },
     );
     expect(response.statusCode).toBe(422);
-    const body = response.json();
+    const body = response.json<EnvelopeBody>();
     expect(body.error).toBe('validation_error');
-    expect(body.issues.some((i: { code: string }) => i.code === 'layout.grid.tiles_mismatch')).toBe(
-      true,
-    );
+    expect(body.issues?.some((i) => i.code === 'layout.grid.tiles_mismatch')).toBe(true);
   });
 
   it('rejects unknown furniture with a message naming the id', async () => {
@@ -176,8 +176,10 @@ describe('POST /api/v1/layouts — layout-core validation', () => {
       { authorization: `Bearer ${accessToken}` },
     );
     expect(response.statusCode).toBe(422);
-    const issue = response.json().issues.find((i: { code: string }) => i.code === 'layout.furniture.unknown');
-    expect(issue.message).toContain('NOT_A_REAL_THING');
+    const issue = response
+      .json<EnvelopeBody>()
+      .issues?.find((i) => i.code === 'layout.furniture.unknown');
+    expect(issue?.message).toContain('NOT_A_REAL_THING');
   });
 
   it('rejects a layoutRevision below the bundled default, explaining why it would break', async () => {
@@ -189,10 +191,10 @@ describe('POST /api/v1/layouts — layout-core validation', () => {
     );
     expect(response.statusCode).toBe(422);
     const issue = response
-      .json()
-      .issues.find((i: { code: string }) => i.code === 'layout.revision.below_bundled');
-    expect(issue.message).toMatch(/discarded on the next start/);
-    expect(issue.message).toMatch(/Re-export it/);
+      .json<EnvelopeBody>()
+      .issues?.find((i) => i.code === 'layout.revision.below_bundled');
+    expect(issue?.message).toMatch(/discarded on the next start/);
+    expect(issue?.message).toMatch(/Re-export it/);
   });
 
   it('rejects invalid JSON with 400, not 422', async () => {
@@ -214,7 +216,7 @@ describe('POST /api/v1/layouts — dedupe', () => {
     const { accessToken: second } = await tokenFor();
     const dupe = await submit('title=Copycat+Office', raw, { authorization: `Bearer ${second}` });
     expect(dupe.statusCode).toBe(409);
-    expect(dupe.json().message).toContain(original.json().slug);
+    expect(dupe.json<EnvelopeBody>().message).toContain(original.json<SubmitLayoutBody>().slug);
   });
 
   it('rejects resubmitting content matching a non-public (e.g. removed) layout, without laundering it back', async () => {
@@ -241,7 +243,7 @@ describe('POST /api/v1/layouts — dedupe', () => {
       authorization: `Bearer ${accessToken}`,
     });
     expect(response.statusCode).toBe(409);
-    expect(response.json().message).not.toContain('previously-removed'); // does not confirm the slug
+    expect(response.json<EnvelopeBody>().message).not.toContain('previously-removed'); // does not confirm the slug
   });
 
   it('allows the SAME owner to resubmit content they previously deleted', async () => {
@@ -318,8 +320,8 @@ describe('POST /api/v1/layouts — slugs', () => {
     );
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(201);
-    expect(first.json().slug).not.toBe(second.json().slug);
-    expect(second.json().slug).toBe(`${first.json().slug}-2`);
+    expect(first.json<SubmitLayoutBody>().slug).not.toBe(second.json<SubmitLayoutBody>().slug);
+    expect(second.json<SubmitLayoutBody>().slug).toBe(`${first.json<SubmitLayoutBody>().slug}-2`);
   });
 });
 
@@ -391,7 +393,7 @@ describe('POST /api/v1/layouts — size and rate limits', () => {
         headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
       });
       expect(second.statusCode).toBe(429);
-      expect(second.json().error).toBe('too_many_submissions');
+      expect(second.json<EnvelopeBody>().error).toBe('too_many_submissions');
     } finally {
       await cappedApp.close();
     }
@@ -462,9 +464,9 @@ describe('POST /api/v1/layouts/preview-check', () => {
       authorization: `Bearer ${accessToken}`,
     });
     expect(response.statusCode).toBe(422);
-    expect(response.json().issues.some((i: { code: string }) => i.code === 'layout.grid.tiles_mismatch')).toBe(
-      true,
-    );
+    expect(
+      response.json<EnvelopeBody>().issues?.some((i) => i.code === 'layout.grid.tiles_mismatch'),
+    ).toBe(true);
   });
 
   it('returns the rendered PNG bytes directly, without creating anything', async () => {

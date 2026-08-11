@@ -63,6 +63,36 @@ jobs:
       - name: Every mermaid diagram in tracked markdown parses
         run: npm run check:mermaid
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    # One eslint run over every workspace plus tools/, from the single flat
+    # config at the repo root (eslint.config.js). It is type-aware — the rules
+    # that matter here are the no-unsafe-* family, which need real types to say
+    # anything — so it is closer in cost to a typecheck than to a formatter, and
+    # it gets its own job rather than a step on `test` so "the types are wrong"
+    # and "a rule was broken" arrive as two separate answers.
+    #
+    # Needs the submodule: apps/web/src/live-office imports vendor/pixel-agents'
+    # own sources, so the project service cannot resolve types without it.
+    # Needs layout-core's dist for the same reason `typecheck` does — the root
+    # `prelint` script builds it.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install index tooling
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest

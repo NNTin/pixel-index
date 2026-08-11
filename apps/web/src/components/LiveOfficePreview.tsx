@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { PreviewImageProps } from '../api/previewSourceState';
 import type { LayoutDetail } from '../api/types';
 import {
   isViewerMessage,
@@ -34,8 +35,16 @@ function storedRenderMode(): RenderMode {
 }
 
 function mockAgent(id: number): MockAgent {
-  const activity = ACTIVITIES[(id - 1) % ACTIVITIES.length];
-  return { id, ...activity };
+  // `%` keeps the sign of its left operand in JavaScript, so an id below 1
+  // would index off the front of the table and leave the agent with no
+  // activity or tool at all. Wrapping it into range first is what makes the
+  // lookup total — the ids are 1-based today, but nothing in the type said so.
+  const index = (((id - 1) % ACTIVITIES.length) + ACTIVITIES.length) % ACTIVITIES.length;
+  // `?? ACTIVITIES[0]` cannot be reached with the index wrapped above, but a
+  // computed index into a tuple is `T | undefined` under
+  // noUncheckedIndexedAccess and this is what makes the lookup total without a
+  // non-null assertion. ACTIVITIES[0] is a literal tuple index, so it is not.
+  return { id, ...(ACTIVITIES[index] ?? ACTIVITIES[0]) };
 }
 
 export function LiveOfficePreview({
@@ -43,7 +52,8 @@ export function LiveOfficePreview({
   staticPreview,
 }: {
   layout: LayoutDetail;
-  staticPreview: { src: string; unavailable?: string };
+  /** The still image to fall back to — `previewImageProps` builds this. */
+  staticPreview: PreviewImageProps;
 }) {
   const [mode, setMode] = useState<RenderMode>(storedRenderMode);
   const [viewerStatus, setViewerStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -70,14 +80,19 @@ export function LiveOfficePreview({
       if (event.source !== iframe.current?.contentWindow || event.origin !== window.location.origin) {
         return;
       }
-      if (!isViewerMessage(event.data)) return;
-      if (event.data.type === 'ready') {
+      // Bound to a local first: `event.data` is `any`, and narrowing on a
+      // property access is discarded again inside the setAgents callback below,
+      // which is what made `event.data.id` an unchecked read.
+      const message: unknown = event.data;
+      if (!isViewerMessage(message)) return;
+      if (message.type === 'ready') {
         setViewerStatus('ready');
-      } else if (event.data.type === 'error') {
-        setViewerError(event.data.message);
+      } else if (message.type === 'error') {
+        setViewerError(message.message);
         setViewerStatus('error');
       } else {
-        setAgents((current) => current.filter((agent) => agent.id !== event.data.id));
+        const removedId = message.id;
+        setAgents((current) => current.filter((agent) => agent.id !== removedId));
       }
     };
     window.addEventListener('message', receive);

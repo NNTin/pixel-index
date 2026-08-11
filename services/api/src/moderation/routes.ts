@@ -12,6 +12,7 @@ import { requireCapability } from '../auth/capability.js';
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
+import type { RequestSchemas } from '../http.js';
 import { authorsForLayouts, listLayouts, tagsForLayouts } from '../layouts/query.js';
 import { toOwnerView } from '../layouts/serialize.js';
 
@@ -35,26 +36,26 @@ const listQuerySchema = {
   },
 } as const;
 
-interface ListQuery {
-  limit?: number;
-  cursor?: string;
-  sort?: 'newest' | 'furniture' | 'largest' | 'title';
-  visibility?: (typeof MODERATION_VISIBILITIES)[number];
-  author?: string;
-  q?: string;
-}
-
 export function registerModerationRoutes(app: FastifyInstance, { config, db }: ModerationRoutesDeps): void {
-  app.get(
+  // Types for `request.query`/`params`/`body` come from the JSON Schemas already
+  // on each route below, instead of being restated as an interface and cast to.
+  // `withTypeProvider` is compile-time only — it changes no runtime behaviour and
+  // no schema — so the two can no longer drift apart in silence.
+  const typed = app.withTypeProvider<RequestSchemas>();
+
+  typed.get(
     '/api/v1/moderation/layouts',
     { schema: { querystring: listQuerySchema } },
     async (request) => {
       await requireCapability(db, config, request, 'moderator');
-      const query = request.query as ListQuery;
+      const query = request.query;
 
       const { rows, total, nextCursor } = await listLayouts(db, {
-        sort: query.sort ?? 'newest',
-        limit: query.limit ?? 24,
+        // No `?? 24` / `?? 'newest'`: the schema declares those defaults and
+        // Fastify's ajv applies them, so the fallbacks were dead — which is
+        // exactly what the schema-derived types now say.
+        sort: query.sort,
+        limit: query.limit,
         ...(query.cursor ? { cursor: query.cursor } : {}),
         filters: {
           ...(query.visibility ? { visibility: query.visibility } : {}),

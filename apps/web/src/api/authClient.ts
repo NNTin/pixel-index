@@ -2,7 +2,7 @@
  * The cross-origin bearer-token flow ADR 0001 decision 10 designs: a
  * top-level browser redirect through Discord and back, a single-use code
  * handed off via a URL fragment, then ordinary CORS `fetch` calls for
- * everything after. See `auth/AuthContext.tsx` for the state machine that
+ * everything after. See `auth/AuthProvider.tsx` for the state machine that
  * drives these.
  */
 import { API_BASE_URL, apiRequest } from './client';
@@ -21,6 +21,14 @@ export function discordLoginUrl(returnTo: string): string {
   return `${API_BASE_URL}/api/v1/auth/discord/login?${params.toString()}`;
 }
 
+/**
+ * None of the mutating calls below takes an `AbortSignal`, and that is the
+ * enforcement rather than an oversight: aborting a POST/PATCH/PUT/DELETE does
+ * not un-send it — the server may already have committed the write — so a
+ * "cancelled" mutation would be a lie about state. Under StrictMode an
+ * abort-on-cleanup would additionally fire-then-abort every write in
+ * development. Only read-only GETs are cancellable.
+ */
 export function exchangeLoginCode(code: string): Promise<TokenExchangeResponse> {
   return apiRequest('/api/v1/auth/token', { method: 'POST', body: { code } });
 }
@@ -33,6 +41,6 @@ export function logoutSession(refreshToken: string): Promise<void> {
   return apiRequest('/api/v1/auth/logout', { method: 'POST', body: { refreshToken }, parseAs: 'none' });
 }
 
-export function getMe(accessToken: string): Promise<AuthUser> {
-  return apiRequest('/api/v1/me', { accessToken });
+export function getMe(accessToken: string, signal?: AbortSignal): Promise<AuthUser> {
+  return apiRequest('/api/v1/me', { accessToken, signal });
 }

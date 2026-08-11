@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import { ApiError } from '../errors.js';
+import type { RequestSchemas } from '../http.js';
 import { requestPreview } from '../renderer/client.js';
 import { PUBLIC_REVALIDATED, respondNotModifiedIfMatching } from './caching.js';
 import {
@@ -20,9 +21,10 @@ import {
   getLayoutBySlug,
   listLayouts,
   listPublicTags,
-  tagsForLayouts,
   type NumericRange,
+  tagsForLayouts,
 } from './query.js';
+import type { ListLayoutsBody, ListTagsBody } from './responses.js';
 import {
   layoutDetailResponseSchema,
   listLayoutsQuerySchema,
@@ -39,57 +41,52 @@ export interface LayoutRoutesDeps {
 
 const SCHEMA_VERSION = 1;
 
-interface ListQuery {
-  limit?: number;
-  cursor?: string;
-  sort?: 'newest' | 'furniture' | 'largest' | 'title';
-  author?: string;
-  tags?: string;
-  q?: string;
-  minCols?: number;
-  maxCols?: number;
-  minRows?: number;
-  maxRows?: number;
-  minFurniture?: number;
-  maxFurniture?: number;
-  minAreas?: number;
-  maxAreas?: number;
-  minPets?: number;
-  maxPets?: number;
-}
-
 function range(min: number | undefined, max: number | undefined): NumericRange | undefined {
   if (min === undefined && max === undefined) return undefined;
   return { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) };
 }
 
 export function registerLayoutRoutes(app: FastifyInstance, { config, db }: LayoutRoutesDeps): void {
-  app.get(
+  // Types for `request.query`/`params`/`body` come from the JSON Schemas already
+  // on each route below, instead of being restated as an interface and cast to.
+  // `withTypeProvider` is compile-time only — it changes no runtime behaviour and
+  // no schema — so the two can no longer drift apart in silence.
+  const typed = app.withTypeProvider<RequestSchemas>();
+
+  typed.get(
     '/api/v1/layouts',
     { schema: { querystring: listLayoutsQuerySchema, response: listLayoutsResponseSchema } },
-    async (request) => {
-      const query = request.query as ListQuery;
+    async (request): Promise<ListLayoutsBody> => {
+      const query = request.query;
       const tags = query.tags
         ? query.tags.split(',').map((t) => t.trim()).filter((t) => t.length > 0)
         : undefined;
 
+      // Each range is computed once into a local. Calling range() twice per
+      // filter — once for the guard, once for the value — is what stopped
+      // TypeScript narrowing the spread away from `NumericRange | undefined`.
+      const colsRange = range(query.minCols, query.maxCols);
+      const rowsRange = range(query.minRows, query.maxRows);
+      const furnitureRange = range(query.minFurniture, query.maxFurniture);
+      const areasRange = range(query.minAreas, query.maxAreas);
+      const petsRange = range(query.minPets, query.maxPets);
+
       const { rows, total, nextCursor } = await listLayouts(db, {
-        sort: query.sort ?? 'newest',
-        limit: query.limit ?? 24,
+        // No `?? 24` / `?? 'newest'`: the schema declares those defaults and
+        // Fastify's ajv applies them, so the fallbacks were dead — which is
+        // exactly what the schema-derived types now say.
+        sort: query.sort,
+        limit: query.limit,
         ...(query.cursor ? { cursor: query.cursor } : {}),
         filters: {
           ...(query.author ? { author: query.author } : {}),
           ...(tags && tags.length > 0 ? { tags } : {}),
           ...(query.q ? { q: query.q } : {}),
-          ...(range(query.minCols, query.maxCols) ? { cols: range(query.minCols, query.maxCols) } : {}),
-          ...(range(query.minRows, query.maxRows) ? { rows: range(query.minRows, query.maxRows) } : {}),
-          ...(range(query.minFurniture, query.maxFurniture)
-            ? { furniture: range(query.minFurniture, query.maxFurniture) }
-            : {}),
-          ...(range(query.minAreas, query.maxAreas)
-            ? { areas: range(query.minAreas, query.maxAreas) }
-            : {}),
-          ...(range(query.minPets, query.maxPets) ? { pets: range(query.minPets, query.maxPets) } : {}),
+          ...(colsRange ? { cols: colsRange } : {}),
+          ...(rowsRange ? { rows: rowsRange } : {}),
+          ...(furnitureRange ? { furniture: furnitureRange } : {}),
+          ...(areasRange ? { areas: areasRange } : {}),
+          ...(petsRange ? { pets: petsRange } : {}),
         },
       });
 
@@ -109,16 +106,16 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
     },
   );
 
-  app.get('/api/v1/tags', { schema: { response: listTagsResponseSchema } }, async () => {
+  app.get('/api/v1/tags', { schema: { response: listTagsResponseSchema } }, async (): Promise<ListTagsBody> => {
     const tags = await listPublicTags(db);
     return { schemaVersion: SCHEMA_VERSION, tags };
   });
 
-  app.get(
+  typed.get(
     '/api/v1/layouts/:slug',
     { schema: { params: slugParamsSchema, response: layoutDetailResponseSchema } },
     async (request, reply) => {
-      const { slug } = request.params as { slug: string };
+      const { slug } = request.params;
       const layout = await getLayoutBySlug(db, slug);
       if (!layout) throw ApiError.notFound(`No public layout "${slug}".`);
 
@@ -136,11 +133,11 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
     },
   );
 
-  app.get(
+  typed.get(
     '/api/v1/layouts/:slug/download',
     { schema: { params: slugParamsSchema } },
     async (request, reply) => {
-      const { slug } = request.params as { slug: string };
+      const { slug } = request.params;
       const layout = await getLayoutBySlug(db, slug);
       if (!layout) throw ApiError.notFound(`No public layout "${slug}".`);
 
@@ -181,16 +178,16 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
     return reply.header('content-type', outcome.result.contentType).send(outcome.result.body);
   }
 
-  app.get('/api/v1/layouts/:slug/preview.png', { schema: { params: slugParamsSchema } }, (request, reply) => {
-    const { slug } = request.params as { slug: string };
+  typed.get('/api/v1/layouts/:slug/preview.png', { schema: { params: slugParamsSchema } }, (request, reply) => {
+    const { slug } = request.params;
     return servePreview(request, reply, slug);
   });
 
-  app.get(
+  typed.get(
     '/api/v1/layouts/:slug/thumbnail.png',
     { schema: { params: slugParamsSchema } },
     (request, reply) => {
-      const { slug } = request.params as { slug: string };
+      const { slug } = request.params;
       // Same bytes as preview.png, not a separately rendered 0.25-scale PNG:
       // measured (see services/renderer/README.md) that pre-shrinking on the
       // server and then letting the gallery grid's CSS scale that already-

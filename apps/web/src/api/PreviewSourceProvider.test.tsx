@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CandidatePinBanner } from '../components/CandidatePinBanner';
 import { LayoutCard } from '../components/LayoutCard';
-import { type PreviewManifest,resetPreviewManifestCache } from './previewSource';
-import { PreviewSourceProvider } from './PreviewSourceContext';
+import { requestUrl } from '../test/fetchStub';
+import { type PreviewManifest, resetPreviewManifestCache } from './previewSource';
+import { PreviewSourceProvider } from './PreviewSourceProvider';
 import type { LayoutSummary } from './types';
 
 afterEach(() => {
@@ -55,14 +56,14 @@ const summary = (slug: string): LayoutSummary =>
       preview: `/api/v1/layouts/${slug}/preview.png`,
       thumbnail: `/api/v1/layouts/${slug}/thumbnail.png`,
     },
-  }) as LayoutSummary;
+  });
 
 /** The two requests the provider makes: the manifest probe, then /meta. */
 function stubFetch(options: { manifest: PreviewManifest | null; apiCommit: string | null }) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('vendor-preview/manifest.json')) {
         return options.manifest === null
           ? new Response('', { status: 404 })
@@ -79,6 +80,46 @@ function stubFetch(options: { manifest: PreviewManifest | null; apiCommit: strin
       return new Response('', { status: 404 });
     }),
   );
+}
+
+/**
+ * The manifest fetch is memoised at module scope for the lifetime of the page,
+ * so it is the one request the provider must never abort — see the note in
+ * PreviewSourceProvider.tsx. This pins that: aborting it would leave every
+ * later mount awaiting the same rejected promise, and the override would
+ * silently never arm again.
+ */
+function stubCountingFetch(manifestBody: PreviewManifest) {
+  let manifestRequests = 0;
+  const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = requestUrl(input);
+    if (url.includes('vendor-preview/manifest.json')) {
+      manifestRequests += 1;
+      // Honours the signal, unlike the other stubs in this file. That is the
+      // whole point: a stub that ignores init.signal cannot tell an aborted
+      // request from a completed one, so it would pass whether or not the
+      // provider made the mistake this test exists to catch.
+      return new Promise<Response>((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        });
+        setTimeout(() => resolve(Response.json(manifestBody)), 0);
+      });
+    }
+    if (url.includes('/api/v1/meta')) {
+      return Response.json({
+        schemaVersion: 1,
+        generatedAt: '2026-08-09T00:00:00.000Z',
+        // BASELINE, not CANDIDATE: the API still lags the candidate pin, which
+        // is the state in which the override is meant to be active.
+        pixelAgents: { version: '1.4.0', commit: BASELINE, layoutRevision: 1 },
+        count: 1,
+      });
+    }
+    return new Response('', { status: 404 });
+  });
+  vi.stubGlobal('fetch', fetch);
+  return { manifestRequests: () => manifestRequests };
 }
 
 function renderWithProvider(slugs: string[]) {
@@ -216,5 +257,28 @@ describe('candidate previews end to end', () => {
       ),
     );
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
+describe('PreviewSourceProvider — the memoised manifest is deliberately not aborted', () => {
+  it('still arms on a later mount after an earlier one unmounted mid-flight', async () => {
+    const counted = stubCountingFetch(manifest);
+
+    // Unmount while the manifest request is still resolving. If the provider
+    // had threaded its signal into fetchPreviewManifest(), this would poison
+    // the module-level cache and the second mount below would never arm.
+    const first = renderWithProvider(['blue-office']);
+    first.unmount();
+
+    renderWithProvider(['blue-office']);
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: /blue-office/ })).toHaveAttribute(
+        'src',
+        '/vendor-preview/blue-office.png',
+      ),
+    );
+
+    // Memoised: fetched once for the page, not once per mount.
+    expect(counted.manifestRequests()).toBe(1);
   });
 });

@@ -58,6 +58,19 @@ export function assertUpstream(upstreamDir?: string): void {
   }
 }
 
+/**
+ * Parse a JSON file, or `null` if it is missing or malformed.
+ *
+ * `T` is used once, which is `no-unnecessary-type-parameters`' definition of a
+ * type parameter that is really an assertion — and the rule is right. It is
+ * kept because the alternative is worse: dropping it moves a bare `as` to all
+ * five call sites, and the shape (`response.json<T>()` in Fastify, `res.json()`
+ * in fetch) is the conventional one for "parse this and tell me what you expect".
+ * Making it return `unknown` and validating at each site is the honest long-term
+ * answer; one of those sites is a recursive furniture manifest, so it is its own
+ * piece of work rather than a lint fix.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
 export function readJsonOrNull<T = unknown>(file: string): T | null {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as T;
@@ -158,9 +171,14 @@ function walkManifest(
   }
 
   if (node.type === 'asset' && typeof node.id === 'string') {
+    // `props` already carries the inherited orientation, so the node's own
+    // orientation is only spread in when it actually has one. Written as a
+    // conditional spread rather than `node.orientation ?? inherited.orientation`
+    // so an orientation-less asset leaves the key absent instead of present-and-
+    // undefined, which is what exactOptionalPropertyTypes asks for.
     catalog.set(node.id, {
       ...props,
-      orientation: node.orientation ?? inherited.orientation,
+      ...(node.orientation !== undefined ? { orientation: node.orientation } : {}),
       mirrorSide: node.mirrorSide ?? false,
     });
     return;

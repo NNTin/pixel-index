@@ -12,8 +12,9 @@
  * to come from somewhere.
  */
 
-export { layoutStats, sha256 } from './stats.js';
+export { withFormats } from './ajv.js';
 export { layoutSchema, metaSchema, SCHEMA_DIR } from './schemas.js';
+export { layoutStats, sha256 } from './stats.js';
 export type {
   Area,
   FurnitureCatalog,
@@ -43,8 +44,8 @@ export {
   createValidator,
   SLUG_RE,
   validateLayout,
+  type ValidateLayoutOptions,
   validateMeta,
   validateSlug,
-  type ValidateLayoutOptions,
   type Validator,
 } from './validate.js';

@@ -27,7 +27,9 @@ src/main.tsx                     mounts <App>, wrapped in BrowserRouter + ThemeP
                                   AuthProvider
 src/App.tsx                      routes, public /authors/:id and authenticated dashboard pages
 src/index.css                    design tokens (#16) — see below
-src/theme/ThemeContext.tsx       light/dark toggle, persisted to localStorage
+src/theme/ThemeProvider.tsx      light/dark toggle, persisted to localStorage
+src/theme/themeState.ts          the theme context and useTheme(), apart from the provider
+                                  so the provider module hot-reloads in place (#44)
 src/components/Layout.tsx        header, role-aware nav (login/logout, submit, my layouts,
                                   moderation, admin — a convenience, never the real gate)
 src/components/RequireAuth.tsx   client-side route gate: "log in" / "moderators only" —
@@ -39,8 +41,9 @@ src/components/LiveOfficePreview.tsx
                                   persisted live/thumbnail toggle + mock-agent controls
 src/components/LayoutJsonPanel.tsx
                                   auto-formatted download source, copy + download
-src/components/FactsRow.tsx      "25×22 · 59 furniture · 4 areas · 2 pets" — zero-valued
-                                  facts omitted, carried over from v1
+src/components/FactsRow.tsx      renders "25×22 · 59 furniture · 4 areas · 2 pets"
+src/components/facts.ts          factsFor(): builds those strings, zero-valued facts
+                                  omitted, carried over from v1
 src/components/AuthorLink.tsx    linked authors open their public profile and layouts
 src/components/FilterBar.tsx     search, sort, size/pets/furniture filters, the tag
                                   multi-select (populated from GET /api/v1/tags),
@@ -54,7 +57,9 @@ src/api/moderationClient.ts      moderation browse + read-only admin user direct
 src/api/types.ts                 hand-written against services/api/src/layouts/schemas.ts
 src/api/useApi.ts                loading/error/ready as data, for every screen that calls
                                   the API
-src/auth/AuthContext.tsx         the session state machine — see below
+src/auth/AuthProvider.tsx        the session state machine — see below
+src/auth/authState.ts            the auth context and useAuth(), split out for the same
+                                  reason as themeState.ts
 src/auth/storage.ts              only the refresh token is persisted; see docs/ARCHITECTURE.md
 src/routes/filters.ts            the URL <-> Filters <-> #6 API params translation — the
                                   URL is the shareable, human-readable form; #6's own
@@ -79,7 +84,7 @@ index.html                       the matching restore-path script (see the two t
 
 ### The session: the bearer-token design, implemented
 
-`auth/AuthContext.tsx` is the state machine the bearer-token design (see
+`auth/AuthProvider.tsx` is the state machine the bearer-token design (see
 [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#how-they-talk-to-each-other) for why
 it's a bearer token and not a cookie) turns into — worth reading alongside that doc, not
 instead of it. On mount: if the URL has a `#pixelIndexLoginCode=...` fragment (the redirect back
@@ -213,7 +218,7 @@ tree — no component hand-mixes a colour.
   (4.5:1) with the office/docs hexes as fixed points; two of the docs' own tones
   (`muted`, `subtle` in light mode) needed darkening a step to clear it — see the
   comments beside those tokens in `index.css` for the exact ratios.
-- **Theme toggle**: `theme/ThemeContext.tsx`, defaulting to the OS preference,
+- **Theme toggle**: `theme/ThemeProvider.tsx`, defaulting to the OS preference,
   persisted to `localStorage` (`pixelindex_theme`) — `index.html` applies it in an
   inline script before the app bundle loads, so there's no flash of the wrong theme.
 - **Favicon / social preview**: `public/favicon.svg` (hand-written) and

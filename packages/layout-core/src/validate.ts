@@ -14,13 +14,13 @@
  */
 
 import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
-import addFormatsExport from 'ajv-formats';
 
+import { withFormats } from './ajv.js';
 import { layoutSchema, metaSchema } from './schemas.js';
 import type {
   FurnitureCatalog,
+  FurnitureItem,
   Layout,
-  LayoutMeta,
   ValidationIssue,
   ValidationResult,
 } from './types.js';
@@ -31,19 +31,7 @@ export const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 /** How many out-of-bounds items to name before truncating the message. */
 const MAX_LISTED = 5;
 
-/**
- * ajv-formats is CJS and its entry does both `module.exports = formatsPlugin`
- * and `exports.default = formatsPlugin`, while its .d.ts declares only an ES
- * default export. Under NodeNext those disagree and TypeScript binds the
- * namespace rather than the callable, so recover the function from either shape.
- */
-type AddFormats = (ajv: Ajv2020) => unknown;
-const addFormats: AddFormats =
-  (addFormatsExport as unknown as { default?: AddFormats }).default ??
-  (addFormatsExport as unknown as AddFormats);
-
-const ajv = new Ajv2020({ allErrors: true, strict: false });
-addFormats(ajv);
+const ajv = withFormats(new Ajv2020({ allErrors: true, strict: false }));
 
 const compiledLayout: ValidateFunction = ajv.compile(layoutSchema);
 const compiledMeta: ValidateFunction = ajv.compile(metaSchema);
@@ -151,7 +139,11 @@ export function validateLayout(layout: unknown, options: ValidateLayoutOptions =
     const unknown = new Set<string>();
     const misplaced: string[] = [];
 
-    for (const item of doc.furniture) {
+    // Widened on the way in: `doc` is an `as Layout` view of untrusted JSON, and
+    // this loop runs even when the schema check above already failed, so the
+    // array really can hold nulls and junk. The guard below is what keeps that
+    // from throwing mid-validation.
+    for (const item of doc.furniture as (FurnitureItem | null | undefined)[]) {
       if (!item || typeof item.type !== 'string') continue;
       const entry = catalog.get(item.type);
       if (!entry) {
@@ -195,9 +187,9 @@ export function validateLayout(layout: unknown, options: ValidateLayoutOptions =
 export interface Validator {
   requiredRevision: number;
   catalog: FurnitureCatalog;
-  validateLayout(layout: unknown): ValidationResult;
-  validateMeta(meta: unknown): ValidationResult;
-  validateSlug(slug: string): ValidationResult;
+  validateLayout: (layout: unknown) => ValidationResult;
+  validateMeta: (meta: unknown) => ValidationResult;
+  validateSlug: (slug: string) => ValidationResult;
 }
 
 /**

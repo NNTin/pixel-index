@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import {
@@ -27,11 +28,12 @@ beforeAll(async () => {
 afterAll(async () => harness.close());
 
 async function insertUser(overrides: Partial<schema.NewUser> = {}) {
-  const [user] = await harness.db
-    .insert(schema.users)
-    .values({ discordId: `d-${Math.random()}`, username: 'someone', role: 'user', ...overrides })
-    .returning();
-  return user!;
+  return one(
+    await harness.db
+      .insert(schema.users)
+      .values({ discordId: `d-${Math.random()}`, username: 'someone', role: 'user', ...overrides })
+      .returning(),
+  );
 }
 
 describe('createSession', () => {

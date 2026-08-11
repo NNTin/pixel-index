@@ -2,8 +2,8 @@ import { Link, Outlet } from 'react-router-dom';
 
 import { getMeta } from '../api/client';
 import { useApi } from '../api/useApi';
-import { useAuth } from '../auth/AuthContext';
-import { useTheme } from '../theme/ThemeContext';
+import { useAuth } from '../auth/authState';
+import { useTheme } from '../theme/themeState';
 import { CandidatePinBanner } from './CandidatePinBanner';
 
 /**
@@ -20,7 +20,7 @@ import { CandidatePinBanner } from './CandidatePinBanner';
  */
 function Nav() {
   const { status, user, login, logout } = useAuth();
-  const metaState = useApi(() => getMeta(), []);
+  const metaState = useApi((signal) => getMeta(signal), []);
   const inviteUrl = metaState.status === 'ready' ? metaState.data.discordInviteUrl : null;
 
   return (

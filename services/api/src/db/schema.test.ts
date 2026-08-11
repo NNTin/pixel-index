@@ -2,11 +2,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { layoutStats, sha256 } from '@pixel-index/layout-core';
+import { type Layout, layoutStats, sha256 } from '@pixel-index/layout-core';
 import { and, asc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { SYSTEM_USER_ID } from './constants.js';
+import { one } from './rows.js';
 import * as schema from './schema.js';
 import { createTestDatabase, type Harness } from './test-support/harness.js';
 
@@ -45,15 +46,17 @@ async function expectRejection(promise: Promise<unknown>, pattern: RegExp): Prom
 }
 
 async function insertUser(overrides: Partial<schema.NewUser> = {}) {
-  const [user] = await harness.db
-    .insert(schema.users)
-    .values({ discordId: `d-${Math.random()}`, username: 'someone', ...overrides })
-    .returning();
-  return user!;
+  return one(
+    await harness.db
+      .insert(schema.users)
+      .values({ discordId: `d-${Math.random()}`, username: 'someone', ...overrides })
+      .returning(),
+  );
 }
 
 async function insertLayout(overrides: Partial<schema.NewLayout> = {}) {
-  const [layout] = await harness.db
+  return one(
+    await harness.db
     .insert(schema.layouts)
     .values({
       slug: `layout-${Math.random().toString(36).slice(2, 10)}`,
@@ -66,8 +69,8 @@ async function insertLayout(overrides: Partial<schema.NewLayout> = {}) {
       rows: 22,
       ...overrides,
     })
-    .returning();
-  return layout!;
+    .returning(),
+  );
 }
 
 describe('the audit log is append-only', () => {
@@ -90,31 +93,35 @@ describe('the audit log is append-only', () => {
     // convention rots; a trigger cannot be bypassed by an ORM call or a psql
     // session, which is the point of an audit log.
     const layout = await insertLayout();
-    const [action] = await harness.db
-      .insert(schema.moderationActions)
-      .values({ action: 'layout.hide', targetType: 'layout', targetId: layout.id, reason: 'x' })
-      .returning();
+    const action = one(
+      await harness.db
+        .insert(schema.moderationActions)
+        .values({ action: 'layout.hide', targetType: 'layout', targetId: layout.id, reason: 'x' })
+        .returning(),
+    );
 
     await expectRejection(
       harness.db
         .update(schema.moderationActions)
         .set({ reason: 'rewritten' })
-        .where(eq(schema.moderationActions.id, action!.id)),
+        .where(eq(schema.moderationActions.id, action.id)),
       /append-only: UPDATE is not permitted/,
     );
   });
 
   it('rejects DELETE', async () => {
     const layout = await insertLayout();
-    const [action] = await harness.db
-      .insert(schema.moderationActions)
-      .values({ action: 'layout.remove', targetType: 'layout', targetId: layout.id, reason: 'x' })
-      .returning();
+    const action = one(
+      await harness.db
+        .insert(schema.moderationActions)
+        .values({ action: 'layout.remove', targetType: 'layout', targetId: layout.id, reason: 'x' })
+        .returning(),
+    );
 
     await expectRejection(
       harness.db
         .delete(schema.moderationActions)
-        .where(eq(schema.moderationActions.id, action!.id)),
+        .where(eq(schema.moderationActions.id, action.id)),
       /append-only: DELETE is not permitted/,
     );
   });
@@ -325,7 +332,7 @@ describe('denormalised stats come from layout-core', () => {
     // beside it. This test ties the two packages together.
     const file = path.join(REPO_ROOT, 'seed/blue-office/layout.json');
     const raw = fs.readFileSync(file);
-    const parsed = JSON.parse(raw.toString());
+    const parsed = JSON.parse(raw.toString()) as Layout;
     const stats = layoutStats(parsed);
 
     const stored = await insertLayout({
@@ -359,7 +366,7 @@ describe('denormalised stats come from layout-core', () => {
     // never surprise them.
     const parsed = JSON.parse(
       fs.readFileSync(path.join(REPO_ROOT, 'seed/four-rooms/layout.json'), 'utf-8'),
-    );
+    ) as Layout;
     const stored = await insertLayout({ layout: parsed });
     expect(stored.layout).toEqual(parsed);
   });
@@ -410,15 +417,15 @@ describe('search and tags', () => {
   });
 
   it('filters by tag through the join table', async () => {
-    const [tag] = await harness.db.insert(schema.tags).values({ name: 'open-plan' }).returning();
+    const tag = one(await harness.db.insert(schema.tags).values({ name: 'open-plan' }).returning());
     const layout = await insertLayout({ slug: 'tagged-office' });
-    await harness.db.insert(schema.layoutTags).values({ layoutId: layout.id, tagId: tag!.id });
+    await harness.db.insert(schema.layoutTags).values({ layoutId: layout.id, tagId: tag.id });
 
     const found = await harness.db
       .select({ slug: schema.layouts.slug })
       .from(schema.layouts)
       .innerJoin(schema.layoutTags, eq(schema.layoutTags.layoutId, schema.layouts.id))
-      .where(eq(schema.layoutTags.tagId, tag!.id));
+      .where(eq(schema.layoutTags.tagId, tag.id));
 
     expect(found.map((row) => row.slug)).toEqual(['tagged-office']);
   });
@@ -431,9 +438,9 @@ describe('search and tags', () => {
   });
 
   it('drops tag links with the layout', async () => {
-    const [tag] = await harness.db.insert(schema.tags).values({ name: 'temporary' }).returning();
+    const tag = one(await harness.db.insert(schema.tags).values({ name: 'temporary' }).returning());
     const layout = await insertLayout();
-    await harness.db.insert(schema.layoutTags).values({ layoutId: layout.id, tagId: tag!.id });
+    await harness.db.insert(schema.layoutTags).values({ layoutId: layout.id, tagId: tag.id });
 
     await harness.db.delete(schema.layouts).where(eq(schema.layouts.id, layout.id));
     const links = await harness.db
@@ -448,12 +455,14 @@ describe('updated_at', () => {
   it('is maintained by the database, not by callers remembering', async () => {
     const layout = await insertLayout({ title: 'Original' });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    const [updated] = await harness.db
-      .update(schema.layouts)
-      .set({ title: 'Renamed' })
-      .where(eq(schema.layouts.id, layout.id))
-      .returning();
+    const updated = one(
+      await harness.db
+        .update(schema.layouts)
+        .set({ title: 'Renamed' })
+        .where(eq(schema.layouts.id, layout.id))
+        .returning(),
+    );
 
-    expect(updated!.updatedAt.getTime()).toBeGreaterThan(layout.updatedAt.getTime());
+    expect(updated.updatedAt.getTime()).toBeGreaterThan(layout.updatedAt.getTime());
   });
 });

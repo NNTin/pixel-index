@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 
 import type { AnyDatabase } from '../db/client.js';
 import { SYSTEM_USER_ID } from '../db/constants.js';
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 
 const A_HASH = (n: number) => n.toString(16).padStart(64, '0');
@@ -17,16 +18,17 @@ export async function insertUser(
   overrides: Partial<schema.NewUser> = {},
 ): Promise<schema.User> {
   counter += 1;
-  const [user] = await db
-    .insert(schema.users)
-    .values({
-      discordId: `discord-${counter}`,
-      username: `user-${counter}`,
-      role: 'user',
-      ...overrides,
-    })
-    .returning();
-  return user!;
+  return one(
+    await db
+      .insert(schema.users)
+      .values({
+        discordId: `discord-${counter}`,
+        username: `user-${counter}`,
+        role: 'user',
+        ...overrides,
+      })
+      .returning(),
+  );
 }
 
 export async function insertLayout(
@@ -35,7 +37,8 @@ export async function insertLayout(
 ): Promise<schema.Layout> {
   counter += 1;
   const raw = overrides.raw ?? JSON.stringify({ version: 1, seq: counter });
-  const [layout] = await db
+  return one(
+    await db
     .insert(schema.layouts)
     .values({
       slug: `layout-${counter}`,
@@ -52,15 +55,14 @@ export async function insertLayout(
       carpetCount: 0,
       ...overrides,
     })
-    .returning();
-  return layout!;
+    .returning(),
+  );
 }
 
 export async function insertTag(db: AnyDatabase, name: string): Promise<schema.Tag> {
   const [existing] = await db.select().from(schema.tags).where(eq(schema.tags.name, name));
   if (existing) return existing;
-  const [tag] = await db.insert(schema.tags).values({ name }).returning();
-  return tag!;
+  return one(await db.insert(schema.tags).values({ name }).returning());
 }
 
 export async function tagLayout(db: AnyDatabase, layoutId: string, tagName: string): Promise<void> {

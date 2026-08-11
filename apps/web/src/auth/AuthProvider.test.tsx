@@ -1,7 +1,9 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider, useAuth } from './AuthContext';
+import { requestJson, requestUrl } from '../test/fetchStub';
+import { AuthProvider } from './AuthProvider';
+import { useAuth } from './authState';
 import { getStoredRefreshToken } from './storage';
 
 function authUser(overrides: Record<string, unknown> = {}) {
@@ -38,6 +40,65 @@ afterEach(() => {
   localStorage.clear();
 });
 
+describe('AuthProvider — the session bootstrap is deliberately not cancelled', () => {
+  // These two pin a decision, not a behaviour: the bootstrap uses its
+  // AbortController as a guard only and never hands the signal to a request.
+  // refreshTokens() rotates the refresh token server-side and
+  // consumeLoginCodeFromHash() has already spent a single-use code, so an
+  // abort would not undo a login — it would leave the browser holding a dead
+  // token, and the effect's catch reads any throw as "the session is over".
+  it('starts the refresh without a signal, so unmounting cannot cancel it', async () => {
+    localStorage.setItem('pixelindex_refresh_token', 'stored-refresh');
+    const inits: (RequestInit | undefined)[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        inits.push(init);
+        if (requestUrl(input).includes('/auth/refresh')) {
+          return Response.json({ accessToken: 'a', refreshToken: 'b', expiresInMs: 900_000 });
+        }
+        return Response.json(authUser());
+      }),
+    );
+
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'));
+
+    expect(inits.length).toBeGreaterThan(0);
+    for (const init of inits) expect(init?.signal ?? null).toBeNull();
+  });
+
+  it('leaves the stored refresh token alone when a request fails after unmount', async () => {
+    localStorage.setItem('pixelindex_refresh_token', 'stored-refresh');
+    // The refresh must actually REJECT, and only after the unmount: the
+    // effect's catch is where clearSession() lives, so a request that simply
+    // never answers would pass this test no matter what the catch did.
+    let failRefresh!: (reason: unknown) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((_resolve, reject) => {
+            failRefresh = reject;
+          }),
+      ),
+    );
+
+    const view = renderProbe();
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('loading'));
+    view.unmount();
+
+    failRefresh(new TypeError('Failed to fetch'));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // clearSession() must not have run — reaching it here would log out a user
+    // whose session is perfectly good.
+    expect(getStoredRefreshToken()).toBe('stored-refresh');
+  });
+});
+
 describe('AuthProvider — establishing a session on mount', () => {
   it('is anonymous when there is no stored refresh token and no login code', async () => {
     renderProbe();
@@ -50,7 +111,7 @@ describe('AuthProvider — establishing a session on mount', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = requestUrl(input);
         expect(url).toContain('/api/v1/auth/token');
         return Response.json({
           accessToken: 'access-1',
@@ -74,7 +135,7 @@ describe('AuthProvider — establishing a session on mount', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = requestUrl(input);
         calls.push(url);
         if (url.includes('/auth/refresh')) {
           return Response.json({ accessToken: 'access-2', refreshToken: 'rotated-refresh', expiresInMs: 900_000 });
@@ -110,9 +171,20 @@ describe('AuthProvider — login and logout', () => {
 
     const original = window.location;
     let assignedHref = '';
-    // jsdom's window.location cannot be reassigned directly; stub just the setter path this exercises.
+    // jsdom's window.location cannot be reassigned directly; stub just the
+    // setter path this exercises. Built field by field rather than spreading
+    // `original`: Location is a class instance, and spreading it would drop its
+    // prototype (assign, reload, replace) while looking like it had copied it.
     Object.defineProperty(window, 'location', {
-      value: { ...original, set href(value: string) { assignedHref = value; }, get href() { return assignedHref; } },
+      value: {
+        origin: original.origin,
+        set href(value: string) {
+          assignedHref = value;
+        },
+        get href() {
+          return assignedHref;
+        },
+      },
       writable: true,
     });
 
@@ -129,7 +201,7 @@ describe('AuthProvider — login and logout', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
+        const url = requestUrl(input);
         if (url.includes('/auth/token')) {
           return Response.json({
             accessToken: 'access-3',
@@ -139,7 +211,7 @@ describe('AuthProvider — login and logout', () => {
           });
         }
         if (url.includes('/auth/logout')) {
-          loggedOutWith.push(JSON.parse(String(init?.body)).refreshToken);
+          loggedOutWith.push(requestJson<{ refreshToken: string }>(init).refreshToken);
           return new Response(null, { status: 204 });
         }
         throw new Error(`unexpected fetch: ${url}`);
@@ -163,7 +235,7 @@ describe('AuthProvider — Discord capability freshness', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = requestUrl(input);
         if (url.includes('/auth/token')) {
           return Response.json({
             accessToken: 'focus-access',

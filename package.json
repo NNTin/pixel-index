@@ -26,12 +26,23 @@
     "//test": "The root suite covers tools/ only — see vitest.tools.config.mjs for why it is passed with --config; the workspaces then run their own.",
     "test": "vitest run --config vitest.tools.config.mjs && npm run test --workspaces --if-present",
     "pretypecheck": "npm run build:core",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "//lint": "One flat config at the repo root covers every workspace plus tools/ (see eslint.config.js), so this is a single eslint run rather than the --workspaces fan-out used by test/typecheck. The lint is type-aware, so it needs layout-core's dist for the same reason typecheck does.",
+    "prelint": "npm run build:core",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "eslint-plugin-simple-import-sort": "^14.0.0",
+    "globals": "^17.8.0",
     "jsdom": "^25.0.1",
     "mermaid": "11.12.0",
     "playwright": "^1.58.2",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.58.2",
     "vitest": "^4.1.10"
   }
 }

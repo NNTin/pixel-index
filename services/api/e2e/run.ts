@@ -15,9 +15,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+
 import { Client } from 'pg';
 
 import { signAccessToken } from '../src/auth/tokens.js';
+import type { SubmitLayoutBody } from '../src/layouts/responses.js';
+import type { MetaBody } from '../src/meta.js';
+import type { ListAdminUsersBody } from '../src/users/routes.js';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:18080';
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -25,6 +29,9 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!DATABASE_URL || !SESSION_SECRET) {
   throw new Error('DATABASE_URL and SESSION_SECRET are required — see e2e.sh');
 }
+// The narrowing above does not reach into the closures below, so bind the
+// checked value once rather than re-asserting it at each use.
+const sessionSecret: string = SESSION_SECRET;
 
 const db = new Client({ connectionString: DATABASE_URL });
 
@@ -39,9 +46,10 @@ async function createUser(
     `INSERT INTO users (discord_id, username, role) VALUES ($1, $1, $2) RETURNING id`,
     [discordId, role],
   );
-  const id = rows[0]!.id;
-  const accessToken = await signAccessToken({ sub: id, role }, SESSION_SECRET!, 15 * 60_000);
-  return { id, accessToken };
+  const created = rows[0];
+  assert(created, 'INSERT ... RETURNING id returned no row');
+  const accessToken = await signAccessToken({ sub: created.id, role }, sessionSecret, 15 * 60_000);
+  return { id: created.id, accessToken };
 }
 
 /** Directly seeds a `deleted` layout — standing in for "a layout that existed and was withdrawn", without needing a submit+delete round trip for content the test never wants live. */
@@ -56,7 +64,17 @@ async function seedDeletedLayout(authorUserId: string, raw: string) {
   );
 }
 
-function api(path: string, init: RequestInit & { token?: string } = {}) {
+/**
+ * `headers` is narrowed to a plain record rather than fetch's own `HeadersInit`.
+ * That union also admits `string[][]` and `Headers`, and spreading either of
+ * those into an object literal produces array indices or nothing at all — so
+ * the header would be silently dropped instead of sent. Every call here passes
+ * a record; the type now says so.
+ */
+function api(
+  path: string,
+  init: Omit<RequestInit, 'headers'> & { token?: string; headers?: Record<string, string> } = {},
+) {
   const { token, headers, ...rest } = init;
   return fetch(`${API_URL}${path}`, {
     ...rest,
@@ -64,9 +82,15 @@ function api(path: string, init: RequestInit & { token?: string } = {}) {
   });
 }
 
-/** Response bodies here are the API's own JSON, not something worth typing twice for a throwaway script. */
-async function json(res: Response): Promise<any> {
-  return res.json();
+/**
+ * A response body, as the shape the caller expects.
+ *
+ * The `as` is unavoidable — this reads real JSON over real HTTP — but the type
+ * argument is the API's own exported response interface, so a field this script
+ * asserts on has to exist in the service that produced it.
+ */
+async function json<T>(res: Response): Promise<T> {
+  return (await res.json()) as T;
 }
 
 function layoutJson(cols: number, rows: number) {
@@ -101,7 +125,11 @@ async function main() {
   await waitUntilReady();
 
   await step('a real pinned upstream is reported at /api/v1/meta', async () => {
-    const meta = await json(await api("/api/v1/meta"));
+    const meta = await json<MetaBody>(await api('/api/v1/meta'));
+    // `version` is nullable in the pin, so say so before matching: assert.match
+    // on null throws a TypeError about argument types instead of reporting the
+    // thing that actually went wrong.
+    assert.ok(meta.pixelAgents.version, 'the image reported no upstream version');
     assert.match(meta.pixelAgents.version, /^\d+\.\d+\.\d+/);
 
     // The commit, from inside a real container — the one thing no unit test
@@ -139,7 +167,7 @@ async function main() {
       body: layoutJson(4, 4),
     });
     assert.equal(res.status, 201);
-    const body = await json(res);
+    const body = await json<SubmitLayoutBody>(res);
     assert.equal(body.previewReady, true);
     slug = body.slug;
 
@@ -268,10 +296,10 @@ async function main() {
 
     const directory = await api('/api/v1/admin/users?q=e2e-', { token: admin.accessToken });
     assert.equal(directory.status, 200);
-    const body = await json(directory);
+    const body = await json<ListAdminUsersBody>(directory);
     assert.ok(body.users.length >= 2);
-    assert.ok(body.users.every((user: Record<string, unknown>) => !('discordId' in user)));
-    assert.ok(body.users.every((user: Record<string, unknown>) => 'layoutCount' in user));
+    assert.ok(body.users.every((user) => !('discordId' in user)));
+    assert.ok(body.users.every((user) => 'layoutCount' in user));
   });
 
   await step('stale local role and block endpoints no longer exist', async () => {

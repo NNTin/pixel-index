@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom';
 
-import { usePreviewImage } from '../api/PreviewSourceContext';
+import { usePreviewImage } from '../api/previewSourceState';
 import type { LayoutSummary } from '../api/types';
 import { AuthorLink } from './AuthorLink';
-import { factsFor, FactsRow } from './FactsRow';
+import { factsFor } from './facts';
+import { FactsRow } from './FactsRow';
 import { PreviewImage } from './PreviewImage';
 
 export function LayoutCard({ layout }: { layout: LayoutSummary }) {

@@ -91,7 +91,7 @@ export type PreviewResolution =
 export interface PreviewSource {
   active: boolean;
   manifest: PreviewManifest | null;
-  resolve(slug: string): PreviewResolution;
+  resolve: (slug: string) => PreviewResolution;
 }
 
 export const INACTIVE: PreviewSource = {

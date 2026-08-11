@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider } from '../auth/AuthContext';
+import { AuthProvider } from '../auth/AuthProvider';
+import { requestJson, requestUrl } from '../test/fetchStub';
 import { ModerationPage } from './ModerationPage';
 
 beforeEach(() => {
@@ -53,7 +54,7 @@ function stubFetch(handleOther: (url: string, init?: RequestInit) => Response) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/auth/token')) return Response.json(AUTH_RESPONSE);
       return handleOther(url, init);
     }),
@@ -80,11 +81,62 @@ describe('ModerationPage', () => {
     expect(screen.getByText(/someone-else/)).toBeInTheDocument();
   });
 
+  it('does not let a slow response for the previous filter replace the current one', async () => {
+    // The race this page could lose before #44's cancellation work: switch the
+    // visibility filter and, if the abandoned request answers last, a moderator
+    // ends up acting on rows belonging to a filter the page is no longer
+    // showing.
+    //
+    // The stub resolves even after its signal fires, deliberately: that models
+    // the ordering the `.then` guard exists for — the response having already
+    // landed when the cleanup runs. A stub that rejected on abort would make
+    // the guard unreachable and the test would pass without it.
+    const pending = new Map<string, (response: Response) => void>();
+    stubFetch((url) => {
+      const filter = new URL(url, 'http://localhost').searchParams.get('visibility') ?? 'any';
+      return new Promise<Response>((resolve) => {
+        pending.set(filter, resolve);
+      }) as unknown as Response;
+    });
+
+    renderPage();
+    await waitFor(() => expect(pending.has('any')).toBe(true));
+
+    fireEvent.change(screen.getByLabelText(/visibility/i), { target: { value: 'hidden' } });
+    await waitFor(() => expect(pending.has('hidden')).toBe(true));
+
+    pending.get('hidden')?.(
+      Response.json({
+        schemaVersion: 1,
+        total: 1,
+        layouts: [ownerView({ slug: 'hidden-office', title: 'Hidden Office', visibility: 'hidden' })],
+        nextCursor: null,
+      }),
+    );
+    expect(await screen.findByText('Hidden Office')).toBeInTheDocument();
+
+    // The abandoned filter answers last and must be ignored.
+    pending.get('any')?.(
+      Response.json({
+        schemaVersion: 1,
+        total: 1,
+        layouts: [ownerView({ slug: 'stale-office', title: 'Stale Office' })],
+        nextCursor: null,
+      }),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByText('Hidden Office')).toBeInTheDocument();
+    expect(screen.queryByText('Stale Office')).not.toBeInTheDocument();
+  });
+
   it('sends the reason typed alongside a visibility change', async () => {
     let sentBody: { visibility?: string; reason?: string } = {};
     stubFetch((_url, init) => {
       if (init?.method === 'PATCH') {
-        sentBody = JSON.parse(String(init.body));
+        sentBody = requestJson<typeof sentBody>(init);
         return Response.json(ownerView({ visibility: 'hidden', visibilityReason: sentBody.reason }));
       }
       return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });
@@ -93,9 +145,12 @@ describe('ModerationPage', () => {
     await screen.findByText('Reported Office');
 
     const applyButton = screen.getByRole('button', { name: 'Apply' });
-    // Two comboboxes exist: the page-level visibility filter, and this
-    // row's own visibility select — the row's is the second.
-    const rowVisibilitySelect = screen.getAllByRole('combobox')[1]!;
+    // Scoped to the row rather than indexed out of every combobox on the page:
+    // the page-level visibility filter is also one, and `getAllByRole(...)[1]`
+    // silently follows whichever order the DOM happens to be in.
+    const row = applyButton.closest('li, tr, form, div[data-layout]') ?? applyButton.parentElement;
+    assert(row instanceof HTMLElement, 'the Apply button has no containing row');
+    const rowVisibilitySelect = within(row).getByRole('combobox');
     fireEvent.change(rowVisibilitySelect, { target: { value: 'hidden' } });
     fireEvent.change(screen.getByPlaceholderText(/Reason/), { target: { value: 'inappropriate content' } });
     fireEvent.click(applyButton);

@@ -38,6 +38,43 @@ function renderPreview() {
   );
 }
 
+/**
+ * Agent matchers by id. Two of them, because the distinction matters: `contains`
+ * tolerates other agents alongside these, `exactly` does not.
+ *
+ * They return `unknown` because `expect.arrayContaining` and
+ * `expect.objectContaining` are both typed `any`, and used inline that `any`
+ * spreads through the whole expected message.
+ */
+const agents = {
+  contains: (...ids: number[]): unknown => {
+    const matcher: unknown = expect.arrayContaining(agents.exactly(...ids));
+    return matcher;
+  },
+  exactly: (...ids: number[]): unknown[] =>
+    ids.map((id): unknown => {
+      const matcher: unknown = expect.objectContaining({ id });
+      return matcher;
+    }),
+};
+
+/**
+ * The window inside the live office's iframe — both the postMessage target and
+ * the `source` the component checks incoming messages against. Narrowed by
+ * `instanceof` and an explicit throw rather than asserted with `as`/`!`: if the
+ * component ever stops rendering an iframe under that title, this fails with a
+ * sentence saying so instead of a TypeError several lines later.
+ */
+function liveOfficeWindow(): Window {
+  const iframe = screen.getByTitle('Test Office live Pixel Agents office');
+  if (!(iframe instanceof HTMLIFrameElement)) {
+    throw new Error('the live office preview did not render an iframe');
+  }
+  const frameWindow = iframe.contentWindow;
+  if (!frameWindow) throw new Error('the live office iframe has no contentWindow');
+  return frameWindow;
+}
+
 afterEach(() => localStorage.clear());
 
 describe('LiveOfficePreview', () => {
@@ -81,15 +118,13 @@ describe('LiveOfficePreview', () => {
 
   it('sends the layout after readiness and accepts agent removal from the viewer', async () => {
     renderPreview();
-    const iframe = screen.getByTitle(
-      'Test Office live Pixel Agents office',
-    ) as HTMLIFrameElement;
-    const postMessage = vi.spyOn(iframe.contentWindow!, 'postMessage').mockImplementation(() => {});
+    const frameWindow = liveOfficeWindow();
+    const postMessage = vi.spyOn(frameWindow, 'postMessage').mockReturnValue(undefined);
 
     fireEvent(
       window,
       new MessageEvent('message', {
-        source: iframe.contentWindow,
+        source: frameWindow,
         origin: window.location.origin,
         data: { channel: LIVE_OFFICE_CHANNEL, type: 'ready' },
       }),
@@ -100,7 +135,7 @@ describe('LiveOfficePreview', () => {
         expect.objectContaining({
           channel: LIVE_OFFICE_CHANNEL,
           type: 'render',
-          agents: expect.arrayContaining([expect.objectContaining({ id: 1 })]),
+          agents: agents.contains(1),
         }),
         window.location.origin,
       ),
@@ -109,7 +144,7 @@ describe('LiveOfficePreview', () => {
     fireEvent(
       window,
       new MessageEvent('message', {
-        source: iframe.contentWindow,
+        source: frameWindow,
         origin: window.location.origin,
         data: { channel: LIVE_OFFICE_CHANNEL, type: 'remove-agent', id: 1 },
       }),
@@ -119,7 +154,7 @@ describe('LiveOfficePreview', () => {
     await waitFor(() =>
       expect(postMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          agents: [expect.objectContaining({ id: 2 }), expect.objectContaining({ id: 3 })],
+          agents: agents.exactly(2, 3),
         }),
         window.location.origin,
       ),

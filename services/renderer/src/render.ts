@@ -9,8 +9,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { readJsonOrNull, upstreamAssetsDir, type Layout } from '@pixel-index/layout-core';
-import { chromium, type Browser } from 'playwright';
+import { type Layout, readJsonOrNull, upstreamAssetsDir } from '@pixel-index/layout-core';
+import { type Browser, chromium } from 'playwright';
 
 import type { DevServer } from './devServer.js';
 
@@ -126,14 +126,19 @@ export class Renderer {
 
     const release = await this.gate.acquire();
     try {
-      return await withTimeout(this.renderOnce(layout, scale), timeoutMs);
+      return await withTimeout(this.renderOnce(this.browser, layout, scale), timeoutMs);
     } finally {
       release();
     }
   }
 
-  private async renderOnce(layout: Layout, scale: number): Promise<Buffer> {
-    const browser = this.browser!;
+  /**
+   * Takes the browser rather than reading `this.browser` again. `render()`
+   * checks it on the line above, but narrowing does not cross a method
+   * boundary — correctly, because `close()` could null the field in between.
+   * Passing it pins the instance for the whole render.
+   */
+  private async renderOnce(browser: Browser, layout: Layout, scale: number): Promise<Buffer> {
     const width = (layout.cols + MARGIN_TILES * 2) * TILE_SIZE * ZOOM;
     const height = (layout.rows + MARGIN_TILES * 2) * TILE_SIZE * ZOOM;
 
@@ -146,7 +151,7 @@ export class Renderer {
       // Turn on upstream's test hooks so we can wait on real render state
       // instead of sleeping and hoping.
       await context.addInitScript(() => {
-        (window as unknown as Record<string, unknown>).__PIXEL_AGENTS_E2E = true;
+        window.__PIXEL_AGENTS_E2E = true;
       });
       const page = await context.newPage();
 
@@ -166,23 +171,19 @@ export class Renderer {
       // The browser mock decodes every PNG in-page; the hooks appear once the
       // app has mounted.
       await page.waitForFunction(
-        () =>
-          typeof (window as unknown as { __pixelAgentsTestHooks?: { getFurnitureCount?: unknown } })
-            .__pixelAgentsTestHooks?.getFurnitureCount === 'function',
+        () => typeof window.__pixelAgentsTestHooks?.getFurnitureCount === 'function',
         null,
         { timeout: HOOKS_TIMEOUT_MS },
       );
 
       // Wait for the office to actually hold this layout's furniture, so the
       // screenshot can never catch an empty or half-built office.
-      const expected = layout.furniture?.length ?? 0;
+      // `layout` is a validated Layout by the time it reaches here (server.ts
+      // and the harness both validate before casting), so `furniture` is
+      // present — no defensive `?.` pretending otherwise.
+      const expected = layout.furniture.length;
       await page.waitForFunction(
-        (count) =>
-          (
-            window as unknown as {
-              __pixelAgentsTestHooks?: { getFurnitureCount?: () => number };
-            }
-          ).__pixelAgentsTestHooks?.getFurnitureCount?.() === count,
+        (count) => window.__pixelAgentsTestHooks?.getFurnitureCount?.() === count,
         expected,
         { timeout: FURNITURE_TIMEOUT_MS },
       );

@@ -4,12 +4,13 @@ import type { FastifyRequest } from 'fastify';
 
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { requireAuth, type Role } from './context.js';
 import {
-  discordAvatarUrl,
   DiscordApiError,
+  discordAvatarUrl,
   fetchDiscordGuildMember,
 } from './discord.js';
 import { discardDiscordGrant, usableDiscordAccessToken } from './discordGrant.js';
@@ -44,12 +45,13 @@ async function updateCachedUser(
   user: schema.User,
   values: Partial<schema.NewUser>,
 ): Promise<schema.User> {
-  const [updated] = await db
-    .update(schema.users)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(schema.users.id, user.id))
-    .returning();
-  return updated!;
+  return one(
+    await db
+      .update(schema.users)
+      .set({ ...values, updatedAt: new Date() })
+      .where(eq(schema.users.id, user.id))
+      .returning(),
+  );
 }
 
 async function reauthorizationRequired(
@@ -97,8 +99,8 @@ export async function resolveCapability(
       guild.oauthTokenEncryptionKey,
       { now },
     );
-  } catch (error) {
-    throw discordUnavailable(error);
+  } catch {
+    throw discordUnavailable();
   }
   if (token.status === 'reauthorization_required') {
     return reauthorizationRequired(db, user);
@@ -137,8 +139,8 @@ export async function resolveCapability(
           guild.oauthTokenEncryptionKey,
           { forceRefresh: true, now },
         );
-      } catch (error) {
-        throw discordUnavailable(error);
+      } catch {
+        throw discordUnavailable();
       }
       if (refreshed.status === 'reauthorization_required') {
         return reauthorizationRequired(db, user);
@@ -165,10 +167,10 @@ export async function resolveCapability(
           await discardDiscordGrant(db, user.id);
           return reauthorizationRequired(db, user);
         }
-        throw discordUnavailable(retryError);
+        throw discordUnavailable();
       }
     } else {
-      throw discordUnavailable(firstError);
+      throw discordUnavailable();
     }
   }
 
@@ -190,7 +192,13 @@ export async function resolveCapability(
   return { user: current, submission: { allowed: true, reason: null } };
 }
 
-function discordUnavailable(error: unknown): ApiError {
+/**
+ * Takes no argument on purpose: the caught error never reaches the client. A
+ * 503 here means "we could not ask Discord", and echoing Discord's own error
+ * text (or a token in it) into a public response body is not something a
+ * caller needs or should get.
+ */
+function discordUnavailable(): ApiError {
   return new ApiError(
     503,
     'discord_unavailable',
