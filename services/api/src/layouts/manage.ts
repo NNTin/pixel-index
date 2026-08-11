@@ -13,7 +13,7 @@
  * thread on issue #10 for why.
  */
 
-import { type Layout, layoutStats, sha256 } from '@pixel-index/layout-core';
+import { type Layout, layoutStats, sha256, SLUG_RE, validateSlug } from '@pixel-index/layout-core';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { FromSchema } from 'json-schema-to-ts';
@@ -31,6 +31,7 @@ import { recordModerationAction } from '../moderation/audit.js';
 import { writeRateLimitConfig } from '../rateLimit.js';
 import { requestPreview } from '../renderer/client.js';
 import {
+  isUniqueViolation,
   MAX_DESCRIPTION_LENGTH,
   MAX_TAGS,
   MAX_TITLE_LENGTH,
@@ -46,6 +47,7 @@ import {
 } from './query.js';
 import { slugParamsSchema } from './schemas.js';
 import { toOwnerView } from './serialize.js';
+import { isSlugReserved } from './slug.js';
 import type { UpstreamValidator } from './upstreamValidator.js';
 
 export interface ManageRoutesDeps {
@@ -58,6 +60,10 @@ export interface ManageRoutesDeps {
 const MODERATOR_VISIBILITIES = ['public', 'hidden', 'removed'] as const;
 type ModeratorVisibility = (typeof MODERATOR_VISIBILITIES)[number];
 
+// A vanity slug is still a URL segment, not free text — same practical bound
+// as a title, even though (#29) it is no longer derived from one.
+const MAX_SLUG_LENGTH = 60;
+
 const patchBodySchema = {
   type: 'object',
   additionalProperties: false,
@@ -66,6 +72,10 @@ const patchBodySchema = {
     description: { type: 'string', maxLength: MAX_DESCRIPTION_LENGTH },
     tags: { type: 'array', items: { type: 'string' }, maxItems: MAX_TAGS },
     visibility: { type: 'string', enum: MODERATOR_VISIBILITIES },
+    // Moderator-only (#29) — see the `slug` handling below. Format-checked
+    // here for a fast 400; `validateSlug` (shared with layout-core) is the
+    // actual source of truth and runs again in the handler.
+    slug: { type: 'string', minLength: 1, maxLength: MAX_SLUG_LENGTH, pattern: SLUG_RE.source },
     reason: { type: 'string', minLength: 1, maxLength: 300 },
   },
 } as const;
@@ -112,13 +122,55 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       if (body.visibility !== undefined && !isModerator) {
         throw ApiError.forbidden("Only a moderator can change a layout's visibility.");
       }
-      // Metadata on someone ELSE's layout, or any visibility change, is
+      // A vanity slug is a privilege granted by staff, never something even
+      // the owner of the layout can pick for themselves (#29) — same rule,
+      // same message shape as the visibility check above.
+      if (body.slug !== undefined && !isModerator) {
+        throw ApiError.forbidden("Only a moderator can change a layout's slug.");
+      }
+
+      // A no-op resubmission of the layout's own current slug (e.g. an
+      // untouched form field) is not a rename — do not demand a reason or
+      // write an audit entry for a change that never happened. Narrowed to a
+      // plain string-or-null, rather than testing `body.slug` again below,
+      // so nothing downstream needs a non-null assertion to use it.
+      const newSlug = body.slug !== undefined && body.slug !== layout.slug ? body.slug : null;
+      const slugChanged = newSlug !== null;
+
+      // Metadata on someone ELSE's layout, or any visibility/slug change, is
       // moderation — "no silent moderation" (#10) means it needs a reason.
       // An owner editing their own needs none; nobody has to justify their
       // own choices to themselves.
-      const actingAsModerator = !isOwner || body.visibility !== undefined;
+      const actingAsModerator = !isOwner || body.visibility !== undefined || slugChanged;
       if (actingAsModerator && !body.reason) {
         throw ApiError.badRequest('A reason is required for this change.');
+      }
+
+      if (newSlug !== null) {
+        // Redundant with the schema's `pattern`, but the source of truth
+        // shared with layout-core rather than a second regex that could drift.
+        const slugValidation = validateSlug(newSlug);
+        if (!slugValidation.valid) throw ApiError.validation(slugValidation.issues);
+
+        // An exact rejection, never a silent `-2` suffix (that is
+        // generateUniqueSlug's behaviour for an auto-generated slug, not for
+        // a moderator's deliberately chosen string) — a moderator typing a
+        // vanity slug expects that exact string or a clear error.
+        //
+        // The old slug is not freed for reuse: it is retired into
+        // `retired_slugs` below, alongside the rename, so it stays reserved
+        // forever exactly like a removed/deleted layout's slug already does.
+        // `isSlugReserved` checks both currently-active slugs and that
+        // retired history, so a moderator cannot vanity-rename a layout onto
+        // a string some OTHER layout used to answer to either. Nothing
+        // currently holding the old URL is redirected to the new one — #29's
+        // request reads as a same-day, pre-share correction, not a
+        // durable-link migration, and a freshly random-slugged layout has had
+        // ~no opportunity to be shared before a moderator gives it a vanity
+        // slug. See the PR description if that assumption ever stops holding.
+        if (await isSlugReserved(db, newSlug)) {
+          throw ApiError.conflict(`The slug "${newSlug}" is already in use.`);
+        }
       }
 
       const tags = body.tags !== undefined ? validateTagNames(body.tags) : undefined;
@@ -127,6 +179,7 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
         title: layout.title,
         description: layout.description,
         visibility: layout.visibility,
+        slug: layout.slug,
       };
       const columns: Partial<schema.NewLayout> = {};
       if (body.title !== undefined) columns.title = body.title;
@@ -137,45 +190,66 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
         columns.visibilityChangedAt = new Date();
         columns.visibilityChangedBy = user.id;
       }
+      if (newSlug !== null) columns.slug = newSlug;
 
-      const action = body.visibility
-        ? visibilityAuditAction(layout.visibility, body.visibility)
-        : isOwner
-          ? 'layout.update'
-          : 'layout.moderate_edit';
+      const action = slugChanged
+        ? 'layout.rename_slug'
+        : body.visibility
+          ? visibilityAuditAction(layout.visibility, body.visibility)
+          : isOwner
+            ? 'layout.update'
+            : 'layout.moderate_edit';
 
-      const updated = await db.transaction(async (tx: AnyDatabase) => {
-        // One row binding rather than a one-element array: the `: [layout]`
-        // branch only existed so both arms could be indexed the same way, and
-        // indexing was what needed the assertion.
-        const row =
-          Object.keys(columns).length > 0
-            ? one(
-                await tx
-                  .update(schema.layouts)
-                  .set(columns)
-                  .where(eq(schema.layouts.id, layout.id))
-                  .returning(),
-              )
-            : layout;
-        if (tags !== undefined) await replaceTags(tx, layout.id, tags);
+      let updated: schema.Layout;
+      try {
+        updated = await db.transaction(async (tx: AnyDatabase) => {
+          // One row binding rather than a one-element array: the `: [layout]`
+          // branch only existed so both arms could be indexed the same way, and
+          // indexing was what needed the assertion.
+          const row =
+            Object.keys(columns).length > 0
+              ? one(
+                  await tx
+                    .update(schema.layouts)
+                    .set(columns)
+                    .where(eq(schema.layouts.id, layout.id))
+                    .returning(),
+                )
+              : layout;
+          if (tags !== undefined) await replaceTags(tx, layout.id, tags);
+          // Retire the OLD slug in the same transaction as the rename that
+          // vacates it — either both happen or neither does, so the "never
+          // reused" invariant can't be defeated by a crash between the two.
+          if (newSlug !== null) {
+            await tx.insert(schema.retiredSlugs).values({ slug: layout.slug, layoutId: layout.id });
+          }
 
-        await recordModerationAction(tx, {
-          actorUserId: user.id,
-          actorLabel: user.username,
-          action,
-          targetType: 'layout',
-          targetId: layout.id,
-          reason: actingAsModerator ? (body.reason ?? null) : null,
-          before,
-          after: {
-            title: row.title,
-            description: row.description,
-            visibility: row.visibility,
-          },
+          await recordModerationAction(tx, {
+            actorUserId: user.id,
+            actorLabel: user.username,
+            action,
+            targetType: 'layout',
+            targetId: layout.id,
+            reason: actingAsModerator ? (body.reason ?? null) : null,
+            before,
+            after: {
+              title: row.title,
+              description: row.description,
+              visibility: row.visibility,
+              slug: row.slug,
+            },
+          });
+          return row;
         });
-        return row;
-      });
+      } catch (error) {
+        // The pre-check above closes almost every window, but a concurrent
+        // moderator racing for the exact same vanity string is still
+        // possible — the unique index is the actual last word.
+        if (newSlug !== null && isUniqueViolation(error, 'layouts_slug_key')) {
+          throw ApiError.conflict(`The slug "${newSlug}" is already in use.`);
+        }
+        throw error;
+      }
 
       const [author, finalTags] = await Promise.all([
         authorForLayout(db, updated.authorUserId),

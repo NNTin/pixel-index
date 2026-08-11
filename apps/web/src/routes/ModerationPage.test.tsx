@@ -159,6 +159,73 @@ describe('ModerationPage', () => {
     await waitFor(() => expect(sentBody).toMatchObject({ visibility: 'hidden', reason: 'inappropriate content' }));
   });
 
+  it('shows the current slug in an editable field (#29)', async () => {
+    stubFetch(() =>
+      Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null }),
+    );
+    renderPage();
+    await screen.findByText('Reported Office');
+    expect(screen.getByLabelText('Slug')).toHaveValue('reported-office');
+  });
+
+  it('sends only the edited slug and the reason when the vanity slug alone changes', async () => {
+    let sentBody: { slug?: string; visibility?: string; reason?: string } = {};
+    stubFetch((_url, init) => {
+      if (init?.method === 'PATCH') {
+        sentBody = requestJson<typeof sentBody>(init);
+        return Response.json(ownerView({ slug: sentBody.slug }));
+      }
+      return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });
+    });
+    renderPage();
+    await screen.findByText('Reported Office');
+
+    fireEvent.change(screen.getByLabelText('Slug'), { target: { value: 'severance-office' } });
+    fireEvent.change(screen.getByPlaceholderText(/Reason/), { target: { value: 'vanity url granted' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() =>
+      expect(sentBody).toMatchObject({ slug: 'severance-office', reason: 'vanity url granted' }),
+    );
+    expect(sentBody.visibility).toBeUndefined();
+  });
+
+  it('enables Apply when only the slug changes, not just visibility', async () => {
+    stubFetch(() =>
+      Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null }),
+    );
+    renderPage();
+    await screen.findByText('Reported Office');
+
+    const applyButton = screen.getByRole('button', { name: 'Apply' });
+    expect(applyButton).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Slug'), { target: { value: 'severance-office' } });
+    expect(applyButton).not.toBeDisabled();
+  });
+
+  it('keeps the row addressable across a rename, keyed by the slug it had before saving', async () => {
+    let sentBody: { slug?: string; reason?: string } = {};
+    stubFetch((_url, init) => {
+      if (init?.method === 'PATCH') {
+        sentBody = requestJson<typeof sentBody>(init);
+        return Response.json(ownerView({ slug: sentBody.slug }));
+      }
+      return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });
+    });
+    renderPage();
+    await screen.findByText('Reported Office');
+
+    fireEvent.change(screen.getByLabelText('Slug'), { target: { value: 'severance-office' } });
+    fireEvent.change(screen.getByPlaceholderText(/Reason/), { target: { value: 'vanity url granted' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => expect(screen.getByLabelText('Slug')).toHaveValue('severance-office'));
+    // Exactly one row — the rename updated it in place rather than leaving a
+    // stale duplicate behind under the pre-rename slug.
+    expect(screen.getAllByLabelText('Slug')).toHaveLength(1);
+  });
+
   it('re-fetches when the visibility filter changes', async () => {
     let lastUrl = '';
     stubFetch((url) => {

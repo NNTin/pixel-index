@@ -153,6 +153,8 @@ export interface PatchLayoutBody {
   description?: string;
   tags?: string[];
   visibility?: 'public' | 'hidden' | 'removed';
+  /** Moderator-only vanity slug (#29) — see manage.ts's PATCH handler. */
+  slug?: string;
   reason?: string;
 }
 

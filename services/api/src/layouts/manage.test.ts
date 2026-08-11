@@ -201,6 +201,70 @@ describe('PATCH /api/v1/layouts/:slug — moderation', () => {
   });
 });
 
+describe('PATCH /api/v1/layouts/:slug — vanity slug (#29)', () => {
+  it('lets a moderator set a vanity slug with a reason', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(
+      layout.slug,
+      { slug: 'severance-office', reason: 'vanity url granted' },
+      modToken,
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json<OwnerLayoutView>().slug).toBe('severance-office');
+
+    const atNewSlug = await app.inject({ method: 'GET', url: '/api/v1/layouts/severance-office' });
+    expect(atNewSlug.statusCode).toBe(200);
+
+    const atOldSlug = await app.inject({ method: 'GET', url: `/api/v1/layouts/${layout.slug}` });
+    expect(atOldSlug.statusCode).toBe(404);
+  });
+
+  it('rejects an exact collision with a 409 rather than silently suffixing it', async () => {
+    await insertLayout(harness.db, { slug: 'taken-vanity-slug' });
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(layout.slug, { slug: 'taken-vanity-slug', reason: 'rename' }, modToken);
+    expect(response.statusCode).toBe(409);
+  });
+
+  it("refuses a non-moderator — even the layout's own owner — from setting a slug", async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const response = await patch(layout.slug, { slug: 'my-own-vanity-slug', reason: 'x' }, accessToken);
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('requires a reason for a slug change', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(layout.slug, { slug: 'no-reason-given' }, modToken);
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('rejects a slug that does not match the shared kebab-case format', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(layout.slug, { slug: 'Not Valid!', reason: 'x' }, modToken);
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('never frees the old slug — nothing can claim it back afterwards', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const renamed = await patch(layout.slug, { slug: 'new-vanity-name', reason: 'rename' }, modToken);
+    expect(renamed.statusCode).toBe(200);
+
+    const { accessToken: otherModToken } = await tokenFor({ role: 'moderator' });
+    const { layout: otherLayout } = await ownedLayout();
+    const reclaim = await patch(
+      otherLayout.slug,
+      { slug: layout.slug, reason: 'try to reuse the retired slug' },
+      otherModToken,
+    );
+    expect(reclaim.statusCode).toBe(409);
+  });
+});
+
 describe('PUT /api/v1/layouts/:slug/layout — owner replace', () => {
   it('is owner-only, even for a moderator', async () => {
     const { layout } = await ownedLayout();

@@ -49,7 +49,7 @@ src/layouts/routes.ts    GET /layouts, /layouts/:slug{,/download,/preview.png,/t
 src/renderer/client.ts   thin client for the renderer service (#4), used by preview routes
 
 src/layouts/submit.ts    POST /layouts — the whole submission pipeline
-src/layouts/slug.ts      title -> collision-safe, stable-once-assigned slug
+src/layouts/slug.ts      random, collision-safe, stable-once-assigned slug (#29 — not title-derived)
 src/layouts/metadata.ts  tag validation, length limits, shared by submit.ts and manage.ts
 src/layouts/upstreamValidator.ts  the layout-core validator, built once, shared by submit.ts and manage.ts
 src/layouts/manage.ts    PATCH/PUT/DELETE /layouts/:slug, GET /me/layouts — #9's edits, #10's moderation, same routes
@@ -456,18 +456,34 @@ state, so the very next viewer's request tries the renderer fresh no matter what
 happened here. The one thing this call buys, beyond the immediate `previewReady` signal,
 is a warm renderer cache by the time anyone looks.
 
-### Slugs are generated once, and stay
+### Slugs are random, not vanity, and stay
 
-Derived from the title (`slug.ts`): lowercased, accents stripped rather than dropped
-(`"Café"` → `cafe`), non-alphanumeric runs collapsed to one hyphen, truncated to 60
-characters. A collision appends `-2`, `-3`, … — checked against **every** existing slug
-regardless of visibility, because the unique index has no visibility filter (schema.ts):
-a moderator-removed layout still reserves its slug forever, the same reason dedupe checks
-every visibility too. The slug is never regenerated from a later title edit (#9) — it is
-a permanent, linkable, downloadable URL, and silently moving it under a link someone
-already shared would be a worse surprise than a slug that no longer matches a since-renamed
-title. A true race between two concurrent submissions computing the same slug before
-either commits is retried (up to 3 attempts) rather than surfaced as the caller's problem.
+Every submission gets a random, unpredictable slug (`slug.ts`): 10 lowercase hex
+characters from a CSPRNG, regardless of the submitter's role. **Not** derived from the
+title (#29) — a title-derived slug is a first-come-first-served vanity name, free for
+the taking by anyone fast enough to submit it, which is exactly the abuse #29 removed.
+Checked against **every** existing slug regardless of visibility, because the unique
+index has no visibility filter (schema.ts): a moderator-removed layout still reserves
+its slug forever, the same reason dedupe checks every visibility too. A true race
+between two concurrent submissions generating the same slug before either commits is
+retried (up to 3 attempts) rather than surfaced as the caller's problem.
+
+A moderator can still grant a vanity slug afterwards — `PATCH /api/v1/layouts/:slug`
+with `{ "slug": "…", "reason": "…" }` (manage.ts), moderator-only even for the layout's
+own owner, format-checked against layout-core's shared `SLUG_RE`, and rejected outright
+with a `409` on any collision rather than silently suffixed like an auto-generated
+slug would be. The slug is never regenerated from a later title edit (#9) either way —
+it is a permanent, linkable, downloadable URL, and silently moving it under a link
+someone already shared would be a worse surprise than a slug that no longer matches a
+since-renamed title.
+
+A vanity rename does not free the old slug: it is retired into `retired_slugs`
+(schema.ts) in the same transaction as the rename, so it stays reserved forever exactly
+like a removed/deleted layout's slug already does — nothing, ever, can claim it back.
+There is deliberately no redirect from the old slug to the new one. #29 reads as a
+same-day, pre-share correction (a moderator vanity-renaming a just-submitted layout that
+has had ~no chance to be shared under its random slug yet), not a durable-link migration,
+so the old URL simply 404s after the rename rather than forwarding anywhere.
 
 ### A boot-time tension this route shares with `/meta`, and resolves the same way
 
@@ -514,7 +530,7 @@ see "Automated end-to-end suite" further down.
 ## Editing, replacing, deleting and moderating a layout
 
 ```
-PATCH  /api/v1/layouts/:slug            edit title/description/tags, or (moderator) visibility
+PATCH  /api/v1/layouts/:slug            edit title/description/tags, or (moderator) visibility/slug (#29)
 PUT    /api/v1/layouts/:slug/layout     replace the layout.json content — owner-only
 DELETE /api/v1/layouts/:slug            withdraw — owner-only, idempotent
 GET    /api/v1/me/layouts               the caller's own layouts, every visibility
@@ -533,6 +549,8 @@ request is allowed to touch, checked once per request:
 
 - `visibility` is moderator-only, full stop — an owner can never set it (they get `DELETE`
   instead, a one-way trip to `deleted`).
+- `slug` is moderator-only too (#29), full stop — an owner can never set even their own
+  layout's slug. See "Vanity slugs" below.
 - A `reason` is required whenever the change is **not** the owner editing their own
   metadata — a visibility change, or anyone editing someone else's layout. Nobody has to
   justify a change to their own title to themselves; every other write is moderation and
@@ -547,6 +565,24 @@ request is allowed to touch, checked once per request:
 `deleted` (owner-only, via `DELETE`) is not reachable from `PATCH` at all — see
 schema.ts's visibility-state table for why hidden/removed and deleted are different
 things with different owners.
+
+### Vanity slugs are moderator-granted, not self-service (#29)
+
+Every submission is issued a random slug (see "Slugs are random, not vanity, and stay"
+above) — no one, regardless of role, can pick their own at submission time. A moderator
+can grant a memorable vanity slug afterwards through the same `PATCH` route: `{ "slug":
+"severance-office", "reason": "…" }`. Format-checked against layout-core's shared
+`SLUG_RE`, and an exact collision is a `409` — never a silent `-2` suffix, since a
+moderator typing a specific string expects that string or a clear rejection, not a
+surprise variant.
+
+The old slug is not freed for reuse. It is retired into `retired_slugs` (schema.ts) in
+the same transaction as the rename, and both random generation (`slug.ts`) and any later
+vanity-slug pick check that table as well as `layouts.slug` — so a slug, once issued, can
+never be reclaimed by a different layout, matching the existing "slug reuse is a quiet
+impersonation vector" rule for a removed/deleted layout. There is deliberately **no
+redirect** from the old slug to the new one; the old URL 404s after a rename. See
+`slug.ts` and `manage.ts` for the full reasoning.
 
 ### `PUT .../layout` stays owner-only, even for a moderator
 

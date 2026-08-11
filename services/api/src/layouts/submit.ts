@@ -159,7 +159,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
         // rather than surfaced, since it is not the caller's mistake to fix.
         let created: schema.Layout | undefined;
         for (let attempt = 0; attempt < 3 && !created; attempt += 1) {
-          const slug = await generateUniqueSlug(db, query.title);
+          const slug = await generateUniqueSlug(db);
           try {
             created = await db.transaction(async (tx: AnyDatabase) => {
               const row = one(

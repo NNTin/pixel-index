@@ -57,6 +57,13 @@
       "when": 1786470798512,
       "tag": "0007_add_seat_count",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786479143502,
+      "tag": "0008_vanity_slugs",
+      "breakpoints": true
     }
   ]
 }
