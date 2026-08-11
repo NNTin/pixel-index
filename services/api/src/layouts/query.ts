@@ -248,8 +248,9 @@ export async function* streamPublicLayouts(
       };
     }
 
-    if (batch.length < batchSize) return;
-    after = batch[batch.length - 1]!.id;
+    const lastRow = batch[batch.length - 1];
+    if (!lastRow || batch.length < batchSize) return;
+    after = lastRow.id;
   }
 }
 

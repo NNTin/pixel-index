@@ -126,10 +126,8 @@ const presetExceptions = {
    */
   '@typescript-eslint/array-type': ['error', { default: 'array' }],
 
-  // --- Turned on by later commits in this series, once their fixes land. ---
-  // Kept off here only so every commit is green; both entries are deleted
-  // before the branch is pushed.
-  '@typescript-eslint/no-non-null-assertion': 'off',
+  // --- Turned on by a later commit in this series, once its fixes land. ---
+  // Kept off here only so every commit is green; deleted before the push.
   '@typescript-eslint/require-await': 'off',
 };
 

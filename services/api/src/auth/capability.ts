@@ -4,6 +4,7 @@ import type { FastifyRequest } from 'fastify';
 
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { requireAuth, type Role } from './context.js';
@@ -44,12 +45,13 @@ async function updateCachedUser(
   user: schema.User,
   values: Partial<schema.NewUser>,
 ): Promise<schema.User> {
-  const [updated] = await db
-    .update(schema.users)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(schema.users.id, user.id))
-    .returning();
-  return updated!;
+  return one(
+    await db
+      .update(schema.users)
+      .set({ ...values, updatedAt: new Date() })
+      .where(eq(schema.users.id, user.id))
+      .returning(),
+  );
 }
 
 async function reauthorizationRequired(

@@ -1,7 +1,7 @@
 import { Ajv } from 'ajv';
 import addFormatsExport from 'ajv-formats';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import type { EnvelopeBody } from '../errors.js';
@@ -247,8 +247,9 @@ describe('GET /api/v1/layouts/:slug/preview.png', () => {
     expect(response.rawPayload.subarray(0, 8)).toEqual(PNG_MAGIC);
     expect(response.headers.etag).toBe('"fake-1"');
 
-    const [, init] = fetchSpy.mock.calls[0]!;
-    expect(parseRenderRequest(init).scale).toBe(1);
+    const firstCall = fetchSpy.mock.calls[0];
+    assert(firstCall, 'the renderer was never called');
+    expect(parseRenderRequest(firstCall[1]).scale).toBe(1);
   });
 
   it('is a 404 for a hidden layout and never calls the renderer at all', async () => {
@@ -309,8 +310,9 @@ describe('GET /api/v1/layouts/:slug/thumbnail.png', () => {
     await insertLayout(harness.db, { slug: 'route-thumbnail' });
 
     await app.inject({ method: 'GET', url: '/api/v1/layouts/route-thumbnail/thumbnail.png' });
-    const [, init] = fetchSpy.mock.calls[0]!;
-    expect(parseRenderRequest(init).scale).toBe(1);
+    const firstCall = fetchSpy.mock.calls[0];
+    assert(firstCall, 'the renderer was never called');
+    expect(parseRenderRequest(firstCall[1]).scale).toBe(1);
   });
 });
 

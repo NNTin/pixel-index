@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProvider } from '../auth/AuthProvider';
 import { requestJson, requestUrl } from '../test/fetchStub';
@@ -145,9 +145,12 @@ describe('ModerationPage', () => {
     await screen.findByText('Reported Office');
 
     const applyButton = screen.getByRole('button', { name: 'Apply' });
-    // Two comboboxes exist: the page-level visibility filter, and this
-    // row's own visibility select — the row's is the second.
-    const rowVisibilitySelect = screen.getAllByRole('combobox')[1]!;
+    // Scoped to the row rather than indexed out of every combobox on the page:
+    // the page-level visibility filter is also one, and `getAllByRole(...)[1]`
+    // silently follows whichever order the DOM happens to be in.
+    const row = applyButton.closest('li, tr, form, div[data-layout]') ?? applyButton.parentElement;
+    assert(row instanceof HTMLElement, 'the Apply button has no containing row');
+    const rowVisibilitySelect = within(row).getByRole('combobox');
     fireEvent.change(rowVisibilitySelect, { target: { value: 'hidden' } });
     fireEvent.change(screen.getByPlaceholderText(/Reason/), { target: { value: 'inappropriate content' } });
     fireEvent.click(applyButton);

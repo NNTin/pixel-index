@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SYSTEM_USER_ID } from './constants.js';
+import { one } from './rows.js';
 import * as schema from './schema.js';
 import { seedIfEmpty } from './seed.js';
 import { createTestDatabase, type Harness } from './test-support/harness.js';
@@ -84,9 +85,9 @@ describe('seedIfEmpty', () => {
 
     await seedIfEmpty(db(), dir);
 
-    const [row] = await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-attrib'));
-    expect(row!.authorUserId).toBe(SYSTEM_USER_ID);
-    expect(row!.authorDisplay).toBe('pablodelucca');
+    const row = one(await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-attrib')));
+    expect(row.authorUserId).toBe(SYSTEM_USER_ID);
+    expect(row.authorDisplay).toBe('pablodelucca');
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -101,7 +102,8 @@ describe('seedIfEmpty', () => {
 
     await seedIfEmpty(db(), dir);
 
-    const [row] = await db()
+    const row = one(
+      await db()
       .select({
         authorUserId: schema.layouts.authorUserId,
         authorDisplay: schema.layouts.authorDisplay,
@@ -109,12 +111,13 @@ describe('seedIfEmpty', () => {
       })
       .from(schema.layouts)
       .innerJoin(schema.users, eq(schema.users.id, schema.layouts.authorUserId))
-      .where(eq(schema.layouts.slug, 'seed-linked'));
+      .where(eq(schema.layouts.slug, 'seed-linked')),
+    );
     expect(row).toMatchObject({
       discordId: '900000000000000010',
       authorDisplay: null,
     });
-    expect(row!.authorUserId).not.toBe(SYSTEM_USER_ID);
+    expect(row.authorUserId).not.toBe(SYSTEM_USER_ID);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -124,12 +127,12 @@ describe('seedIfEmpty', () => {
 
     await seedIfEmpty(db(), dir);
 
-    const [layout] = await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-tagged'));
+    const layout = one(await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-tagged')));
     const tagRows = await db()
       .select({ name: schema.tags.name })
       .from(schema.layoutTags)
       .innerJoin(schema.tags, eq(schema.tags.id, schema.layoutTags.tagId))
-      .where(eq(schema.layoutTags.layoutId, layout!.id));
+      .where(eq(schema.layoutTags.layoutId, layout.id));
     expect(tagRows.map((t) => t.name).sort()).toEqual(['cosy', 'small']);
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -140,11 +143,11 @@ describe('seedIfEmpty', () => {
 
     await seedIfEmpty(db(), dir);
 
-    const [layout] = await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-audited'));
+    const layout = one(await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-audited')));
     const [action] = await db()
       .select()
       .from(schema.moderationActions)
-      .where(eq(schema.moderationActions.targetId, layout!.id));
+      .where(eq(schema.moderationActions.targetId, layout.id));
     expect(action?.action).toBe('layout.create');
     expect(action?.actorLabel).toBe('seed');
     fs.rmSync(dir, { recursive: true, force: true });

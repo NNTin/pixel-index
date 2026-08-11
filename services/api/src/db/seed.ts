@@ -23,6 +23,7 @@ import { attachTags } from '../layouts/query.js';
 import { recordModerationAction } from '../moderation/audit.js';
 import { type AnyDatabase, createDatabase } from './client.js';
 import { SYSTEM_USER_ID } from './constants.js';
+import { one } from './rows.js';
 import * as schema from './schema.js';
 
 /** Resolves identically from `src/` under tsx and from `dist/` after a build — same trick as migrate.ts's MIGRATIONS_FOLDER. */
@@ -93,16 +94,19 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
         if (known) {
           authorUserId = known.id;
         } else {
-          const [created] = await tx
-            .insert(schema.users)
-            .values({ discordId: meta.authorDiscordId, username: meta.author })
-            .returning({ id: schema.users.id });
-          authorUserId = created!.id;
+          const created = one(
+            await tx
+              .insert(schema.users)
+              .values({ discordId: meta.authorDiscordId, username: meta.author })
+              .returning({ id: schema.users.id }),
+          );
+          authorUserId = created.id;
         }
         authorDisplay = null;
       }
 
-      const [row] = await tx
+      const row = one(
+        await tx
         .insert(schema.layouts)
         .values({
           slug,
@@ -122,14 +126,15 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
           layoutRevision: stats.layoutRevision,
           pixelAgentsVersion: pin.version,
         })
-        .returning();
-      await attachTags(tx, row!.id, tags);
+        .returning(),
+      );
+      await attachTags(tx, row.id, tags);
       await recordModerationAction(tx, {
         actorUserId: SYSTEM_USER_ID,
         actorLabel: 'seed',
         action: 'layout.create',
         targetType: 'layout',
-        targetId: row!.id,
+        targetId: row.id,
         after: { slug, title: meta.title, visibility: 'public' },
       });
     });

@@ -126,14 +126,19 @@ export class Renderer {
 
     const release = await this.gate.acquire();
     try {
-      return await withTimeout(this.renderOnce(layout, scale), timeoutMs);
+      return await withTimeout(this.renderOnce(this.browser, layout, scale), timeoutMs);
     } finally {
       release();
     }
   }
 
-  private async renderOnce(layout: Layout, scale: number): Promise<Buffer> {
-    const browser = this.browser!;
+  /**
+   * Takes the browser rather than reading `this.browser` again. `render()`
+   * checks it on the line above, but narrowing does not cross a method
+   * boundary — correctly, because `close()` could null the field in between.
+   * Passing it pins the instance for the whole render.
+   */
+  private async renderOnce(browser: Browser, layout: Layout, scale: number): Promise<Buffer> {
     const width = (layout.cols + MARGIN_TILES * 2) * TILE_SIZE * ZOOM;
     const height = (layout.rows + MARGIN_TILES * 2) * TILE_SIZE * ZOOM;
 

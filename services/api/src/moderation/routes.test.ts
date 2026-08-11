@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, assert, beforeAll, describe, expect, it } from 'vitest';
 
 import { signAccessToken } from '../auth/tokens.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
@@ -25,7 +25,11 @@ afterAll(async () => {
 async function tokenFor(overrides: Parameters<typeof insertUser>[1] = {}) {
   const user = await insertUser(harness.db, overrides);
   if (overrides.role === 'moderator' || overrides.role === 'admin') {
-    config.discordAdminIds.push(user.discordId!);
+    // Nullable by design — schema.ts allows it for the synthetic system user —
+    // and insertUser is free to be handed `discordId: null`. This helper never
+    // does, so the check is what says that rather than a bare `!`.
+    assert(user.discordId !== null, 'insertUser did not give the moderator a Discord id');
+    config.discordAdminIds.push(user.discordId);
   }
   const accessToken = await signAccessToken(
     { sub: user.id, role: user.role },

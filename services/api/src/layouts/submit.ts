@@ -18,6 +18,7 @@ import type { FastifyInstance } from 'fastify';
 import { requireSubmissionCapability } from '../auth/capability.js';
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { recordModerationAction } from '../moderation/audit.js';
@@ -155,7 +156,8 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
           const slug = await generateUniqueSlug(db, query.title);
           try {
             created = await db.transaction(async (tx: AnyDatabase) => {
-              const [row] = await tx
+              const row = one(
+                await tx
                 .insert(schema.layouts)
                 .values({
                   slug,
@@ -174,17 +176,18 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
                   layoutRevision: stats.layoutRevision,
                   pixelAgentsVersion: pin.version,
                 })
-                .returning();
-              await attachTags(tx, row!.id, tagNames);
+                .returning(),
+              );
+              await attachTags(tx, row.id, tagNames);
               await recordModerationAction(tx, {
                 actorUserId: user.id,
                 actorLabel: user.username,
                 action: 'layout.create',
                 targetType: 'layout',
-                targetId: row!.id,
+                targetId: row.id,
                 after: { slug, title: query.title, visibility: 'public' },
               });
-              return row!;
+              return row;
             });
           } catch (error) {
             if (isUniqueViolation(error, 'layouts_slug_key')) continue;

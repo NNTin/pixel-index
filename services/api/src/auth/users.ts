@@ -9,6 +9,7 @@
 import { eq } from 'drizzle-orm';
 
 import type { AnyDatabase } from '../db/client.js';
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import type { DiscordUser } from './discord.js';
 import { discordAvatarUrl } from './discord.js';
@@ -25,29 +26,31 @@ export async function upsertDiscordUser(
     .where(eq(schema.users.discordId, discordUser.id));
 
   if (existing) {
-    const [updated] = await db
-      .update(schema.users)
-      .set({
+    return one(
+      await db
+        .update(schema.users)
+        .set({
+          username: discordUser.username,
+          globalName: discordUser.globalName ?? null,
+          avatarUrl,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.users.id, existing.id))
+        .returning(),
+    );
+  }
+
+  return one(
+    await db
+      .insert(schema.users)
+      .values({
+        discordId: discordUser.id,
         username: discordUser.username,
         globalName: discordUser.globalName ?? null,
         avatarUrl,
-        updatedAt: new Date(),
       })
-      .where(eq(schema.users.id, existing.id))
-      .returning();
-    return updated!;
-  }
-
-  const [created] = await db
-    .insert(schema.users)
-    .values({
-      discordId: discordUser.id,
-      username: discordUser.username,
-      globalName: discordUser.globalName ?? null,
-      avatarUrl,
-    })
-    .returning();
-  return created!;
+      .returning(),
+  );
 }
 
 /**

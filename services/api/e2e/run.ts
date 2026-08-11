@@ -29,6 +29,9 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!DATABASE_URL || !SESSION_SECRET) {
   throw new Error('DATABASE_URL and SESSION_SECRET are required — see e2e.sh');
 }
+// The narrowing above does not reach into the closures below, so bind the
+// checked value once rather than re-asserting it at each use.
+const sessionSecret: string = SESSION_SECRET;
 
 const db = new Client({ connectionString: DATABASE_URL });
 
@@ -43,9 +46,10 @@ async function createUser(
     `INSERT INTO users (discord_id, username, role) VALUES ($1, $1, $2) RETURNING id`,
     [discordId, role],
   );
-  const id = rows[0]!.id;
-  const accessToken = await signAccessToken({ sub: id, role }, SESSION_SECRET!, 15 * 60_000);
-  return { id, accessToken };
+  const created = rows[0];
+  assert(created, 'INSERT ... RETURNING id returned no row');
+  const accessToken = await signAccessToken({ sub: created.id, role }, sessionSecret, 15 * 60_000);
+  return { id: created.id, accessToken };
 }
 
 /** Directly seeds a `deleted` layout — standing in for "a layout that existed and was withdrawn", without needing a submit+delete round trip for content the test never wants live. */

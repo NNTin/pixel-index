@@ -84,13 +84,14 @@ export function registerUserAdminRoutes(
 
       const hasMore = page.length > limit;
       const users = hasMore ? page.slice(0, limit) : page;
+      const lastUser = users.at(-1);
       return {
         users: users.map(({ globalName, guildNickname, capabilityCheckedAt, ...user }) => ({
           ...user,
           displayName: guildNickname ?? globalName ?? user.username,
           capabilityCheckedAt: capabilityCheckedAt?.toISOString() ?? null,
         })),
-        nextCursor: hasMore ? users.at(-1)!.id : null,
+        nextCursor: hasMore && lastUser ? lastUser.id : null,
       };
     },
   );

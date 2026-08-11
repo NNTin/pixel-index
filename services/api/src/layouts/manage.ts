@@ -22,6 +22,7 @@ import { requireAuth } from '../auth/context.js';
 import { getUserById } from '../auth/users.js';
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { recordModerationAction } from '../moderation/audit.js';
@@ -144,14 +145,19 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
           : 'layout.moderate_edit';
 
       const updated = await db.transaction(async (tx: AnyDatabase) => {
-        const rows =
+        // One row binding rather than a one-element array: the `: [layout]`
+        // branch only existed so both arms could be indexed the same way, and
+        // indexing was what needed the assertion.
+        const row =
           Object.keys(columns).length > 0
-            ? await tx
-                .update(schema.layouts)
-                .set(columns)
-                .where(eq(schema.layouts.id, layout.id))
-                .returning()
-            : [layout];
+            ? one(
+                await tx
+                  .update(schema.layouts)
+                  .set(columns)
+                  .where(eq(schema.layouts.id, layout.id))
+                  .returning(),
+              )
+            : layout;
         if (tags !== undefined) await replaceTags(tx, layout.id, tags);
 
         await recordModerationAction(tx, {
@@ -163,12 +169,12 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
           reason: actingAsModerator ? (body.reason ?? null) : null,
           before,
           after: {
-            title: rows[0]!.title,
-            description: rows[0]!.description,
-            visibility: rows[0]!.visibility,
+            title: row.title,
+            description: row.description,
+            visibility: row.visibility,
           },
         });
-        return rows[0]!;
+        return row;
       });
 
       const [author, finalTags] = await Promise.all([
@@ -253,7 +259,8 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
 
         const stats = layoutStats(parsedLayout as Layout);
         const updated = await db.transaction(async (tx: AnyDatabase) => {
-          const [row] = await tx
+          const row = one(
+            await tx
             .update(schema.layouts)
             .set({
               raw,
@@ -269,7 +276,8 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
               pixelAgentsVersion: pin.version,
             })
             .where(eq(schema.layouts.id, layout.id))
-            .returning();
+            .returning(),
+          );
           await recordModerationAction(tx, {
             actorUserId: user.id,
             actorLabel: user.username,
@@ -277,9 +285,9 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
             targetType: 'layout',
             targetId: layout.id,
             before: { sha256: layout.sha256, layoutRevision: layout.layoutRevision },
-            after: { sha256: row!.sha256, layoutRevision: row!.layoutRevision },
+            after: { sha256: row.sha256, layoutRevision: row.layoutRevision },
           });
-          return row!;
+          return row;
         });
 
         const preview = await requestPreview(config.rendererUrl, parsedLayout);

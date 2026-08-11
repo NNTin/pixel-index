@@ -121,11 +121,14 @@ describe('rendering', () => {
       const half = await activeRenderer().render(layout, { scale: 0.5 });
       const quarter = await activeRenderer().render(layout, { scale: 0.25 });
 
-      const dimensions = (png: Buffer) => [png.readUInt32BE(16), png.readUInt32BE(20)];
+      // Annotated as a tuple: inferred as `number[]`, destructuring it gives
+      // `number | undefined` under noUncheckedIndexedAccess, which is what the
+      // four assertions here used to answer.
+      const dimensions = (png: Buffer): [number, number] => [png.readUInt32BE(16), png.readUInt32BE(20)];
       const [fullWidth, fullHeight] = dimensions(full);
 
-      expect(dimensions(half)).toEqual([fullWidth! / 2, fullHeight! / 2]);
-      expect(dimensions(quarter)).toEqual([fullWidth! / 4, fullHeight! / 4]);
+      expect(dimensions(half)).toEqual([fullWidth / 2, fullHeight / 2]);
+      expect(dimensions(quarter)).toEqual([fullWidth / 4, fullHeight / 4]);
       expect(quarter.length).toBeLessThan(full.length);
       expect(quarter.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     },
