@@ -70,6 +70,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
       const furnitureRange = range(query.minFurniture, query.maxFurniture);
       const areasRange = range(query.minAreas, query.maxAreas);
       const petsRange = range(query.minPets, query.maxPets);
+      const seatsRange = range(query.minSeats, query.maxSeats);
 
       const { rows, total, nextCursor } = await listLayouts(db, {
         // No `?? 24` / `?? 'newest'`: the schema declares those defaults and
@@ -87,6 +88,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
           ...(furnitureRange ? { furniture: furnitureRange } : {}),
           ...(areasRange ? { areas: areasRange } : {}),
           ...(petsRange ? { pets: petsRange } : {}),
+          ...(seatsRange ? { seats: seatsRange } : {}),
         },
       });
 

@@ -27,6 +27,8 @@ describe('filtersFromSearchParams / filtersToSearchParams', () => {
       size: 'large',
       minFurniture: '10',
       maxFurniture: '50',
+      minSeats: '2',
+      maxSeats: '8',
       pets: 'has',
       tags: 'cosy,small',
       author: 'user-123',
@@ -75,6 +77,11 @@ describe('filtersToApiParams', () => {
     expect(params.tags).toBe('cosy,small');
   });
 
+  it('passes the seat range through as minSeats/maxSeats', () => {
+    const params = filtersToApiParams({ ...DEFAULT_FILTERS, minSeats: 2, maxSeats: 8 });
+    expect(params).toMatchObject({ minSeats: 2, maxSeats: 8 });
+  });
+
   it('omits every field that has no active filter', () => {
     const params = filtersToApiParams(DEFAULT_FILTERS);
     expect(params).toEqual({ sort: 'newest' });
@@ -86,6 +93,8 @@ describe('isDefault', () => {
     expect(isDefault(DEFAULT_FILTERS)).toBe(true);
     expect(isDefault({ ...DEFAULT_FILTERS, q: 'x' })).toBe(false);
     expect(isDefault({ ...DEFAULT_FILTERS, tags: ['x'] })).toBe(false);
+    expect(isDefault({ ...DEFAULT_FILTERS, minSeats: 1 })).toBe(false);
+    expect(isDefault({ ...DEFAULT_FILTERS, maxSeats: 1 })).toBe(false);
   });
 });
 
@@ -95,10 +104,17 @@ describe('describeActiveFilters', () => {
       ...DEFAULT_FILTERS,
       q: 'office',
       size: 'medium',
+      minSeats: 2,
       pets: 'has',
       tags: ['cosy'],
     });
-    expect(description).toEqual(['text "office"', 'size: medium', 'has pets', 'tags: cosy']);
+    expect(description).toEqual([
+      'text "office"',
+      'size: medium',
+      'seats: 2–∞',
+      'has pets',
+      'tags: cosy',
+    ]);
   });
 
   it('is empty when nothing is active', () => {

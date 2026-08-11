@@ -87,11 +87,12 @@ describe('Home', () => {
     expect(screen.getByText('Loading layouts…')).toBeInTheDocument();
     expect(await screen.findByText('Blue Office')).toBeInTheDocument();
     expect(screen.getByText('by someone')).toBeInTheDocument();
-    // The facts row carried over from tools/build-site.mjs: dims, furniture, areas, pets.
+    // The facts row carried over from tools/build-site.mjs: dims, furniture, areas, pets, seats.
     expect(screen.getByText('25×22')).toBeInTheDocument();
     expect(screen.getByText('59 furniture')).toBeInTheDocument();
     expect(screen.getByText('4 areas')).toBeInTheDocument();
     expect(screen.getByText('2 pets')).toBeInTheDocument();
+    expect(screen.getByText('3 seats')).toBeInTheDocument();
   });
 
   it('omits zero-valued facts (no "0 areas" clutter)', async () => {
@@ -99,7 +100,7 @@ describe('Home', () => {
       Response.json({
         schemaVersion: 1,
         total: 1,
-        layouts: [summary({ areas: 0, pets: 0 })],
+        layouts: [summary({ areas: 0, pets: 0, seats: 0 })],
         nextCursor: null,
       }),
     );
@@ -110,6 +111,7 @@ describe('Home', () => {
     // that would render for a nonzero fact instead.
     expect(screen.queryByText(/\d areas/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\d pets/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d seats/)).not.toBeInTheDocument();
   });
 
   it('shows an empty state when there are no layouts and no filters are active', async () => {

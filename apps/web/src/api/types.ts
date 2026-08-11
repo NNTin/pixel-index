@@ -70,6 +70,8 @@ export interface ListLayoutsParams {
   maxFurniture?: number;
   minPets?: number;
   maxPets?: number;
+  minSeats?: number;
+  maxSeats?: number;
 }
 
 export interface MetaResponse {

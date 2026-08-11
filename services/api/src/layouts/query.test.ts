@@ -177,6 +177,21 @@ describe('listLayouts — filters compose', () => {
     expect(rows.map((r) => r.slug)).not.toContain('furniture-below');
     expect(rows.map((r) => r.slug)).not.toContain('furniture-above');
   });
+
+  it('filters by seat count range, inclusive at both ends', async () => {
+    const exact = await insertLayout(harness.db, { slug: 'seats-exact', seatCount: 20 });
+    await insertLayout(harness.db, { slug: 'seats-below', seatCount: 19 });
+    await insertLayout(harness.db, { slug: 'seats-above', seatCount: 21 });
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { seats: { min: 20, max: 20 } },
+      sort: 'newest',
+      limit: 100,
+    });
+    expect(rows.map((r) => r.id)).toContain(exact.id);
+    expect(rows.map((r) => r.slug)).not.toContain('seats-below');
+    expect(rows.map((r) => r.slug)).not.toContain('seats-above');
+  });
 });
 
 describe('listLayouts — sorting', () => {

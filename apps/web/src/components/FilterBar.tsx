@@ -175,6 +175,41 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
             className={`w-16 ${inputClass}`}
           />
         </label>
+
+        <label className="flex items-center gap-1.5 text-sm text-muted">
+          Seats
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.minSeats ?? ''}
+            onChange={(event) =>
+              onChange({
+                ...filters,
+                minSeats: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+            placeholder="min"
+            aria-label="Minimum seat count"
+            className={`w-16 ${inputClass}`}
+          />
+          –
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.maxSeats ?? ''}
+            onChange={(event) =>
+              onChange({
+                ...filters,
+                maxSeats: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+            placeholder="max"
+            aria-label="Maximum seat count"
+            className={`w-16 ${inputClass}`}
+          />
+        </label>
       </div>
 
       {tags.length > 0 && (

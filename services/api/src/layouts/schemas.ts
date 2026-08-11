@@ -97,6 +97,8 @@ export const listLayoutsQuerySchema = {
     maxAreas: { type: 'integer', minimum: 0 },
     minPets: { type: 'integer', minimum: 0 },
     maxPets: { type: 'integer', minimum: 0 },
+    minSeats: { type: 'integer', minimum: 0 },
+    maxSeats: { type: 'integer', minimum: 0 },
   },
 } as const;
 

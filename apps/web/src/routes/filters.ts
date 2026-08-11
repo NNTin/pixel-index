@@ -29,6 +29,8 @@ export interface Filters {
   size: SizeBucket | null;
   minFurniture: number | null;
   maxFurniture: number | null;
+  minSeats: number | null;
+  maxSeats: number | null;
   pets: PetsFilter | null;
   tags: string[];
   author: string | null;
@@ -42,6 +44,8 @@ export const DEFAULT_FILTERS: Filters = {
   size: null,
   minFurniture: null,
   maxFurniture: null,
+  minSeats: null,
+  maxSeats: null,
   pets: null,
   tags: [],
   author: null,
@@ -53,6 +57,8 @@ export function filtersFromSearchParams(params: URLSearchParams): Filters {
   const pets = params.get('pets');
   const minFurniture = params.get('minFurniture');
   const maxFurniture = params.get('maxFurniture');
+  const minSeats = params.get('minSeats');
+  const maxSeats = params.get('maxSeats');
   return {
     q: params.get('q') ?? '',
     // Checked, not asserted. This was the one cast in this function, three
@@ -62,6 +68,8 @@ export function filtersFromSearchParams(params: URLSearchParams): Filters {
     size: size === 'small' || size === 'medium' || size === 'large' ? size : null,
     minFurniture: minFurniture !== null && minFurniture !== '' ? Number(minFurniture) : null,
     maxFurniture: maxFurniture !== null && maxFurniture !== '' ? Number(maxFurniture) : null,
+    minSeats: minSeats !== null && minSeats !== '' ? Number(minSeats) : null,
+    maxSeats: maxSeats !== null && maxSeats !== '' ? Number(maxSeats) : null,
     pets: pets === 'has' || pets === 'none' ? pets : null,
     tags: params.get('tags')?.split(',').filter((t) => t.length > 0) ?? [],
     author: params.get('author'),
@@ -76,6 +84,8 @@ export function filtersToSearchParams(filters: Filters): URLSearchParams {
   if (filters.size) params.set('size', filters.size);
   if (filters.minFurniture !== null) params.set('minFurniture', String(filters.minFurniture));
   if (filters.maxFurniture !== null) params.set('maxFurniture', String(filters.maxFurniture));
+  if (filters.minSeats !== null) params.set('minSeats', String(filters.minSeats));
+  if (filters.maxSeats !== null) params.set('maxSeats', String(filters.maxSeats));
   if (filters.pets) params.set('pets', filters.pets);
   if (filters.tags.length > 0) params.set('tags', filters.tags.join(','));
   if (filters.author) params.set('author', filters.author);
@@ -95,6 +105,8 @@ export function filtersToApiParams(filters: Filters): ListLayoutsParams {
     ...(sizeRange?.max !== undefined ? { maxCols: sizeRange.max, maxRows: sizeRange.max } : {}),
     ...(filters.minFurniture !== null ? { minFurniture: filters.minFurniture } : {}),
     ...(filters.maxFurniture !== null ? { maxFurniture: filters.maxFurniture } : {}),
+    ...(filters.minSeats !== null ? { minSeats: filters.minSeats } : {}),
+    ...(filters.maxSeats !== null ? { maxSeats: filters.maxSeats } : {}),
     ...(filters.pets === 'has' ? { minPets: 1 } : {}),
     ...(filters.pets === 'none' ? { maxPets: 0 } : {}),
   };
@@ -107,6 +119,8 @@ export function isDefault(filters: Filters): boolean {
     filters.size === null &&
     filters.minFurniture === null &&
     filters.maxFurniture === null &&
+    filters.minSeats === null &&
+    filters.maxSeats === null &&
     filters.pets === null &&
     filters.tags.length === 0 &&
     filters.author === null
@@ -120,6 +134,9 @@ export function describeActiveFilters(filters: Filters): string[] {
   if (filters.size) parts.push(`size: ${filters.size}`);
   if (filters.minFurniture !== null || filters.maxFurniture !== null) {
     parts.push(`furniture: ${filters.minFurniture ?? 0}–${filters.maxFurniture ?? '∞'}`);
+  }
+  if (filters.minSeats !== null || filters.maxSeats !== null) {
+    parts.push(`seats: ${filters.minSeats ?? 0}–${filters.maxSeats ?? '∞'}`);
   }
   if (filters.pets === 'has') parts.push('has pets');
   if (filters.pets === 'none') parts.push('no pets');
