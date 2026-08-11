@@ -424,6 +424,55 @@ curl -sL -o /dev/null -w '%{url_effective}\n' https://<user>.github.io/pixel-ind
 
 The same applies to any other redirect in front of the site.
 
+**6. GitHub — repository governance (#51), the repo owner must do this; I cannot.** This
+session's identity (`nntin-bot`) has `push` but not `admin` on this repo, and these are
+all repository-*Settings* changes — a bot making them unilaterally from an implementation
+PR would be an owner decision made without the owner. What #51 asks for and where it
+stands:
+
+*Already true — verify, don't reconfigure:*
+
+```bash
+gh api repos/NNTin/pixel-index --jq '{allow_merge_commit,allow_rebase_merge,allow_squash_merge}'
+# expect: false, false, true — merge commits and rebase merges are already off, so
+# Squash and Merge is already the only button available.
+```
+
+*Not yet true — squash commit title should be the PR title, not "commit or PR title":*
+
+```bash
+gh api repos/NNTin/pixel-index -X PATCH -f squash_merge_commit_title=PR_TITLE
+```
+
+`squash_merge_commit_title` is currently `COMMIT_OR_PR_TITLE`, which uses a single
+commit's own message as the squash title when a PR has exactly one commit, and only
+falls back to the PR title once a PR has more than one. A one-commit PR can therefore
+merge under a message that `pr-title.yml` never validated. `PR_TITLE` always uses the PR
+title — the one thing this issue's CI check actually checks — regardless of commit
+count.
+
+*Not yet true — no branch protection exists on `main` at all (a direct API check 404s),
+so `pr-title.yml` passing or failing changes nothing about whether a PR can merge:*
+
+```bash
+gh api repos/NNTin/pixel-index/branches/main/protection -X PUT --input - <<'EOF'
+{
+  "required_status_checks": {
+    "strict": true,
+    "checks": [{ "context": "Conventional Commit title" }]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null
+}
+EOF
+```
+
+`"Conventional Commit title"` is the `pr-title.yml` job's display name — it has to match
+exactly for GitHub to treat it as the same check. This is a minimal rule (just the one
+new required check, no required reviews); layer on more later from Settings → Branches
+if you want it, that's a separate decision from #51.
+
 ## What you're actually proxying
 
 Two origins, both plain HTTP inside the compose network:
