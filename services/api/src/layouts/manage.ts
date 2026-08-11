@@ -47,7 +47,7 @@ import {
 } from './query.js';
 import { slugParamsSchema } from './schemas.js';
 import { toOwnerView } from './serialize.js';
-import { isSlugReserved } from './slug.js';
+import { generateUniqueSlug } from './slug.js';
 import type { UpstreamValidator } from './upstreamValidator.js';
 
 export interface ManageRoutesDeps {
@@ -151,27 +151,11 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
         // shared with layout-core rather than a second regex that could drift.
         const slugValidation = validateSlug(newSlug);
         if (!slugValidation.valid) throw ApiError.validation(slugValidation.issues);
-
-        // An exact rejection, never a silent `-2` suffix (that is
-        // generateUniqueSlug's behaviour for an auto-generated slug, not for
-        // a moderator's deliberately chosen string) — a moderator typing a
-        // vanity slug expects that exact string or a clear error.
-        //
-        // The old slug is not freed for reuse: it is retired into
-        // `retired_slugs` below, alongside the rename, so it stays reserved
-        // forever exactly like a removed/deleted layout's slug already does.
-        // `isSlugReserved` checks both currently-active slugs and that
-        // retired history, so a moderator cannot vanity-rename a layout onto
-        // a string some OTHER layout used to answer to either. Nothing
-        // currently holding the old URL is redirected to the new one — #29's
-        // request reads as a same-day, pre-share correction, not a
-        // durable-link migration, and a freshly random-slugged layout has had
-        // ~no opportunity to be shared before a moderator gives it a vanity
-        // slug. See the PR description if that assumption ever stops holding.
-        if (await isSlugReserved(db, newSlug)) {
-          throw ApiError.conflict(`The slug "${newSlug}" is already in use.`);
-        }
       }
+      // The actual availability check — does anything currently hold
+      // `newSlug`, and if so is that holder still live? — happens inside the
+      // transaction below, alongside the eviction it may trigger. See there
+      // for why.
 
       const tags = body.tags !== undefined ? validateTagNames(body.tags) : undefined;
 
@@ -203,6 +187,52 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       let updated: schema.Layout;
       try {
         updated = await db.transaction(async (tx: AnyDatabase) => {
+          if (newSlug !== null) {
+            // Whoever currently holds `newSlug`, if anyone — the unique index
+            // (`layouts_slug_key`, schema.ts) is not visibility-aware, so a
+            // `removed`/`deleted` row still literally owns its slug string
+            // even though it is gone from every public/moderator listing.
+            const holder = await getLayoutBySlugAnyVisibility(tx, newSlug);
+            if (holder) {
+              if (holder.visibility === 'public' || holder.visibility === 'hidden') {
+                // Still live, or reversibly hidden and might come back — a
+                // moderator wanting THIS string has to pick a different one
+                // or free it up explicitly first. Never a silent `-2` suffix
+                // (that is generateUniqueSlug's behaviour for an
+                // auto-generated slug, not for a moderator's deliberately
+                // chosen string) — an exact rejection instead.
+                throw ApiError.conflict(`The slug "${newSlug}" is already in use.`);
+              }
+              // `removed`/`deleted`: this row cannot become live again under
+              // its current slug without a moderator's separate say-so (a
+              // `removed` restore does not touch `slug`), so it is not
+              // "in use" in any way a fresh claim needs to respect — #29's
+              // "reuse the same URL" case, where a newer version of a layout
+              // takes over the vanity slug a superseded one held. Evict the
+              // holder to a fresh random slug in THIS transaction, before
+              // claiming the string below, since two rows can never
+              // literally share a slug value even for an instant.
+              const evictedSlug = await generateUniqueSlug(tx);
+              await tx
+                .update(schema.layouts)
+                .set({ slug: evictedSlug })
+                .where(eq(schema.layouts.id, holder.id));
+              await recordModerationAction(tx, {
+                actorUserId: user.id,
+                actorLabel: user.username,
+                action: 'layout.rename_slug',
+                targetType: 'layout',
+                targetId: holder.id,
+                // `body.reason` is guaranteed non-empty here: `newSlug !== null`
+                // implies `slugChanged`, which forces `actingAsModerator` and
+                // the earlier reason check, above.
+                reason: `Slug reassigned automatically — "${newSlug}" was claimed by another layout. (${body.reason ?? ''})`,
+                before: { slug: holder.slug },
+                after: { slug: evictedSlug },
+              });
+            }
+          }
+
           // One row binding rather than a one-element array: the `: [layout]`
           // branch only existed so both arms could be indexed the same way, and
           // indexing was what needed the assertion.
@@ -217,12 +247,6 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
                 )
               : layout;
           if (tags !== undefined) await replaceTags(tx, layout.id, tags);
-          // Retire the OLD slug in the same transaction as the rename that
-          // vacates it — either both happen or neither does, so the "never
-          // reused" invariant can't be defeated by a crash between the two.
-          if (newSlug !== null) {
-            await tx.insert(schema.retiredSlugs).values({ slug: layout.slug, layoutId: layout.id });
-          }
 
           await recordModerationAction(tx, {
             actorUserId: user.id,
@@ -242,9 +266,9 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
           return row;
         });
       } catch (error) {
-        // The pre-check above closes almost every window, but a concurrent
-        // moderator racing for the exact same vanity string is still
-        // possible — the unique index is the actual last word.
+        // The in-transaction check above closes almost every window, but a
+        // concurrent moderator racing for the exact same vanity string is
+        // still possible — the unique index is the actual last word.
         if (newSlug !== null && isUniqueViolation(error, 'layouts_slug_key')) {
           throw ApiError.conflict(`The slug "${newSlug}" is already in use.`);
         }

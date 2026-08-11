@@ -49,7 +49,7 @@ src/layouts/routes.ts    GET /layouts, /layouts/:slug{,/download,/preview.png,/t
 src/renderer/client.ts   thin client for the renderer service (#4), used by preview routes
 
 src/layouts/submit.ts    POST /layouts — the whole submission pipeline
-src/layouts/slug.ts      random, collision-safe, stable-once-assigned slug (#29 — not title-derived)
+src/layouts/slug.ts      random, collision-safe submission slug (#29 — not title-derived)
 src/layouts/metadata.ts  tag validation, length limits, shared by submit.ts and manage.ts
 src/layouts/upstreamValidator.ts  the layout-core validator, built once, shared by submit.ts and manage.ts
 src/layouts/manage.ts    PATCH/PUT/DELETE /layouts/:slug, GET /me/layouts — #9's edits, #10's moderation, same routes
@@ -456,34 +456,35 @@ state, so the very next viewer's request tries the renderer fresh no matter what
 happened here. The one thing this call buys, beyond the immediate `previewReady` signal,
 is a warm renderer cache by the time anyone looks.
 
-### Slugs are random, not vanity, and stay
+### Slugs are random, not vanity — and freed the instant a layout stops holding them
 
 Every submission gets a random, unpredictable slug (`slug.ts`): 10 lowercase hex
 characters from a CSPRNG, regardless of the submitter's role. **Not** derived from the
 title (#29) — a title-derived slug is a first-come-first-served vanity name, free for
 the taking by anyone fast enough to submit it, which is exactly the abuse #29 removed.
-Checked against **every** existing slug regardless of visibility, because the unique
-index has no visibility filter (schema.ts): a moderator-removed layout still reserves
-its slug forever, the same reason dedupe checks every visibility too. A true race
-between two concurrent submissions generating the same slug before either commits is
-retried (up to 3 attempts) rather than surfaced as the caller's problem.
+A candidate is checked against `layouts.slug` regardless of visibility — a
+`removed`/`deleted` row still literally holds its slug value at rest, since the unique
+index (schema.ts) is not visibility-aware — and retried on the (astronomically rare)
+collision rather than stealing that row's slug; a manual vanity pick, unlike random
+generation, is willing to do that (see below). A true race between two concurrent
+submissions generating the same slug before either commits is retried (up to 3
+attempts) rather than surfaced as the caller's problem.
 
-A moderator can still grant a vanity slug afterwards — `PATCH /api/v1/layouts/:slug`
-with `{ "slug": "…", "reason": "…" }` (manage.ts), moderator-only even for the layout's
-own owner, format-checked against layout-core's shared `SLUG_RE`, and rejected outright
-with a `409` on any collision rather than silently suffixed like an auto-generated
-slug would be. The slug is never regenerated from a later title edit (#9) either way —
-it is a permanent, linkable, downloadable URL, and silently moving it under a link
-someone already shared would be a worse surprise than a slug that no longer matches a
-since-renamed title.
-
-A vanity rename does not free the old slug: it is retired into `retired_slugs`
-(schema.ts) in the same transaction as the rename, so it stays reserved forever exactly
-like a removed/deleted layout's slug already does — nothing, ever, can claim it back.
-There is deliberately no redirect from the old slug to the new one. #29 reads as a
-same-day, pre-share correction (a moderator vanity-renaming a just-submitted layout that
-has had ~no chance to be shared under its random slug yet), not a durable-link migration,
-so the old URL simply 404s after the rename rather than forwarding anywhere.
+A moderator can grant a vanity slug afterwards — `PATCH /api/v1/layouts/:slug` with
+`{ "slug": "…", "reason": "…" }` (manage.ts), moderator-only even for the layout's own
+owner, format-checked against layout-core's shared `SLUG_RE`. A slug currently held by a
+`public` or `hidden` layout is a hard `409` — no silent `-2` suffix like an
+auto-generated slug gets, since a moderator typing a specific string expects that string
+or a clear rejection. A slug held by a `removed`/`deleted` layout is **not** blocking:
+that row is evicted to a fresh random slug in the same transaction as the claim, and the
+requested string is handed to the new layout — #29's "reuse the same URL" case, where a
+newer version of a design takes over the vanity slug a now-dead earlier version held.
+Renaming away from a slug (vanity or not) frees it immediately for anyone, including the
+same layout renaming back to it later, once nothing else has claimed it meanwhile. The
+slug is never regenerated from a later title edit (#9) — it is a permanent, linkable,
+downloadable URL, and silently moving it under a link someone already shared would be a
+worse surprise than a slug that no longer matches a since-renamed title. There is no
+redirect from an evicted/renamed-away slug to wherever it ends up next; the old URL 404s.
 
 ### A boot-time tension this route shares with `/meta`, and resolves the same way
 
@@ -568,21 +569,32 @@ things with different owners.
 
 ### Vanity slugs are moderator-granted, not self-service (#29)
 
-Every submission is issued a random slug (see "Slugs are random, not vanity, and stay"
-above) — no one, regardless of role, can pick their own at submission time. A moderator
-can grant a memorable vanity slug afterwards through the same `PATCH` route: `{ "slug":
+Every submission is issued a random slug (see "Slugs are random, not vanity" above) —
+no one, regardless of role, can pick their own at submission time. A moderator can grant
+a memorable vanity slug afterwards through the same `PATCH` route: `{ "slug":
 "severance-office", "reason": "…" }`. Format-checked against layout-core's shared
-`SLUG_RE`, and an exact collision is a `409` — never a silent `-2` suffix, since a
-moderator typing a specific string expects that string or a clear rejection, not a
-surprise variant.
+`SLUG_RE`. Whether the string is available depends on who currently holds it
+(`manage.ts`, inside the same transaction as the rename):
 
-The old slug is not freed for reuse. It is retired into `retired_slugs` (schema.ts) in
-the same transaction as the rename, and both random generation (`slug.ts`) and any later
-vanity-slug pick check that table as well as `layouts.slug` — so a slug, once issued, can
-never be reclaimed by a different layout, matching the existing "slug reuse is a quiet
-impersonation vector" rule for a removed/deleted layout. There is deliberately **no
-redirect** from the old slug to the new one; the old URL 404s after a rename. See
-`slug.ts` and `manage.ts` for the full reasoning.
+- Held by a `public` or `hidden` layout: a hard `409`. No silent `-2` suffix, since a
+  moderator typing a specific string expects that string or a clear rejection, not a
+  surprise variant.
+- Held by a `removed`/`deleted` layout: **not** blocking. That row is evicted to a fresh
+  random slug (`generateUniqueSlug`) in the same transaction, and a `layout.rename_slug`
+  audit entry is recorded against it, attributed to the acting moderator — before the
+  requested string is handed to the layout being patched. This is the "reuse the same
+  URL" workflow: a newer submission of a design takes over the vanity slug a superseded,
+  no-longer-public earlier version held, rather than getting a different URL for what a
+  visitor experiences as the same layout.
+- Held by nothing (including the same layout's own former slug, if it renamed away and
+  nothing has claimed the string since): the claim just succeeds.
+
+There is no redirect from wherever a slug used to point to wherever it ends up next —
+the old URL simply 404s once its layout stops holding it, whether via a rename or an
+eviction. Two rows can never literally share a slug value, not even briefly: the unique
+index (`layouts_slug_key`, schema.ts) is not visibility-aware, which is also why a
+`removed`/`deleted` row's OWN slug column has to change, not just its visibility, for
+another layout to use that string.
 
 ### `PUT .../layout` stays owner-only, even for a moderator
 

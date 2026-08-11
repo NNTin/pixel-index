@@ -22,7 +22,6 @@ describe('migrations', () => {
       'layouts',
       'moderation_actions',
       'reports',
-      'retired_slugs',
       'tags',
       'users',
     ]);

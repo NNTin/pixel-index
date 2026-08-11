@@ -1,5 +1,5 @@
 {
-  "id": "d73d574e-a728-4726-afde-492b52e2a095",
+  "id": "9832d55e-67e4-4f21-83f8-32906fe26867",
   "prevId": "7713eb2d-9d28-47d0-b642-82a06178feb7",
   "version": "7",
   "dialect": "postgresql",
@@ -1066,73 +1066,6 @@
         "reports_resolution_consistent": {
           "name": "reports_resolution_consistent",
           "value": "(\"reports\".\"status\" = 'open') = (\"reports\".\"resolved_at\" IS NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.retired_slugs": {
-      "name": "retired_slugs",
-      "schema": "",
-      "columns": {
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "layout_id": {
-          "name": "layout_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "retired_at": {
-          "name": "retired_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "retired_slugs_layout_idx": {
-          "name": "retired_slugs_layout_idx",
-          "columns": [
-            {
-              "expression": "layout_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "retired_slugs_layout_id_layouts_id_fk": {
-          "name": "retired_slugs_layout_id_layouts_id_fk",
-          "tableFrom": "retired_slugs",
-          "tableTo": "layouts",
-          "columnsFrom": [
-            "layout_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "retired_slugs_format": {
-          "name": "retired_slugs_format",
-          "value": "\"retired_slugs\".\"slug\" ~ '^[a-z0-9][a-z0-9-]*$'"
         }
       },
       "isRLSEnabled": false

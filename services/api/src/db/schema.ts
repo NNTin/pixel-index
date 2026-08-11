@@ -273,34 +273,6 @@ export const layouts = pgTable(
   ],
 );
 
-/**
- * Every slug a layout USED to have, before a moderator gave it a different
- * one (#29's vanity slugs). `layouts.slug` only ever holds the current
- * value, so a rename on its own would silently free the old string for
- * anyone to claim — the exact "slug reuse by a different author is a quiet
- * impersonation vector" problem `layouts_slug_key`'s own comment already
- * rejects for a removed/deleted row. This table is what makes a renamed-away
- * slug behave the same way: reserved forever, checked by both random
- * generation (slug.ts) and a moderator's next vanity-slug pick (manage.ts),
- * never reused. There is deliberately no redirect from an entry here to the
- * layout's current slug — see the PR description for #29 for why not.
- */
-export const retiredSlugs = pgTable(
-  'retired_slugs',
-  {
-    slug: text('slug').primaryKey(),
-    layoutId: uuid('layout_id')
-      .notNull()
-      .references(() => layouts.id, { onDelete: 'cascade' }),
-    retiredAt: timestamp('retired_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index('retired_slugs_layout_idx').on(table.layoutId),
-    // Mirrors layouts_slug_format — an entry here was, at some point, a valid slug.
-    check('retired_slugs_format', sql`${table.slug} ~ '^[a-z0-9][a-z0-9-]*$'`),
-  ],
-);
-
 export const tags = pgTable(
   'tags',
   {
@@ -515,8 +487,6 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Layout = typeof layouts.$inferSelect;
 export type NewLayout = typeof layouts.$inferInsert;
-export type RetiredSlug = typeof retiredSlugs.$inferSelect;
-export type NewRetiredSlug = typeof retiredSlugs.$inferInsert;
 export type Tag = typeof tags.$inferSelect;
 export type Report = typeof reports.$inferSelect;
 export type NewReport = typeof reports.$inferInsert;

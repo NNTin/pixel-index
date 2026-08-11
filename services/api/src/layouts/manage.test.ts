@@ -1,8 +1,11 @@
-import { bundledLayoutRevision, sha256 } from '@pixel-index/layout-core';
+import { bundledLayoutRevision, sha256, SLUG_RE } from '@pixel-index/layout-core';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { signAccessToken } from '../auth/tokens.js';
+import { one } from '../db/rows.js';
+import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
@@ -73,6 +76,10 @@ async function ownedLayout(overrides: Parameters<typeof insertLayout>[1] = {}) {
     ...overrides,
   });
   return { user, accessToken, layout };
+}
+
+async function getLayoutById(id: string): Promise<schema.Layout> {
+  return one(await harness.db.select().from(schema.layouts).where(eq(schema.layouts.id, id)));
 }
 
 function stubRenderer(mode: 'ok' | 'down' = 'ok') {
@@ -248,20 +255,86 @@ describe('PATCH /api/v1/layouts/:slug — vanity slug (#29)', () => {
     expect(response.statusCode).toBe(400);
   });
 
-  it('never frees the old slug — nothing can claim it back afterwards', async () => {
+  it('frees the old slug immediately — a different layout can claim it once it is vacated', async () => {
     const { layout } = await ownedLayout();
     const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
     const renamed = await patch(layout.slug, { slug: 'new-vanity-name', reason: 'rename' }, modToken);
     expect(renamed.statusCode).toBe(200);
 
-    const { accessToken: otherModToken } = await tokenFor({ role: 'moderator' });
     const { layout: otherLayout } = await ownedLayout();
-    const reclaim = await patch(
-      otherLayout.slug,
-      { slug: layout.slug, reason: 'try to reuse the retired slug' },
-      otherModToken,
-    );
-    expect(reclaim.statusCode).toBe(409);
+    const reclaim = await patch(otherLayout.slug, { slug: layout.slug, reason: 'reuse the freed slug' }, modToken);
+    expect(reclaim.statusCode).toBe(200);
+  });
+
+  it('lets a layout rename back to a slug it used to have', async () => {
+    const { layout } = await ownedLayout({ slug: 'blue-office' });
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+
+    const away = await patch(layout.slug, { slug: 'temporary-random-name', reason: 'testing' }, modToken);
+    expect(away.statusCode).toBe(200);
+
+    const back = await patch('temporary-random-name', { slug: 'blue-office', reason: 'revert' }, modToken);
+    expect(back.statusCode).toBe(200);
+    expect(back.json<OwnerLayoutView>().slug).toBe('blue-office');
+
+    const atRevertedSlug = await app.inject({ method: 'GET', url: '/api/v1/layouts/blue-office' });
+    expect(atRevertedSlug.statusCode).toBe(200);
+  });
+
+  it('still blocks a slug held by a HIDDEN layout — it might come back to public', async () => {
+    await insertLayout(harness.db, { slug: 'hidden-office', visibility: 'hidden' });
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(layout.slug, { slug: 'hidden-office', reason: 'x' }, modToken);
+    expect(response.statusCode).toBe(409);
+  });
+
+  it('lets a newer layout take over a REMOVED layout\'s vanity slug (#29 "reuse the same URL")', async () => {
+    const superseded = await insertLayout(harness.db, { slug: 'moonbase-office', visibility: 'removed' });
+    const { layout: newer } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+
+    const response = await patch(newer.slug, { slug: 'moonbase-office', reason: 'newer version' }, modToken);
+    expect(response.statusCode).toBe(200);
+    expect(response.json<OwnerLayoutView>().slug).toBe('moonbase-office');
+
+    const atSlug = await app.inject({ method: 'GET', url: '/api/v1/layouts/moonbase-office' });
+    expect(atSlug.statusCode).toBe(200);
+    expect(atSlug.json<{ sha256: string }>().sha256).toBe(newer.sha256);
+
+    // The superseded layout is not left slug-less — it was evicted to a
+    // fresh, still-valid random slug, not silently deleted or broken.
+    const evictedRow = await getLayoutById(superseded.id);
+    expect(evictedRow.slug).not.toBe('moonbase-office');
+    expect(evictedRow.slug).toMatch(SLUG_RE);
+  });
+
+  it("lets a newer layout take over a DELETED (owner-withdrawn) layout's vanity slug", async () => {
+    await insertLayout(harness.db, { slug: 'withdrawn-office', visibility: 'deleted' });
+    const { layout: newer } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+
+    const response = await patch(newer.slug, { slug: 'withdrawn-office', reason: 'newer version' }, modToken);
+    expect(response.statusCode).toBe(200);
+    expect(response.json<OwnerLayoutView>().slug).toBe('withdrawn-office');
+  });
+
+  it('records an audit entry for the evicted layout, attributed to the acting moderator', async () => {
+    const superseded = await insertLayout(harness.db, { slug: 'evicted-office', visibility: 'removed' });
+    const { layout: newer } = await ownedLayout();
+    const { accessToken: modToken, user: moderator } = await tokenFor({ role: 'moderator' });
+
+    const response = await patch(newer.slug, { slug: 'evicted-office', reason: 'newer version' }, modToken);
+    expect(response.statusCode).toBe(200);
+
+    const evictionEntries = await harness.db
+      .select()
+      .from(schema.moderationActions)
+      .where(eq(schema.moderationActions.targetId, superseded.id));
+    const evictionEntry = evictionEntries.find((entry) => entry.action === 'layout.rename_slug');
+    expect(evictionEntry).toBeDefined();
+    expect(evictionEntry?.actorUserId).toBe(moderator.id);
+    expect(evictionEntry?.before).toMatchObject({ slug: 'evicted-office' });
   });
 });
 

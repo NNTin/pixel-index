@@ -1,6 +1,5 @@
 /**
- * Slug generation for a submission, and the "has this slug ever existed"
- * check shared with a moderator's later vanity rename (manage.ts).
+ * Random slug generation for a submission.
  *
  * Deliberately unrelated to the submitted title (#29): a title-derived slug
  * is a first-come-first-served vanity name, free for the taking by anyone
@@ -10,11 +9,10 @@
  * moderator grants deliberately afterwards, via `PATCH /api/v1/layouts/:slug`
  * (manage.ts), never something a submitter picks for themselves.
  *
- * Collision-safe and stable: generated once at submission time and never
- * regenerated from a later title edit (#9), because the slug is a permanent,
- * linkable, downloadable URL — silently moving it out from under a link
- * someone already shared would be a worse surprise than a slug that no
- * longer matches a since-renamed title.
+ * The slug is never regenerated from a later title edit (#9) — it is a
+ * permanent, linkable, downloadable URL, and silently moving it out from
+ * under a link someone already shared would be a worse surprise than a slug
+ * that no longer matches a since-renamed title.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -37,30 +35,22 @@ function randomSlugCandidate(): string {
 }
 
 /**
- * True if `slug` is currently in use by a layout (any visibility — see
- * below) OR was retired by a past vanity rename (schema.ts's
- * `retiredSlugs`). Shared by random generation here and by a moderator's
- * vanity-slug collision check (manage.ts), so the two can never diverge on
- * what counts as "taken".
- *
- * No visibility filter on the `layouts` lookup: a moderator-removed layout
- * still reserves its slug forever (schema.ts's own comment on
- * `layouts_slug_key` — slug reuse by a different author is a quiet
- * impersonation vector), so this has to agree or it would hand out a slug
- * the database then rejects on insert.
+ * True if `slug` is currently held by some row in `layouts`, regardless of
+ * visibility. A `removed`/`deleted` row still literally holds its slug value
+ * — the unique index (`layouts_slug_key`, schema.ts) is not visibility-aware,
+ * so this has to check every row or it could hand a fresh random candidate
+ * to a submission and have the insert rejected. Only used for picking a
+ * genuinely free *random* candidate; a moderator's vanity-slug claim
+ * (manage.ts) needs the actual row, not just this boolean, because it is
+ * willing to evict a removed/deleted holder rather than treat it as blocking
+ * — see manage.ts for why.
  */
 export async function isSlugReserved(db: AnyDatabase, slug: string): Promise<boolean> {
-  const [active] = await db
+  const [row] = await db
     .select({ slug: schema.layouts.slug })
     .from(schema.layouts)
     .where(eq(schema.layouts.slug, slug));
-  if (active) return true;
-
-  const [retired] = await db
-    .select({ slug: schema.retiredSlugs.slug })
-    .from(schema.retiredSlugs)
-    .where(eq(schema.retiredSlugs.slug, slug));
-  return retired !== undefined;
+  return row !== undefined;
 }
 
 export async function generateUniqueSlug(db: AnyDatabase): Promise<string> {

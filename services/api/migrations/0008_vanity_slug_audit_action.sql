@@ -1,0 +1,1 @@
+ALTER TYPE "public"."audit_action" ADD VALUE 'layout.rename_slug' BEFORE 'report.create';

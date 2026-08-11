@@ -61,8 +61,8 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1786479143502,
-      "tag": "0008_vanity_slugs",
+      "when": 1786481412731,
+      "tag": "0008_vanity_slug_audit_action",
       "breakpoints": true
     }
   ]

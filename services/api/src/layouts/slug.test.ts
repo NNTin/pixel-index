@@ -1,12 +1,13 @@
 import { randomBytes } from 'node:crypto';
 
 import { SLUG_RE } from '@pixel-index/layout-core';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, type Mock, vi } from 'vitest';
 
 import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { insertLayout } from '../test-support/layouts.js';
-import { generateUniqueSlug } from './slug.js';
+import { generateUniqueSlug, isSlugReserved } from './slug.js';
 
 vi.mock('node:crypto', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:crypto')>();
@@ -46,25 +47,17 @@ describe('generateUniqueSlug', () => {
   });
 
   it("considers a REMOVED layout's slug just as taken as a public one", async () => {
-    // The unique index has no visibility filter (schema.ts) — a moderator
-    // removal still reserves the slug forever, and random generation has to
-    // agree or it would hand out a slug the database then rejects on insert.
+    // The unique index has no visibility filter (schema.ts) — a removed row
+    // still literally holds its slug value at rest, and random generation has
+    // to agree or it would hand out a slug the database then rejects on
+    // insert. (A moderator's vanity-slug claim, unlike random generation, is
+    // willing to evict a removed/deleted holder instead — see manage.ts.)
     await insertLayout(harness.db, { slug: 'ccccccccc1', visibility: 'removed' });
     mockedRandomBytes
       .mockReturnValueOnce(Buffer.from('ccccccccc1', 'hex'))
       .mockReturnValueOnce(Buffer.from('dddddddddd', 'hex'));
 
     expect(await generateUniqueSlug(harness.db)).toBe('dddddddddd');
-  });
-
-  it('considers a retired (renamed-away) slug just as taken, even though no layout holds it now', async () => {
-    const owner = await insertLayout(harness.db, { slug: 'still-current-slug' });
-    await harness.db.insert(schema.retiredSlugs).values({ slug: 'ffffffffff', layoutId: owner.id });
-    mockedRandomBytes
-      .mockReturnValueOnce(Buffer.from('ffffffffff', 'hex'))
-      .mockReturnValueOnce(Buffer.from('1111111111', 'hex'));
-
-    expect(await generateUniqueSlug(harness.db)).toBe('1111111111');
   });
 
   it('gives up after repeated collisions rather than looping forever', async () => {
@@ -74,5 +67,36 @@ describe('generateUniqueSlug', () => {
     await expect(generateUniqueSlug(harness.db)).rejects.toThrow(
       'Could not generate a unique slug after multiple attempts.',
     );
+  });
+});
+
+describe('isSlugReserved', () => {
+  let harness: Harness;
+  beforeAll(async () => {
+    harness = await createTestDatabase();
+  });
+  afterAll(async () => harness.close());
+
+  it('is false for a slug nothing has ever used', async () => {
+    expect(await isSlugReserved(harness.db, 'never-used-office')).toBe(false);
+  });
+
+  it('is true for a slug a public layout currently holds', async () => {
+    await insertLayout(harness.db, { slug: 'active-office' });
+    expect(await isSlugReserved(harness.db, 'active-office')).toBe(true);
+  });
+
+  it('is true for a slug a removed layout still holds — it is not visibility-aware', async () => {
+    await insertLayout(harness.db, { slug: 'removed-office', visibility: 'removed' });
+    expect(await isSlugReserved(harness.db, 'removed-office')).toBe(true);
+  });
+
+  it('is false again once a layout renames away from a slug — nothing holds it any more', async () => {
+    const layout = await insertLayout(harness.db, { slug: 'about-to-move' });
+    expect(await isSlugReserved(harness.db, 'about-to-move')).toBe(true);
+
+    await harness.db.update(schema.layouts).set({ slug: 'moved-away' }).where(eq(schema.layouts.id, layout.id));
+
+    expect(await isSlugReserved(harness.db, 'about-to-move')).toBe(false);
   });
 });
