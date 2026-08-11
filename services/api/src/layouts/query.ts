@@ -26,6 +26,8 @@ export interface ListLayoutsFilters {
   q?: string;
   cols?: NumericRange;
   rows?: NumericRange;
+  /** Tile count (cols × rows), #24's "size is filtered by square unit" — not cols/rows independently. */
+  size?: NumericRange;
   furniture?: NumericRange;
   areas?: NumericRange;
   pets?: NumericRange;
@@ -134,6 +136,16 @@ function buildFilterConditions(filters: ListLayoutsFilters, scope: ListLayoutsSc
   ] as const) {
     if (range?.min !== undefined) conditions.push(gte(column, range.min));
     if (range?.max !== undefined) conditions.push(lte(column, range.max));
+  }
+
+  // Not a stored column, so it can't join the generic loop above — same
+  // `(cols * rows)` expression `sortExpr('largest')` orders by, filtered
+  // instead of sorted.
+  if (filters.size?.min !== undefined) {
+    conditions.push(sql`(${schema.layouts.cols} * ${schema.layouts.rows}) >= ${filters.size.min}`);
+  }
+  if (filters.size?.max !== undefined) {
+    conditions.push(sql`(${schema.layouts.cols} * ${schema.layouts.rows}) <= ${filters.size.max}`);
   }
 
   return conditions;

@@ -66,6 +66,8 @@ export interface ListLayoutsParams {
   maxCols?: number;
   minRows?: number;
   maxRows?: number;
+  minSize?: number;
+  maxSize?: number;
   minFurniture?: number;
   maxFurniture?: number;
   minPets?: number;

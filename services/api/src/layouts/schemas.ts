@@ -91,6 +91,8 @@ export const listLayoutsQuerySchema = {
     maxCols: { type: 'integer', minimum: 0 },
     minRows: { type: 'integer', minimum: 0 },
     maxRows: { type: 'integer', minimum: 0 },
+    minSize: { type: 'integer', minimum: 0, description: 'Tile count (cols × rows), inclusive.' },
+    maxSize: { type: 'integer', minimum: 0, description: 'Tile count (cols × rows), inclusive.' },
     minFurniture: { type: 'integer', minimum: 0 },
     maxFurniture: { type: 'integer', minimum: 0 },
     minAreas: { type: 'integer', minimum: 0 },

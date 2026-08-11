@@ -306,7 +306,7 @@ GET /api/v1/layouts?author=<uuid>&tags=cosy,small&q=office&minCols=15&maxFurnitu
 | `author` | A `users.id`. Click-an-author-name filtering (#14) uses the `author.id` a list/detail response already returns |
 | `tags` | Comma-separated tag names. **ALL**, not any — each one narrows further, the same way the numeric ranges compose |
 | `q` | Free text over title and description (the generated `search_vector` column, #3) |
-| `min*` / `max*` | `Cols`, `Rows`, `Furniture`, `Areas`, `Pets`, `Seats` — each inclusive at both ends |
+| `min*` / `max*` | `Cols`, `Rows`, `Size` (tile count, `cols × rows` — #24, not `Cols`/`Rows` independently), `Furniture`, `Areas`, `Pets`, `Seats` — each inclusive at both ends |
 | `sort` | `newest` (default), `furniture`, `largest` (`cols × rows`), `title` |
 | `limit` | 1–100, default 24 |
 | `cursor` | Opaque, from a previous page's `nextCursor` |

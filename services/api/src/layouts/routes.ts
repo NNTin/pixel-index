@@ -67,6 +67,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
       // TypeScript narrowing the spread away from `NumericRange | undefined`.
       const colsRange = range(query.minCols, query.maxCols);
       const rowsRange = range(query.minRows, query.maxRows);
+      const sizeRange = range(query.minSize, query.maxSize);
       const furnitureRange = range(query.minFurniture, query.maxFurniture);
       const areasRange = range(query.minAreas, query.maxAreas);
       const petsRange = range(query.minPets, query.maxPets);
@@ -85,6 +86,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
           ...(query.q ? { q: query.q } : {}),
           ...(colsRange ? { cols: colsRange } : {}),
           ...(rowsRange ? { rows: rowsRange } : {}),
+          ...(sizeRange ? { size: sizeRange } : {}),
           ...(furnitureRange ? { furniture: furnitureRange } : {}),
           ...(areasRange ? { areas: areasRange } : {}),
           ...(petsRange ? { pets: petsRange } : {}),

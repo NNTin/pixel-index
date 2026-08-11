@@ -178,6 +178,27 @@ describe('listLayouts — filters compose', () => {
     expect(rows.map((r) => r.slug)).not.toContain('furniture-above');
   });
 
+  it('filters by tile count (cols × rows), not cols/rows independently', async () => {
+    // 21×22 = 462, same worked example as #24. A long thin layout (7×66 =
+    // 462) matches the same size filter despite failing any cols/rows bucket
+    // — the whole point of filtering on the product, not the two axes.
+    const square = await insertLayout(harness.db, { slug: 'size-square', cols: 21, rows: 22 });
+    const thin = await insertLayout(harness.db, { slug: 'size-thin', cols: 7, rows: 66 });
+    await insertLayout(harness.db, { slug: 'size-below', cols: 21, rows: 21 }); // 441
+    await insertLayout(harness.db, { slug: 'size-above', cols: 22, rows: 22 }); // 484
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { size: { min: 462, max: 462 } },
+      sort: 'newest',
+      limit: 100,
+    });
+    const ids = rows.map((r) => r.id);
+    expect(ids).toContain(square.id);
+    expect(ids).toContain(thin.id);
+    expect(rows.map((r) => r.slug)).not.toContain('size-below');
+    expect(rows.map((r) => r.slug)).not.toContain('size-above');
+  });
+
   it('filters by seat count range, inclusive at both ends', async () => {
     const exact = await insertLayout(harness.db, { slug: 'seats-exact', seatCount: 20 });
     await insertLayout(harness.db, { slug: 'seats-below', seatCount: 19 });
