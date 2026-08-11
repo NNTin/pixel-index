@@ -5,7 +5,7 @@ import type { LayoutDetail } from '../api/types';
 import { LIVE_OFFICE_CHANNEL } from '../live-office/protocol';
 import { LiveOfficePreview } from './LiveOfficePreview';
 
-function layout(): LayoutDetail {
+function layout(overrides: Partial<LayoutDetail> = {}): LayoutDetail {
   return {
     slug: 'test-office',
     title: 'Test Office',
@@ -18,6 +18,7 @@ function layout(): LayoutDetail {
     areas: 0,
     pets: 0,
     carpets: 0,
+    seats: 5,
     layoutRevision: 1,
     pixelAgentsVersion: '1.4.0',
     bytes: 10,
@@ -26,13 +27,14 @@ function layout(): LayoutDetail {
     updatedAt: '2026-01-01T00:00:00.000Z',
     files: { layout: '', preview: '', thumbnail: '' },
     layout: { version: 1, layoutRevision: 1, cols: 2, rows: 2, tiles: [0, 0, 0, 0], furniture: [] },
+    ...overrides,
   };
 }
 
-function renderPreview() {
+function renderPreview(overrides: Partial<LayoutDetail> = {}) {
   return render(
     <LiveOfficePreview
-      layout={layout()}
+      layout={layout(overrides)}
       staticPreview={{ src: 'https://example.test/thumbnail.png' }}
     />,
   );
@@ -108,12 +110,56 @@ describe('LiveOfficePreview', () => {
   it('adds and removes mock agents within the controls', () => {
     renderPreview();
     expect(screen.getByText('3 mock agents')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Mock agent count' })).toHaveValue('3');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add mock agent' }));
     expect(screen.getByText('4 mock agents')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Mock agent count' })).toHaveValue('4');
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove mock agent' }));
     expect(screen.getByText('3 mock agents')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Mock agent count' })).toHaveValue('3');
+  });
+
+  it('caps the + button and the slider at the layout\'s seat count', () => {
+    renderPreview({ seats: 5 });
+    const slider = screen.getByRole('slider', { name: 'Mock agent count' });
+    expect(slider).toHaveAttribute('min', '0');
+    expect(slider).toHaveAttribute('max', '5');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add mock agent' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add mock agent' }));
+    expect(screen.getByText('5 mock agents')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add mock agent' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add mock agent' }));
+    expect(screen.getByText('5 mock agents')).toBeInTheDocument();
+  });
+
+  it('keeps the slider and the +/- buttons driving the same agent count', () => {
+    renderPreview({ seats: 5 });
+    const slider = screen.getByRole('slider', { name: 'Mock agent count' });
+
+    fireEvent.change(slider, { target: { value: '5' } });
+    expect(screen.getByText('5 mock agents')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add mock agent' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove mock agent' }));
+    expect(screen.getByText('4 mock agents')).toBeInTheDocument();
+    expect(slider).toHaveValue('4');
+
+    fireEvent.change(slider, { target: { value: '0' } });
+    expect(screen.getByText('0 mock agents')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove mock agent' })).toBeDisabled();
+  });
+
+  it('disables both controls and explains itself when a layout has no seats', () => {
+    renderPreview({ seats: 0 });
+    expect(screen.getByText('0 mock agents')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Mock agent count' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add mock agent' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove mock agent' })).toBeDisabled();
+    expect(screen.getByText('This layout has no seats for mock agents.')).toBeInTheDocument();
   });
 
   it('sends the layout after readiness and accepts agent removal from the viewer', async () => {

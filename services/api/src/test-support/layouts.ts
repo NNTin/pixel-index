@@ -53,6 +53,7 @@ export async function insertLayout(
       areaCount: 0,
       petCount: 0,
       carpetCount: 0,
+      seatCount: 0,
       ...overrides,
     })
     .returning(),

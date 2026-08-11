@@ -50,6 +50,13 @@
       "when": 1786307429029,
       "tag": "0006_drop_legacy_role_block_audit_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786470798512,
+      "tag": "0007_add_seat_count",
+      "breakpoints": true
     }
   ]
 }

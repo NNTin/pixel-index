@@ -21,6 +21,7 @@
     "react-router-dom": "^7.9.5"
   },
   "devDependencies": {
+    "@pixel-index/layout-core": "*",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",

@@ -119,19 +119,20 @@ different claims, and only the second one is what a real user experiences.
 ### Filters live in the URL, not component state
 
 `routes/filters.ts` is the one place that translates between three shapes: the URL's
-query string (`?size=large&tags=cosy,small` — readable, shareable, what a pasted link
+query string (`?minSize=100&tags=cosy,small` — readable, shareable, what a pasted link
 looks like), the `Filters` object components work with, and #6's own query parameters
-(`minCols`/`maxCols`/`minRows`/`maxRows`, `minPets`/`maxPets`, …). `Home.tsx` derives
-`filters` from `useSearchParams()` on every render rather than holding its own copy in
-`useState` — the URL *is* the state, so the browser back button, a bookmark, and a
-pasted link all just work, with no separate synchronization code to keep them aligned.
+(`minCols`/`maxCols`/`minRows`/`maxRows`, `minSize`/`maxSize`, `minPets`/`maxPets`, …).
+`Home.tsx` derives `filters` from `useSearchParams()` on every render rather than holding
+its own copy in `useState` — the URL *is* the state, so the browser back button, a
+bookmark, and a pasted link all just work, with no separate synchronization code to keep
+them aligned.
 
-The size bucket (small/up to 15×15, medium/16–30, large/31+) is a client-side
-approximation, not a real backend concept — #6 only offers independent min/max on `cols`
-and `rows`, not on `cols × rows`, so a bucket applies the same range to both axes, ANDed.
-A long, thin layout (say 8×40) falls outside every bucket. Documented as a known
-imprecision in `filters.ts` rather than worked around, since a real fix is a computed
-tile-count column, not a client heuristic.
+**Size is filtered by tile count (`cols × rows`), not by cols/rows independently** (#24).
+An earlier version offered a small/medium/large bucket that applied the same range to
+both axes, ANDed — a long, thin layout (say 8×40, 320 tiles) fell outside every bucket
+despite being a perfectly reasonable size. `minSize`/`maxSize` filter on the product
+instead, computed server-side in `query.ts` (`(cols * rows)`, the same expression the
+`largest` sort key already ordered by) rather than as a client-side approximation.
 
 ### The tag picker never offers a filter guaranteed to return nothing
 

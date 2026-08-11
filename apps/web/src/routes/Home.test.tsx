@@ -28,6 +28,7 @@ function summary(overrides: Record<string, unknown> = {}) {
     areas: 4,
     pets: 2,
     carpets: 0,
+    seats: 3,
     layoutRevision: 1,
     pixelAgentsVersion: '1.4.0',
     bytes: 10,
@@ -86,11 +87,12 @@ describe('Home', () => {
     expect(screen.getByText('Loading layouts…')).toBeInTheDocument();
     expect(await screen.findByText('Blue Office')).toBeInTheDocument();
     expect(screen.getByText('by someone')).toBeInTheDocument();
-    // The facts row carried over from tools/build-site.mjs: dims, furniture, areas, pets.
+    // The facts row carried over from tools/build-site.mjs: dims, furniture, areas, pets, seats.
     expect(screen.getByText('25×22')).toBeInTheDocument();
     expect(screen.getByText('59 furniture')).toBeInTheDocument();
     expect(screen.getByText('4 areas')).toBeInTheDocument();
     expect(screen.getByText('2 pets')).toBeInTheDocument();
+    expect(screen.getByText('3 seats')).toBeInTheDocument();
   });
 
   it('omits zero-valued facts (no "0 areas" clutter)', async () => {
@@ -98,7 +100,7 @@ describe('Home', () => {
       Response.json({
         schemaVersion: 1,
         total: 1,
-        layouts: [summary({ areas: 0, pets: 0 })],
+        layouts: [summary({ areas: 0, pets: 0, seats: 0 })],
         nextCursor: null,
       }),
     );
@@ -109,6 +111,7 @@ describe('Home', () => {
     // that would render for a nonzero fact instead.
     expect(screen.queryByText(/\d areas/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\d pets/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d seats/)).not.toBeInTheDocument();
   });
 
   it('shows an empty state when there are no layouts and no filters are active', async () => {
@@ -119,12 +122,12 @@ describe('Home', () => {
 
   it('shows a filter-aware empty state when filters exclude everything', async () => {
     stubHomeFetch(() => Response.json({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null }));
-    renderHome(['/?q=nonexistent&size=large']);
+    renderHome(['/?q=nonexistent&minSize=1000']);
     expect(await screen.findByText(/No layouts match the current filters/)).toBeInTheDocument();
     // The same "active filters" summary also renders in the FilterBar
     // itself — both are legitimate, assert at least one exists.
     expect(screen.getAllByText(/text "nonexistent"/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/size: large/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/size: 1000–∞ tiles/).length).toBeGreaterThan(0);
   });
 
   it('shows a message, not a blank page, when the API is unreachable', async () => {
@@ -165,7 +168,7 @@ describe('Home', () => {
     let lastUrl = '';
     stubHomeFetch((url) => {
       lastUrl = url;
-      const wantsLarge = url.includes('minCols=31');
+      const wantsLarge = url.includes('minSize=1000');
       return Response.json({
         schemaVersion: 1,
         total: 1,
@@ -176,11 +179,13 @@ describe('Home', () => {
     renderHome();
     await screen.findByText('Blue Office');
 
-    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'large' } });
+    fireEvent.change(screen.getByLabelText('Minimum size in tiles (cols × rows)'), {
+      target: { value: '1000' },
+    });
 
     expect(await screen.findByText('Big Office')).toBeInTheDocument();
     expect(screen.queryByText('Blue Office')).not.toBeInTheDocument(); // replaced, not appended
-    expect(lastUrl).toContain('minCols=31');
+    expect(lastUrl).toContain('minSize=1000');
   });
 
   it('renders a placeholder, not a broken image, when a preview fails to load', async () => {

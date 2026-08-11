@@ -41,7 +41,7 @@ const { valid, issues } = validator.validateLayout(uploadedLayout);
 | `validateLayout(layout, opts)` | structure and semantics |
 | `validateMeta(meta)` | schema-driven |
 | `validateSlug(slug)` | lowercase kebab-case |
-| `layoutStats(layout)` | cols, rows, furniture, areas, pets, carpets, layoutRevision |
+| `layoutStats(layout, opts?)` | cols, rows, furniture, areas, pets, carpets, seats, layoutRevision |
 | `furnitureCatalog(dir?)` / `knownFurnitureIds(dir?)` | what the pinned upstream can draw |
 | `bundledLayoutRevision(dir?)` / `upstreamPin(dir?)` | the pinned upstream's facts |
 | `sha256(input)` | dedupe (#8) and render-cache keys (#4) |

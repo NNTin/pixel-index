@@ -152,7 +152,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
           );
         }
 
-        const stats = layoutStats(parsedLayout as Layout);
+        const stats = layoutStats(parsedLayout as Layout, { catalog: validator.catalog });
 
         // A true race between two concurrent submissions that both generated
         // the same slug before either committed is rare but real — retried
@@ -179,6 +179,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
                   areaCount: stats.areas,
                   petCount: stats.pets,
                   carpetCount: stats.carpets,
+                  seatCount: stats.seats,
                   layoutRevision: stats.layoutRevision,
                   pixelAgentsVersion: pin.version,
                 })

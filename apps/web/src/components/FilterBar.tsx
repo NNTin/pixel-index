@@ -8,7 +8,6 @@ import {
   type Filters,
   isDefault,
   type PetsFilter,
-  type SizeBucket,
   type SortKey,
 } from '../routes/filters';
 
@@ -17,12 +16,6 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'furniture', label: 'Most furniture' },
   { value: 'largest', label: 'Largest' },
   { value: 'title', label: 'Title (A–Z)' },
-];
-
-const SIZE_OPTIONS: { value: SizeBucket; label: string }[] = [
-  { value: 'small', label: 'Small (up to 15×15)' },
-  { value: 'medium', label: 'Medium (16–30)' },
-  { value: 'large', label: 'Large (31+)' },
 ];
 
 export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (next: Filters) => void }) {
@@ -109,21 +102,38 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
         </label>
 
         <label className="flex items-center gap-1.5 text-sm text-muted">
-          Size
-          <select
-            value={filters.size ?? ''}
+          Size (tiles)
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.minSize ?? ''}
             onChange={(event) =>
-              onChange({ ...filters, size: (event.target.value || null) as SizeBucket | null })
+              onChange({
+                ...filters,
+                minSize: event.target.value === '' ? null : Number(event.target.value),
+              })
             }
-            className={selectClass}
-          >
-            <option value="">Any</option>
-            {SIZE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            placeholder="min"
+            aria-label="Minimum size in tiles (cols × rows)"
+            className={`w-16 ${inputClass}`}
+          />
+          –
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.maxSize ?? ''}
+            onChange={(event) =>
+              onChange({
+                ...filters,
+                maxSize: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+            placeholder="max"
+            aria-label="Maximum size in tiles (cols × rows)"
+            className={`w-16 ${inputClass}`}
+          />
         </label>
 
         <label className="flex items-center gap-1.5 text-sm text-muted">
@@ -172,6 +182,41 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
             }
             placeholder="max"
             aria-label="Maximum furniture count"
+            className={`w-16 ${inputClass}`}
+          />
+        </label>
+
+        <label className="flex items-center gap-1.5 text-sm text-muted">
+          Seats
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.minSeats ?? ''}
+            onChange={(event) =>
+              onChange({
+                ...filters,
+                minSeats: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+            placeholder="min"
+            aria-label="Minimum seat count"
+            className={`w-16 ${inputClass}`}
+          />
+          –
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.maxSeats ?? ''}
+            onChange={(event) =>
+              onChange({
+                ...filters,
+                maxSeats: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+            placeholder="max"
+            aria-label="Maximum seat count"
             className={`w-16 ${inputClass}`}
           />
         </label>

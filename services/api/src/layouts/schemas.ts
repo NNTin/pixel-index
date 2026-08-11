@@ -43,6 +43,7 @@ export const layoutSummarySchema = {
     areas: { type: 'integer' },
     pets: { type: 'integer' },
     carpets: { type: 'integer' },
+    seats: { type: 'integer' },
     layoutRevision: { type: 'integer' },
     pixelAgentsVersion: { type: ['string', 'null'] },
     bytes: { type: 'integer' },
@@ -53,7 +54,7 @@ export const layoutSummarySchema = {
   },
   required: [
     'slug', 'title', 'author', 'description', 'tags', 'cols', 'rows', 'furniture',
-    'areas', 'pets', 'carpets', 'layoutRevision', 'pixelAgentsVersion', 'bytes',
+    'areas', 'pets', 'carpets', 'seats', 'layoutRevision', 'pixelAgentsVersion', 'bytes',
     'sha256', 'createdAt', 'updatedAt', 'files',
   ],
 } as const;
@@ -90,12 +91,16 @@ export const listLayoutsQuerySchema = {
     maxCols: { type: 'integer', minimum: 0 },
     minRows: { type: 'integer', minimum: 0 },
     maxRows: { type: 'integer', minimum: 0 },
+    minSize: { type: 'integer', minimum: 0, description: 'Tile count (cols × rows), inclusive.' },
+    maxSize: { type: 'integer', minimum: 0, description: 'Tile count (cols × rows), inclusive.' },
     minFurniture: { type: 'integer', minimum: 0 },
     maxFurniture: { type: 'integer', minimum: 0 },
     minAreas: { type: 'integer', minimum: 0 },
     maxAreas: { type: 'integer', minimum: 0 },
     minPets: { type: 'integer', minimum: 0 },
     maxPets: { type: 'integer', minimum: 0 },
+    minSeats: { type: 'integer', minimum: 0 },
+    maxSeats: { type: 'integer', minimum: 0 },
   },
 } as const;
 

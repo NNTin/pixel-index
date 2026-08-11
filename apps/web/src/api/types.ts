@@ -34,6 +34,7 @@ export interface LayoutSummary {
   areas: number;
   pets: number;
   carpets: number;
+  seats: number;
   layoutRevision: number;
   pixelAgentsVersion: string | null;
   bytes: number;
@@ -65,10 +66,14 @@ export interface ListLayoutsParams {
   maxCols?: number;
   minRows?: number;
   maxRows?: number;
+  minSize?: number;
+  maxSize?: number;
   minFurniture?: number;
   maxFurniture?: number;
   minPets?: number;
   maxPets?: number;
+  minSeats?: number;
+  maxSeats?: number;
 }
 
 export interface MetaResponse {

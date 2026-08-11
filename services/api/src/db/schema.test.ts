@@ -346,6 +346,7 @@ describe('denormalised stats come from layout-core', () => {
       areaCount: stats.areas,
       petCount: stats.pets,
       carpetCount: stats.carpets,
+      seatCount: stats.seats,
       layoutRevision: stats.layoutRevision,
     });
 
@@ -356,6 +357,7 @@ describe('denormalised stats come from layout-core', () => {
       areas: stored.areaCount,
       pets: stored.petCount,
       carpets: stored.carpetCount,
+      seats: stored.seatCount,
       layoutRevision: stored.layoutRevision,
     }).toEqual(stats);
     expect(stored.sha256).toMatch(/^[0-9a-f]{64}$/);

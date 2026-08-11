@@ -45,6 +45,7 @@ const summary = (slug: string): LayoutSummary =>
     areas: 0,
     pets: 0,
     carpets: 0,
+    seats: 3,
     layoutRevision: 1,
     pixelAgentsVersion: '1.4.0',
     bytes: 10,

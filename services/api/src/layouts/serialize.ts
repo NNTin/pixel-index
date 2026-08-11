@@ -30,6 +30,7 @@ export interface PublicLayoutSummary {
   areas: number;
   pets: number;
   carpets: number;
+  seats: number;
   layoutRevision: number;
   pixelAgentsVersion: string | null;
   bytes: number;
@@ -90,6 +91,7 @@ export function toSummary(
     areas: layout.areaCount,
     pets: layout.petCount,
     carpets: layout.carpetCount,
+    seats: layout.seatCount,
     layoutRevision: layout.layoutRevision,
     pixelAgentsVersion: layout.pixelAgentsVersion,
     bytes: Buffer.byteLength(layout.raw, 'utf-8'),

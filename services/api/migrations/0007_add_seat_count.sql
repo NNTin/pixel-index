@@ -1,0 +1,1 @@
+ALTER TABLE "layouts" ADD COLUMN "seat_count" integer DEFAULT 0 NOT NULL;
