@@ -45,7 +45,10 @@ function arg(argv: string[], name: string): string | undefined {
 function args(argv: string[], name: string): string[] {
   const values: string[] = [];
   argv.forEach((token, index) => {
-    if (token === `--${name}` && argv[index + 1] !== undefined) values.push(argv[index + 1]!);
+    // Bound once: `argv[index + 1]` checked and `argv[index + 1]` read are two
+    // separate indexed accesses, so the check does not narrow the read.
+    const value = argv[index + 1];
+    if (token === `--${name}` && value !== undefined) values.push(value);
   });
   return values;
 }

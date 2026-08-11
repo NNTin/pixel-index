@@ -137,9 +137,14 @@ export async function startDevServer(upstreamDir?: string): Promise<DevServer> {
     };
     child.stdout?.on('data', onData);
     child.stderr?.on('data', onData);
-    child.on('exit', (code) => {
+    child.on('exit', (code, signal) => {
       clearTimeout(timer);
-      reject(new Error(`Vite dev server exited with code ${code}:\n${buffer}`));
+      // `code` is null exactly when the child was killed by a signal rather
+      // than exiting — an OOM kill, or a CI runner's timeout. That is the case
+      // where the message matters most, and "exited with code null" is the
+      // least useful thing it could say.
+      const how = code === null ? `was killed by ${signal ?? 'an unknown signal'}` : `exited with code ${code}`;
+      reject(new Error(`Vite dev server ${how}:\n${buffer}`));
     });
   }).catch((error: unknown) => {
     stop(child);

@@ -23,6 +23,46 @@ export interface RenderRequestBody {
 }
 
 /**
+ * `fetch`'s own first parameter type.
+ *
+ * Read off the global rather than written as `RequestInfo | URL`: this
+ * workspace compiles without the DOM lib, so that name does not exist here —
+ * `fetch` comes from undici's globals via @types/node.
+ */
+export type FetchInput = Parameters<typeof fetch>[0];
+
+/**
+ * The URL a stubbed `fetch` was called with, whatever form it arrived in.
+ *
+ * `fetch`'s first argument is `RequestInfo | URL`, and `String()` over that
+ * union yields "[object Request]" for a Request — so a fake that declares
+ * `(url: string)` is not merely narrower, it is wrong, and saying so required
+ * an `as unknown as typeof fetch` at every call site. Mirrors
+ * apps/web/src/test/fetchStub.ts.
+ */
+export function requestUrl(input: FetchInput): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+/**
+ * One header from a captured `fetch` call.
+ *
+ * `HeadersInit` is `Headers | string[][] | Record<string, string>`. Production
+ * code here always sends the record, but `init.headers as Record<string, string>`
+ * asserts that rather than checking it, and would read `undefined` off a
+ * `Headers` instance without complaint.
+ */
+export function requestHeader(init: RequestInit | undefined, name: string): string | null {
+  const headers = init?.headers;
+  if (headers === undefined) return null;
+  // `new Headers(init)` accepts all three forms and matches case-insensitively,
+  // which is what an HTTP header lookup is supposed to do.
+  return new Headers(headers).get(name);
+}
+
+/**
  * The body of a captured `fetch` call, as the string it was sent as.
  *
  * `init.body` is `BodyInit | null`: a Request, a Blob, a stream, a Buffer.

@@ -52,6 +52,32 @@ function stubHomeFetch(handleLayouts: (url: string) => Response, tags: { name: s
 }
 
 describe('Home', () => {
+  it('fetches the list once per filter change, not once per render', async () => {
+    // The effect depends on a `useMemo`'d `filters`, which is only sound if
+    // react-router's `searchParams` is stable across re-renders. It used to
+    // depend on `searchParams.toString()` and suppress exhaustive-deps to say
+    // so. If that memo ever stops holding, this is the shape of the failure:
+    // a request per render, in a loop, rather than anything visible on screen.
+    let calls = 0;
+    stubHomeFetch((url) => {
+      if (url.includes('/api/v1/layouts')) calls += 1;
+      return Response.json({ schemaVersion: 1, total: 1, layouts: [summary()], nextCursor: null });
+    });
+
+    const view = renderHome();
+    await screen.findByText('Blue Office');
+    const afterFirstLoad = calls;
+
+    // A re-render with the same URL must not re-fetch.
+    view.rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <Home />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByText('Blue Office')).toBeInTheDocument());
+    expect(calls).toBe(afterFirstLoad);
+  });
+
   it('shows a loading state, then the layout list with its facts row', async () => {
     stubHomeFetch(() =>
       Response.json({ schemaVersion: 1, total: 1, layouts: [summary()], nextCursor: null }),

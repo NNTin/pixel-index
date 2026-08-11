@@ -57,6 +57,14 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
 
   // Debounced: a request per keystroke would defeat "stays responsive with
   // a few hundred layouts" the moment someone actually types.
+  //
+  // `filters` and `onChange` are omitted from the deps deliberately, and that
+  // omission is what makes the debounce work: the parent re-renders while a
+  // request is in flight, so including `filters` would restart the 300ms timer
+  // on every one of those renders and the timeout would never fire. Both are
+  // read inside the callback, so the timer that eventually fires uses the
+  // render's values — which is correct here, because a filter change from
+  // anywhere else re-syncs `text` through the effect above.
   useEffect(() => {
     if (text === filters.q) return;
     const timer = setTimeout(() => onChange({ ...filters, q: text }), 300);

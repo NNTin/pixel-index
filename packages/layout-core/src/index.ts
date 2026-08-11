@@ -12,6 +12,7 @@
  * to come from somewhere.
  */
 
+export { withFormats } from './ajv.js';
 export { layoutSchema, metaSchema, SCHEMA_DIR } from './schemas.js';
 export { layoutStats, sha256 } from './stats.js';
 export type {

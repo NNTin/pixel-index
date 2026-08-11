@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
+import type { EnvelopeBody } from '../errors.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
 import type { SessionBody } from './routes.js';
@@ -58,7 +59,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Runs /login, returning the parsed authorize URL and the session cookie. */
+/** What `app.inject()` resolves to — named here so the helpers below can take it. */
+type InjectResponse = Awaited<ReturnType<FastifyInstance['inject']>>;
+
+/**
+ * The `name=value` pair from a response's Set-Cookie, ready to send back.
+ *
+ * Both the header being present and its first `;`-separated part existing are
+ * checked rather than asserted: every caller was writing
+ * `cookieHeader!.split(';')[0]!`, which says the same thing twice and says
+ * nothing at all when either is wrong.
+ */
+function sessionCookie(response: InjectResponse): string {
+  const setCookie = response.headers['set-cookie'];
+  const header = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+  assert(typeof header === 'string', 'response carried no Set-Cookie header');
+  const [pair] = header.split(';');
+  assert(pair !== undefined, 'Set-Cookie header was empty');
+  return pair;
+}
+
+/**
+ * Runs /login, returning the parsed authorize URL, the CSRF state and the
+ * session cookie.
+ *
+ * `state` is returned rather than left for the caller to dig out of
+ * `authorizeUrl.searchParams`: six call sites did that, and each of them then
+ * had to assert that a parameter this function has just watched the server set
+ * is really there.
+ */
 async function startLogin(returnTo = 'https://frontend.example/app') {
   const response = await app.inject({
     method: 'GET',
@@ -66,24 +95,30 @@ async function startLogin(returnTo = 'https://frontend.example/app') {
   });
   expect(response.statusCode).toBe(302);
   const authorizeUrl = new URL(response.headers.location as string);
-  const setCookie = response.headers['set-cookie'];
-  const cookieHeader = Array.isArray(setCookie) ? setCookie[0] : setCookie;
-  return { authorizeUrl, cookie: cookieHeader!.split(';')[0]! };
+  const state = authorizeUrl.searchParams.get('state');
+  assert(state !== null, '/login did not put a state parameter on the authorize URL');
+  return { authorizeUrl, state, cookie: sessionCookie(response) };
+}
+
+/** The one-time login code from the callback's URL fragment. */
+function loginCodeFrom(callback: InjectResponse): string {
+  const redirect = new URL(callback.headers.location as string);
+  const code = new URLSearchParams(redirect.hash.slice(1)).get('pixelIndexLoginCode');
+  assert(code !== null, 'callback redirect carried no pixelIndexLoginCode fragment');
+  return code;
 }
 
 /** Full login → issued access/refresh tokens, for tests that need a logged-in user. */
 async function completeLogin() {
   vi.stubGlobal('fetch', fakeDiscordFetch());
-  const { authorizeUrl, cookie } = await startLogin();
-  const state = authorizeUrl.searchParams.get('state')!;
+  const { state, cookie } = await startLogin();
 
   const callback = await app.inject({
     method: 'GET',
     url: `/callback?code=discord-code&state=${state}`,
     headers: { cookie },
   });
-  const redirect = new URL(callback.headers.location as string);
-  const code = new URLSearchParams(redirect.hash.slice(1)).get('pixelIndexLoginCode')!;
+  const code = loginCodeFrom(callback);
 
   const tokenResponse = await app.inject({
     method: 'POST',
@@ -117,8 +152,7 @@ describe('GET /api/v1/auth/discord/login', () => {
   });
 
   it('falls back to the first allowlisted origin when returnTo is not in the allowlist', async () => {
-    const { authorizeUrl, cookie } = await startLogin('https://evil.example/steal');
-    const state = authorizeUrl.searchParams.get('state')!;
+    const { state, cookie } = await startLogin('https://evil.example/steal');
     vi.stubGlobal('fetch', fakeDiscordFetch());
     const callback = await app.inject({
       method: 'GET',
@@ -150,16 +184,15 @@ describe('GET /api/v1/auth/discord/login', () => {
         method: 'GET',
         url: `/api/v1/auth/discord/login?returnTo=${encodeURIComponent(`${preview}/app`)}`,
       });
-      const setCookie = response.headers['set-cookie'];
-      const cookieHeader = Array.isArray(setCookie) ? setCookie[0] : setCookie;
       const authorizeUrl = new URL(response.headers.location as string);
-      const state = authorizeUrl.searchParams.get('state')!;
+      const state = authorizeUrl.searchParams.get('state');
+      assert(state !== null, '/login did not put a state parameter on the authorize URL');
 
       vi.stubGlobal('fetch', fakeDiscordFetch());
       const callback = await previewApp.inject({
         method: 'GET',
         url: `/callback?code=c&state=${state}`,
-        headers: { cookie: cookieHeader!.split(';')[0]! },
+        headers: { cookie: sessionCookie(response) },
       });
       expect((callback.headers.location as string).startsWith(`${preview}/app`)).toBe(true);
     } finally {
@@ -171,8 +204,7 @@ describe('GET /api/v1/auth/discord/login', () => {
 describe('GET /callback', () => {
   it('completes the flow and hands off a one-time code in the URL fragment, not a query param', async () => {
     vi.stubGlobal('fetch', fakeDiscordFetch());
-    const { authorizeUrl, cookie } = await startLogin();
-    const state = authorizeUrl.searchParams.get('state')!;
+    const { state, cookie } = await startLogin();
 
     const callback = await app.inject({
       method: 'GET',
@@ -229,8 +261,7 @@ describe('GET /callback', () => {
     // that omission IS the replay attempt: whoever captured the first
     // callback URL and reloads it no longer has a live session cookie either.
     vi.stubGlobal('fetch', fakeDiscordFetch());
-    const { authorizeUrl, cookie } = await startLogin();
-    const state = authorizeUrl.searchParams.get('state')!;
+    const { state, cookie } = await startLogin();
 
     const first = await app.inject({
       method: 'GET',
@@ -255,15 +286,13 @@ describe('POST /api/v1/auth/token', () => {
 
   it('the same code cannot be exchanged twice', async () => {
     vi.stubGlobal('fetch', fakeDiscordFetch());
-    const { authorizeUrl, cookie } = await startLogin();
-    const state = authorizeUrl.searchParams.get('state')!;
+    const { state, cookie } = await startLogin();
     const callback = await app.inject({
       method: 'GET',
       url: `/callback?code=discord-code&state=${state}`,
       headers: { cookie },
     });
-    const redirect = new URL(callback.headers.location as string);
-    const code = new URLSearchParams(redirect.hash.slice(1)).get('pixelIndexLoginCode')!;
+    const code = loginCodeFrom(callback);
 
     const first = await app.inject({ method: 'POST', url: '/api/v1/auth/token', payload: { code } });
     expect(first.statusCode).toBe(200);
@@ -283,6 +312,18 @@ describe('POST /api/v1/auth/token', () => {
   it('rejects a missing code with 400, not 500', async () => {
     const response = await app.inject({ method: 'POST', url: '/api/v1/auth/token', payload: {} });
     expect(response.statusCode).toBe(400);
+    expect(response.json<EnvelopeBody>().error).toBe('bad_request');
+  });
+
+  it('rejects an entirely absent body with the same envelope', async () => {
+    // These three POST routes accept an optional body on purpose — Fastify
+    // delivers `undefined` for an empty one — so the hand-written checks in the
+    // handlers, not a JSON Schema, are what answer here. This pins that: a body
+    // schema would make Fastify reject the request first, with a different
+    // message, and /auth/logout would stop being a 204.
+    const response = await app.inject({ method: 'POST', url: '/api/v1/auth/token' });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<EnvelopeBody>().error).toBe('bad_request');
   });
 });
 
@@ -365,6 +406,11 @@ describe('POST /api/v1/auth/logout', () => {
       url: '/api/v1/auth/logout',
       payload: { refreshToken: 'never-issued' },
     });
+    expect(response.statusCode).toBe(204);
+  });
+
+  it('accepts an empty body — logging out twice is not an error', async () => {
+    const response = await app.inject({ method: 'POST', url: '/api/v1/auth/logout' });
     expect(response.statusCode).toBe(204);
   });
 });

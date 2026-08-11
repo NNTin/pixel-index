@@ -1,6 +1,5 @@
 import js from '@eslint/js';
 import { defineConfig, globalIgnores } from 'eslint/config';
-import eslintConfigPrettier from 'eslint-config-prettier';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
@@ -21,6 +20,14 @@ import tseslint from 'typescript-eslint';
  * ESLint 10 resolves the config from the linted file upward, so `eslint .` from
  * a workspace directory finds this file and lints only that workspace — the
  * per-workspace `lint` scripts stay useful without a config of their own.
+ *
+ * The bar is `strictTypeChecked` + `stylisticTypeChecked` in full, minus the
+ * exceptions below. It used to be `recommendedTypeChecked` plus a hand-picked
+ * list of ten extra rules, which had two problems: a rule the presets add in a
+ * future typescript-eslint release lands nowhere, and three rules were declined
+ * for their report counts rather than for anything about the rules. Measured
+ * before the switch, 35 of the rules the two presets add were already at zero
+ * here — so the allow-list was mostly recording work already done.
  */
 
 /**
@@ -44,57 +51,25 @@ const unusedVarsWithUnderscoreEscape = {
   ],
 };
 
-/** Rules from recommendedTypeChecked this repository deliberately does not run. */
-const declinedTypeCheckedRules = {
-  /**
-   * `async` is a contract here, not a smell: Fastify route handlers are
-   * declared async so the framework awaits their return value, `vi.fn(async
-   * () => new Response(...))` has to match `typeof fetch`, and the harness's
-   * `startDevServer`/`createRenderer` fakes have to match interfaces whose
-   * members return promises. Dropping `async` from any of those means hand-
-   * rolling `Promise.resolve`, which is strictly worse code. 75 reports, none
-   * of them a type weakness.
-   */
-  '@typescript-eslint/require-await': 'off',
-};
-
 /**
- * Rules from strictTypeChecked that are worth their cost. The rest of that
- * preset is not enabled: restrict-template-expressions is here in a relaxed
- * form (below), while no-non-null-assertion (77 reports) and
- * no-confusing-void-expression (67) are style-or-refactor work that would
- * bury the type fixes in #44. See the PR for the per-rule counts.
+ * Where this repository departs from the two presets.
  *
- * Also declined: no-unnecessary-type-parameters. Its one finding here is
- * layout-core's `readJsonOrNull<T>(file)` — a deliberate "parse this untrusted
- * file as T" helper, the same shape as Fastify's own `response.json<T>()`. The
- * rule is right that T is an assertion in disguise; it is a useful disguise,
- * because the alternative is a bare `as` at all five call sites.
+ * Every entry states what the rule is worth, not how many times it fires. A
+ * count is a fact about today's code; it is not a reason, and the moment it is
+ * written down it starts going stale (the previous version of this file claimed
+ * `no-unnecessary-type-parameters` had "one finding" when it had three).
  */
-const extraStrictRules = {
+const presetExceptions = {
   /**
-   * The rule that catches `[object Object]` reaching a user. Numbers and
-   * booleans in templates are fine and intended all over this codebase
-   * (`${count} layouts`), so those are allowed; objects, unions and `any` are
-   * not. Relaxed this way it costs nothing today and still guards the real
-   * failure — the sibling no-base-to-string (in recommendedTypeChecked) found
-   * 20 live cases of exactly that.
+   * OFF. It prescribes exactly the syntax `no-non-null-assertion` forbids —
+   * every one of its reports reads "use a ! assertion to more succinctly remove
+   * null and undefined" — and its autofix would undo that rule's work. The two
+   * presets genuinely disagree here and this is the side we take: an assertion
+   * is an assertion whether it is spelled `!` or `as NonNullable<T>`, and the
+   * fix for both is a check that can fail.
    */
-  '@typescript-eslint/restrict-template-expressions': [
-    'error',
-    { allowNumber: true, allowBoolean: true },
-  ],
+  '@typescript-eslint/non-nullable-type-assertion-style': 'off',
 
-  /** A condition whose answer the types already know is either dead code or a wrong type. */
-  '@typescript-eslint/no-unnecessary-condition': 'error',
-
-  /** Adding a variant to a union should break every switch that has to handle it. */
-  '@typescript-eslint/switch-exhaustiveness-check': 'error',
-
-  '@typescript-eslint/no-unnecessary-boolean-literal-compare': 'error',
-  '@typescript-eslint/no-useless-default-assignment': 'error',
-  '@typescript-eslint/no-misused-spread': 'error',
-  '@typescript-eslint/restrict-plus-operands': 'error',
   /**
    * Not for strings. `??` and `||` genuinely differ there — the empty string is
    * falsy but not nullish — and this codebase depends on the difference: an
@@ -102,21 +77,194 @@ const extraStrictRules = {
    * `import.meta.env.VITE_API_BASE_URL || fallback` is what stops that becoming
    * a same-origin request against the Pages domain (apps/web/src/api/client.ts).
    */
-  '@typescript-eslint/prefer-nullish-coalescing': [
-    'error',
-    { ignorePrimitives: { string: true } },
-  ],
+  '@typescript-eslint/prefer-nullish-coalescing': ['error', { ignorePrimitives: { string: true } }],
+
   /**
-   * Default `in-try-catch` rather than `always`: the only place the missing
-   * `await` changes behaviour is a returned promise inside a try, where
-   * omitting it means the catch never sees the rejection. Requiring it
-   * everywhere would be 52 more edits that change nothing.
+   * Stricter than the preset's `error-handling-correctness-only`. The only
+   * place a missing `await` changes behaviour is a returned promise inside a
+   * try, where omitting it means the catch never sees the rejection — and
+   * `in-try-catch` (the default) is the setting that says exactly that.
    */
   '@typescript-eslint/return-await': 'error',
 
-  /** Upstream deprecations should surface here, not in a runtime break after a bump. */
-  '@typescript-eslint/no-deprecated': 'error',
+  /**
+   * The rule that catches `[object Object]` reaching a user. Numbers and
+   * booleans in templates are fine and intended all over this codebase
+   * (`${count} layouts`); objects, unions, `any`, `never`, regexps and nullish
+   * values are not.
+   *
+   * The four explicit `false`s are the point. This entry used to read
+   * `{ allowNumber: true, allowBoolean: true }` above a comment claiming
+   * "objects, unions and `any` are not [allowed]" — which was false, because
+   * the rule's own defaults are permissive and left `allowAny`, `allowNullish`,
+   * `allowNever` and `allowRegExp` all on. `${maybeUndefined}` rendering the
+   * literal text "undefined" into a redirect URL passed the lint for months.
+   */
+  '@typescript-eslint/restrict-template-expressions': [
+    'error',
+    {
+      allowNumber: true,
+      allowBoolean: true,
+      allowAny: false,
+      allowNullish: false,
+      allowNever: false,
+      allowRegExp: false,
+    },
+  ],
+
+  /**
+   * `onClick={() => setOpen(true)}` is idiomatic React, not a confusing void
+   * expression, and it was ~58 of this rule's 60 reports. What survives is the
+   * payload: a void value flowing somewhere it will actually be read.
+   */
+  '@typescript-eslint/no-confusing-void-expression': ['error', { ignoreArrowShorthand: true }],
+
+  /**
+   * `T[]`, the default. Measured both ways before choosing: `array` reports 4
+   * sites and `array-simple` reports 11, so `T[]` is what this codebase already
+   * converged on for simple and compound types alike.
+   */
+  '@typescript-eslint/array-type': ['error', { default: 'array' }],
 };
+
+/**
+ * Correctness rules from core ESLint, beyond `js.configs.recommended`.
+ *
+ * All of these were measured at zero across every workspace *and* tools/, so
+ * they cost nothing today and exist to catch the next occurrence. They live in
+ * the shared block rather than the typed one because the untyped `.mjs` files
+ * are exactly where a stray `==` is least likely to be noticed.
+ *
+ * Not here, and deliberately: `consistent-return` (17 reports — `noImplicitReturns`
+ * in tsconfig.strict.json already governs the real case), `no-await-in-loop`
+ * (16, every one a deliberately sequential loop), `require-atomic-updates` and
+ * `no-promise-executor-return` (false-positive prone; the sites are
+ * `new Promise((resolve) => setTimeout(resolve, 0))`), and taste rules such as
+ * `no-else-return` that decide nothing.
+ */
+const coreCorrectnessRules = {
+  eqeqeq: ['error', 'always'],
+  'array-callback-return': 'error',
+  'no-self-compare': 'error',
+  'no-unmodified-loop-condition': 'error',
+  'no-template-curly-in-string': 'error',
+  'default-case-last': 'error',
+  'no-param-reassign': 'error',
+  'no-implicit-coercion': 'error',
+};
+
+/**
+ * Architectural boundaries, as `no-restricted-imports` pattern groups.
+ *
+ * Every one of these was at zero when it was added, which is the point: they
+ * are not a cleanup, they are the shape of the repository written down where
+ * the next import that breaks it gets caught. Until now each was enforced by a
+ * comment and a reviewer noticing.
+ *
+ * Composed rather than repeated because `no-restricted-imports` does not merge
+ * across config objects — a later `files` block replaces the whole setting — so
+ * an area that relaxes one boundary has to restate the others. `boundaries()`
+ * below is what keeps that from turning into four divergent copies.
+ */
+
+/**
+ * The vendored upstream is reachable from the live-office wrapper and its build
+ * script, and nowhere else.
+ *
+ * Not tidiness: `apps/web/tsconfig.app.json` runs at full strictness and
+ * *excludes* `src/live-office`, because vendor sources only compile under
+ * `tsconfig.live-office.json` with `noUncheckedIndexedAccess` and
+ * `exactOptionalPropertyTypes` turned back off. An import from anywhere else
+ * pulls those sources into the strict project, which is precisely how #44's
+ * `apps/web` flags were blocked in the first place.
+ */
+const noVendorOutsideLiveOffice = {
+  group: ['**/vendor/pixel-agents/**'],
+  message:
+    'Only apps/web/src/live-office/** and apps/web/build/** may import the vendored upstream — ' +
+    'everything else compiles at a strictness those sources do not meet. Go through ' +
+    '@pixel-index/layout-core, or through the live-office wrapper.',
+};
+
+/**
+ * Workspaces talk to each other by package name, never by relative path.
+ *
+ * A `../../../packages/layout-core/src/...` import compiles and then ships a
+ * second copy of the module, bypassing the `exports` map that decides what is
+ * public. Only an import that escapes a workspace can contain these segments;
+ * an intra-workspace `../db/client.js` does not.
+ */
+const noCrossWorkspaceReachAround = {
+  group: ['**/packages/**', '**/services/**', '**/apps/**'],
+  message:
+    'Import another workspace by its package name (@pixel-index/…), not by relative path. ' +
+    'Reaching around the package boundary bypasses its exports map and duplicates the module.',
+};
+
+/** The `exports` map publishes one entry point per package; deep imports route around it. */
+const noDeepWorkspaceImport = {
+  group: ['@pixel-index/*/dist/**', '@pixel-index/*/src/**'],
+  message:
+    'Import the package root (@pixel-index/layout-core). Its exports map deliberately publishes ' +
+    'no deep subpath, so a deep import depends on a file layout that is free to change.',
+};
+
+/**
+ * Test scaffolding does not belong in shipped code.
+ *
+ * This is why `one()` lives in `src/db/rows.ts` rather than beside the other
+ * insert helpers in `src/test-support/` — twenty of its call sites are
+ * production. `vitest` is named exactly, not `vitest/*`: `vitest/config` is a
+ * build-config import and the four vitest config files legitimately use it.
+ */
+const TEST_SCAFFOLDING_MESSAGE =
+  'Production code cannot import test scaffolding. Move the shared helper into src/ if both ' +
+  'need it — see services/api/src/db/rows.ts.';
+
+const noTestScaffoldingInProduction = {
+  group: ['**/test-support/**', '**/*.test.*'],
+  message: TEST_SCAFFOLDING_MESSAGE,
+};
+
+/**
+ * An exact path, not a pattern: `vitest/config` is a build-config import that
+ * the four vitest config files legitimately use, and a slash-less pattern would
+ * catch it — along with `@testing-library/jest-dom/vitest`.
+ */
+const noVitestInProduction = { name: 'vitest', message: TEST_SCAFFOLDING_MESSAGE };
+
+/** apps/web/src is a browser bundle. A Node builtin there is a build failure or a silent polyfill. */
+const noNodeBuiltinsInTheSpa = {
+  group: ['node:*'],
+  message:
+    'apps/web/src ships to a browser. Node builtins belong in build/, e2e/ or a config file.',
+};
+
+/**
+ * Composes boundary entries into one `no-restricted-imports` setting.
+ *
+ * Entries with `name` become exact `paths`, entries with `group` become glob
+ * `patterns`. The distinction matters: ESLint matches a slash-less pattern
+ * gitignore-style, so `patterns: ['vitest']` also catches `vitest/config` and
+ * `@testing-library/jest-dom/vitest`. `paths` compares the whole specifier.
+ */
+const boundaries = (...entries) => ({
+  'no-restricted-imports': [
+    'error',
+    {
+      paths: entries.filter((entry) => 'name' in entry),
+      patterns: entries.filter((entry) => 'group' in entry),
+    },
+  ],
+});
+
+/** Everything that is allowed to import test scaffolding, because it is test scaffolding. */
+const TEST_FILES = [
+  '**/*.test.{ts,tsx}',
+  '**/test-support/**/*.ts',
+  '**/e2e/**/*.{ts,tsx}',
+  'apps/web/src/test/**/*.{ts,tsx}',
+];
 
 export default defineConfig([
   globalIgnores([
@@ -129,7 +277,9 @@ export default defineConfig([
 
   // ---------------------------------------------------------------- plain JS
   // tools/ and the two e2e drivers are hand-written .mjs with no build step,
-  // so they get the untyped baseline rather than the type-aware one.
+  // so they get the untyped baseline rather than the type-aware one. Bringing
+  // them under `checkJs` was measured at 30 errors plus a new @types/jsdom
+  // dependency — a typechecking expansion, not a lint one, and its own issue.
   {
     files: ['**/*.{js,mjs}'],
     extends: [js.configs.recommended],
@@ -142,6 +292,11 @@ export default defineConfig([
     rules: {
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
+      ...coreCorrectnessRules,
+      // Structural boundaries only: tools/ has its own vitest suites, and every
+      // .mjs here is a Node script, so the test-scaffolding and browser
+      // boundaries would both be wrong.
+      ...boundaries(noVendorOutsideLiveOffice, noCrossWorkspaceReachAround, noDeepWorkspaceImport),
     },
   },
   {
@@ -154,7 +309,11 @@ export default defineConfig([
   // ------------------------------------------------------- TypeScript, typed
   {
     files: ['**/*.{ts,tsx}'],
-    extends: [js.configs.recommended, tseslint.configs.recommendedTypeChecked],
+    extends: [
+      js.configs.recommended,
+      tseslint.configs.strictTypeChecked,
+      tseslint.configs.stylisticTypeChecked,
+    ],
     languageOptions: {
       // projectService reads each file's nearest tsconfig, so the lint sees
       // exactly the types the workspace's own typecheck sees — including
@@ -169,9 +328,50 @@ export default defineConfig([
     rules: {
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
-      ...declinedTypeCheckedRules,
-      ...extraStrictRules,
+      /**
+       * Property-style signatures are checked covariantly under
+       * strictFunctionTypes; method shorthand is bivariant, which is how a
+       * stub that accepts less than the interface promises slips through. A
+       * type-safety rule wearing a style rule's name.
+       */
+      '@typescript-eslint/method-signature-style': 'error',
+      ...boundaries(
+        noVendorOutsideLiveOffice,
+        noCrossWorkspaceReachAround,
+        noDeepWorkspaceImport,
+        noTestScaffoldingInProduction,
+        noVitestInProduction,
+      ),
+      ...coreCorrectnessRules,
+      ...presetExceptions,
       ...unusedVarsWithUnderscoreEscape,
+    },
+  },
+
+  // ------------------------------------------------------------------ tests
+  {
+    /**
+     * `require-await`, off here and on everywhere else.
+     *
+     * The rule exists to catch a function that looks asynchronous by accident.
+     * In a test `async` is never accidental — it is the declared interface:
+     * `vi.fn(async () => new Response(...))` has to match `typeof fetch`, and
+     * the renderer harness's `startDevServer`/`createRenderer` fakes have to
+     * match members that return promises. The rule cannot see a contextual
+     * type, so all 75 of its findings in test files were that, and the two ways
+     * to satisfy it — a hand-rolled `Promise.resolve`, or 75 disable comments —
+     * both make the code worse.
+     *
+     * It stays on for source, where it found three handlers whose `async` really
+     * was gratuitous.
+     */
+    files: TEST_FILES,
+    rules: {
+      '@typescript-eslint/require-await': 'off',
+      // A test may import test scaffolding; that is what it is for. Every other
+      // boundary still applies here — a test reaching into another workspace by
+      // relative path is the same mistake it would be anywhere else.
+      ...boundaries(noVendorOutsideLiveOffice, noCrossWorkspaceReachAround, noDeepWorkspaceImport),
     },
   },
 
@@ -182,10 +382,71 @@ export default defineConfig([
     languageOptions: { globals: globals.browser },
   },
   {
-    // Build-time code in the SPA workspace: Node, not a browser.
+    // `ignores` rather than ordering: no-restricted-imports does not merge, so
+    // without it this block would put the production-only boundaries back on
+    // apps/web's own test files.
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    ignores: TEST_FILES,
+    rules: {
+      ...boundaries(
+        noVendorOutsideLiveOffice,
+        noCrossWorkspaceReachAround,
+        noDeepWorkspaceImport,
+        noTestScaffoldingInProduction,
+        noVitestInProduction,
+        noNodeBuiltinsInTheSpa,
+      ),
+    },
+  },
+  {
+    /**
+     * The one place the vendored upstream may be imported from `src`.
+     *
+     * This directory is the whole reason apps/web has three TypeScript projects
+     * rather than one: `tsconfig.live-office.json` compiles these files together
+     * with vendor sources at reduced strictness, and `tsconfig.app.json` excludes
+     * it. Keeping the exception exactly this wide is what stops the strict
+     * project from acquiring vendor types by accident.
+     */
+    files: ['apps/web/src/live-office/**/*.{ts,tsx}'],
+    ignores: TEST_FILES,
+    rules: {
+      ...boundaries(
+        noCrossWorkspaceReachAround,
+        noDeepWorkspaceImport,
+        noTestScaffoldingInProduction,
+        noVitestInProduction,
+        noNodeBuiltinsInTheSpa,
+      ),
+    },
+  },
+  {
+    /**
+     * ...except protocol.ts, which is inside live-office but must stay
+     * vendor-free: `components/LiveOfficePreview.tsx` imports it, and that file
+     * belongs to the strict app project. A vendor type reaching it re-breaks
+     * `noUncheckedIndexedAccess` for the whole SPA. This was a comment until now.
+     */
+    files: ['apps/web/src/live-office/protocol.ts'],
+    rules: {
+      ...boundaries(
+        noVendorOutsideLiveOffice,
+        noCrossWorkspaceReachAround,
+        noDeepWorkspaceImport,
+        noTestScaffoldingInProduction,
+        noVitestInProduction,
+        noNodeBuiltinsInTheSpa,
+      ),
+    },
+  },
+  {
+    // Build-time code in the SPA workspace: Node, not a browser — so no
+    // browser boundary, and build/ decodes the vendored sprite assets at build
+    // time, which is the second half of the live-office exception.
     files: ['apps/web/{vite,vitest}.config.ts', 'apps/web/build/**/*.ts'],
     languageOptions: { globals: globals.node },
+    rules: {
+      ...boundaries(noCrossWorkspaceReachAround, noDeepWorkspaceImport),
+    },
   },
-
-  eslintConfigPrettier,
 ]);

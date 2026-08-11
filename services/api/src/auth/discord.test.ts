@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { type FetchInput, formBody, requestHeader, requestUrl } from '../test-support/bodies.js';
 import {
   buildAuthorizeUrl,
   DiscordApiError,
@@ -60,8 +61,8 @@ describe('buildAuthorizeUrl', () => {
 
 describe('exchangeCodeForToken', () => {
   it('authenticates with HTTP Basic using the client id and secret', async () => {
-    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
-      const auth = (init.headers as Record<string, string>).authorization ?? '';
+    const fetchImpl = vi.fn(async (_input: FetchInput, init?: RequestInit) => {
+      const auth = requestHeader(init, 'authorization') ?? '';
       const [id, secret] = Buffer.from(auth.replace('Basic ', ''), 'base64')
         .toString()
         .split(':');
@@ -83,7 +84,7 @@ describe('exchangeCodeForToken', () => {
       CREDENTIALS,
       'the-code',
       'the-verifier',
-      fetchImpl as unknown as typeof fetch,
+      fetchImpl,
     );
     expect(token.access_token).toBe('discord-access');
     expect(fetchImpl).toHaveBeenCalledOnce();
@@ -91,15 +92,15 @@ describe('exchangeCodeForToken', () => {
 
   it('sends the code_verifier and redirect_uri Discord will check against the authorize request', async () => {
     let capturedBody = '';
-    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
-      capturedBody = init.body as string;
+    const fetchImpl = vi.fn(async (_input: FetchInput, init?: RequestInit) => {
+      capturedBody = formBody(init).toString();
       return new Response('{}', { status: 200 });
     });
     await exchangeCodeForToken(
       CREDENTIALS,
       'the-code',
       'the-verifier',
-      fetchImpl as unknown as typeof fetch,
+      fetchImpl,
     );
     const params = new URLSearchParams(capturedBody);
     expect(params.get('code')).toBe('the-code');
@@ -113,37 +114,37 @@ describe('exchangeCodeForToken', () => {
       async () => new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 }),
     );
     await expect(
-      exchangeCodeForToken(CREDENTIALS, 'bad-code', 'v', fetchImpl as unknown as typeof fetch),
+      exchangeCodeForToken(CREDENTIALS, 'bad-code', 'v', fetchImpl),
     ).rejects.toThrow(DiscordApiError);
   });
 });
 
 describe('fetchDiscordUser', () => {
   it('sends the Discord access token as a Bearer header', async () => {
-    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
-      expect((init.headers as Record<string, string>).authorization).toBe('Bearer discord-access');
+    const fetchImpl = vi.fn(async (_input: FetchInput, init?: RequestInit) => {
+      expect(requestHeader(init, 'authorization')).toBe('Bearer discord-access');
       return new Response(
         JSON.stringify({ id: '123456789012345678', username: 'someone', avatar: null }),
         { status: 200 },
       );
     });
-    const user = await fetchDiscordUser('discord-access', fetchImpl as unknown as typeof fetch);
+    const user = await fetchDiscordUser('discord-access', fetchImpl);
     expect(user).toEqual({ id: '123456789012345678', username: 'someone', avatar: null });
   });
 
   it('throws DiscordApiError on failure', async () => {
     const fetchImpl = vi.fn(async () => new Response('nope', { status: 401 }));
     await expect(
-      fetchDiscordUser('bad-token', fetchImpl as unknown as typeof fetch),
+      fetchDiscordUser('bad-token', fetchImpl),
     ).rejects.toThrow(DiscordApiError);
   });
 });
 
 describe('fetchDiscordGuildMember', () => {
   it('reads role ids, guild nickname and pending state from the current-user member endpoint', async () => {
-    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe('https://discord.com/api/v10/users/@me/guilds/1478428628709802166/member');
-      expect((init.headers as Record<string, string>).authorization).toBe('Bearer discord-access');
+    const fetchImpl = vi.fn(async (input: FetchInput, init?: RequestInit) => {
+      expect(requestUrl(input)).toBe('https://discord.com/api/v10/users/@me/guilds/1478428628709802166/member');
+      expect(requestHeader(init, 'authorization')).toBe('Bearer discord-access');
       return Response.json({
         nick: 'Guild Name',
         roles: ['1528065925264445622'],
@@ -157,7 +158,7 @@ describe('fetchDiscordGuildMember', () => {
       });
     });
     await expect(
-      fetchDiscordGuildMember('discord-access', '1478428628709802166', fetchImpl as unknown as typeof fetch),
+      fetchDiscordGuildMember('discord-access', '1478428628709802166', fetchImpl),
     ).resolves.toEqual({
       nick: 'Guild Name',
       roles: ['1528065925264445622'],
@@ -174,7 +175,7 @@ describe('fetchDiscordGuildMember', () => {
   it('keeps a not-a-member 404 distinguishable for capability resolution', async () => {
     const fetchImpl = vi.fn(async () => new Response('Unknown Member', { status: 404 }));
     await expect(
-      fetchDiscordGuildMember('discord-access', '1478428628709802166', fetchImpl as unknown as typeof fetch),
+      fetchDiscordGuildMember('discord-access', '1478428628709802166', fetchImpl),
     ).rejects.toMatchObject({ status: 404 });
   });
 });

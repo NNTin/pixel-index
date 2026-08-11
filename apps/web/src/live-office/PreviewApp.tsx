@@ -21,7 +21,13 @@ import {
   type ViewerMessage,
 } from './protocol';
 
-const noop = () => {};
+/**
+ * Every editing callback upstream's canvas requires. The preview is read-only,
+ * so all of them have to exist and all of them have to do nothing.
+ */
+const noop = () => {
+  // Intentionally inert: see above.
+};
 
 function sendToParent(message: ViewerMessage): void {
   window.parent.postMessage(message, window.location.origin);

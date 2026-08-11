@@ -1,6 +1,6 @@
 import { bundledLayoutRevision, sha256 } from '@pixel-index/layout-core';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { signAccessToken } from '../auth/tokens.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
@@ -46,7 +46,11 @@ function validLayoutJson(overrides: Record<string, unknown> = {}): string {
 async function tokenFor(overrides: Parameters<typeof insertUser>[1] = {}) {
   const user = await insertUser(harness.db, overrides);
   if (overrides.role === 'moderator' || overrides.role === 'admin') {
-    config.discordAdminIds.push(user.discordId!);
+    // Nullable by design — schema.ts allows it for the synthetic system user —
+    // and insertUser is free to be handed `discordId: null`. This helper never
+    // does, so the check is what says that rather than a bare `!`.
+    assert(user.discordId !== null, 'insertUser did not give the moderator a Discord id');
+    config.discordAdminIds.push(user.discordId);
   }
   const accessToken = await signAccessToken(
     { sub: user.id, role: user.role },

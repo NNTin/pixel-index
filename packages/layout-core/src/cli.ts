@@ -87,7 +87,7 @@ for (const slug of slugs) {
 }
 
 console.log(
-  `Validated ${slugs.length} layout(s) against pixel-agents ${pin.version}` +
+  `Validated ${slugs.length} layout(s) against pixel-agents ${pin.version ?? 'unknown'}` +
     `${pin.commit ? ` (${pin.commit.slice(0, 7)})` : ''}, ` +
     `bundled layoutRevision ${validator.requiredRevision}.`,
 );

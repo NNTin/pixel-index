@@ -29,8 +29,8 @@ declare const __PIXEL_AGENTS_COMMIT__: string;
 // test harness, but two shared modules still reference the optional log.
 interface Window {
   __pixelAgentsTestHooks?: {
-    playedSounds?: Array<{ kind: string; at: number }>;
-    messageLog?: Array<{
+    playedSounds?: { kind: string; at: number }[];
+    messageLog?: {
       at: number;
       type: string;
       id?: number;
@@ -38,6 +38,6 @@ interface Window {
       status?: string;
       toolId?: string;
       parentToolId?: string;
-    }>;
+    }[];
   };
 }

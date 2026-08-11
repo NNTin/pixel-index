@@ -44,13 +44,18 @@ const ENV_KEYS = [
 function setRequired(overrides: Partial<Record<string, string>> = {}) {
   for (const [key, value] of Object.entries(REQUIRED)) process.env[key] = value;
   for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete process.env[key];
+    if (value === undefined) Reflect.deleteProperty(process.env, key);
     else process.env[key] = value;
   }
 }
 
 afterEach(() => {
-  for (const key of ENV_KEYS) delete process.env[key];
+  // Reflect.deleteProperty rather than `delete`: unsetting a variable is the
+  // only correct behaviour here (assigning undefined gives the literal string
+  // "undefined", which is the bug these tests exist to catch), and this is the
+  // spelling that says so without tripping no-dynamic-delete. Same idiom as
+  // apps/web's LayoutJsonPanel.test.tsx.
+  for (const key of ENV_KEYS) Reflect.deleteProperty(process.env, key);
 });
 
 describe('loadConfig — required variables', () => {

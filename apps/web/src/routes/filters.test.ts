@@ -10,6 +10,16 @@ import {
 } from './filters';
 
 describe('filtersFromSearchParams / filtersToSearchParams', () => {
+  it('falls back to the default sort for a value that is not a sort key', () => {
+    // `sort` used to be cast out of the URL rather than checked, three lines
+    // from `size` and `pets` doing it properly — so `?sort=nope` reached
+    // filtersToApiParams and went out to the API, which rejected it. It fails
+    // safely, but the SPA should not be the one sending it.
+    expect(filtersFromSearchParams(new URLSearchParams({ sort: 'nope' })).sort).toBe('newest');
+    expect(filtersFromSearchParams(new URLSearchParams({ sort: '' })).sort).toBe('newest');
+    expect(filtersFromSearchParams(new URLSearchParams({ sort: 'title' })).sort).toBe('title');
+  });
+
   it('round-trips every field through the URL — a shared link reproduces the same view', () => {
     const original = new URLSearchParams({
       q: 'cosy office',

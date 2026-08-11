@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { assert, describe, expect, it } from 'vitest';
 
 import { generateOpaqueToken, hashToken, signAccessToken, verifyAccessToken } from './tokens.js';
 
@@ -24,7 +24,12 @@ describe('access tokens', () => {
 
   it('rejects a token with a tampered payload', async () => {
     const token = await signAccessToken({ sub: 'user-1' }, SECRET, 60_000);
+    // Asserted rather than interpolated straight in: a token that stopped
+    // having two dots would make `forged` the string "undefined.….undefined",
+    // which verifyAccessToken also rejects — so this test would keep passing
+    // while testing nothing.
     const [header, , signature] = token.split('.');
+    assert(header !== undefined && signature !== undefined, 'a JWT has three dot-separated parts');
     const forgedPayload = Buffer.from(JSON.stringify({ sub: 'user-1', role: 'admin' })).toString(
       'base64url',
     );

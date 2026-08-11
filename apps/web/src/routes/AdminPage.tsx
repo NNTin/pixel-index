@@ -6,14 +6,29 @@ import type { AdminUserView, Role } from '../api/types';
 import { useAuth } from '../auth/authState';
 import { ErrorNotice } from '../components/ErrorNotice';
 
-const CAPABILITIES: Array<{ value: '' | Role; label: string }> = [
+/**
+ * One place that knows what a capability is called.
+ *
+ * The filter options and the per-row label used to spell the same three names
+ * out separately, and the row label derived two of them by upper-casing
+ * `role[0]` — which needs a non-null assertion to say what the union already
+ * guarantees. A lookup keyed by `Role` says it in the type instead, and adding
+ * a capability now fails to compile until it is named here.
+ */
+const CAPABILITY_LABELS: Record<Role, string> = {
+  user: 'Basic',
+  moderator: 'Moderator',
+  admin: 'Admin',
+};
+
+const ROLES = ['user', 'moderator', 'admin'] as const satisfies readonly Role[];
+
+const CAPABILITIES: { value: '' | Role; label: string }[] = [
   { value: '', label: 'Any capability' },
-  { value: 'user', label: 'Basic' },
-  { value: 'moderator', label: 'Moderator' },
-  { value: 'admin', label: 'Admin' },
+  ...ROLES.map((value) => ({ value, label: CAPABILITY_LABELS[value] })),
 ];
 
-const capabilityLabel = (role: Role) => (role === 'user' ? 'Basic' : role[0]!.toUpperCase() + role.slice(1));
+const capabilityLabel = (role: Role) => CAPABILITY_LABELS[role];
 
 export function AdminPage() {
   const { accessToken } = useAuth();
