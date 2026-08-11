@@ -162,6 +162,34 @@ describe('Home', () => {
     expect(await screen.findByText('Second Office')).toBeInTheDocument();
     expect(screen.getByText('Blue Office')).toBeInTheDocument(); // appended, not replaced
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument(); // no more pages
+
+    // The masonry layout positions cards visually via CSS, not by moving them
+    // between per-column DOM parents — so an appended card lands after the
+    // existing ones in the DOM (and therefore tab/reading order) exactly as
+    // it does in the data, regardless of which column it's placed in.
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(['Blue Office', 'Second Office']);
+  });
+
+  it('keeps cards in source (data) order in the DOM, for tab/reading order, regardless of masonry column', async () => {
+    stubHomeFetch(() =>
+      Response.json({
+        schemaVersion: 1,
+        total: 4,
+        layouts: [
+          summary({ slug: 'a', title: 'Office A' }),
+          summary({ slug: 'b', title: 'Office B' }),
+          summary({ slug: 'c', title: 'Office C' }),
+          summary({ slug: 'd', title: 'Office D' }),
+        ],
+        nextCursor: null,
+      }),
+    );
+    renderHome();
+    await screen.findByText('Office A');
+
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(['Office A', 'Office B', 'Office C', 'Office D']);
   });
 
   it('re-fetches from scratch (not appends) when a filter changes', async () => {
