@@ -64,6 +64,13 @@
       "when": 1786481412731,
       "tag": "0008_vanity_slug_audit_action",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786526526493,
+      "tag": "0009_add_visible_bounds",
+      "breakpoints": true
     }
   ]
 }

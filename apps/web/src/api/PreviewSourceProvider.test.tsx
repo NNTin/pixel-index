@@ -41,6 +41,8 @@ const summary = (slug: string): LayoutSummary =>
     tags: [],
     cols: 21,
     rows: 22,
+    visibleCols: 21,
+    visibleRows: 22,
     furniture: 1,
     areas: 0,
     pets: 0,

@@ -175,6 +175,8 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
                   sha256: hash,
                   cols: stats.cols,
                   rows: stats.rows,
+                  visibleCols: stats.visibleCols,
+                  visibleRows: stats.visibleRows,
                   furnitureCount: stats.furniture,
                   areaCount: stats.areas,
                   petCount: stats.pets,

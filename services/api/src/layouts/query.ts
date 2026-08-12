@@ -24,9 +24,15 @@ export interface ListLayoutsFilters {
   tags?: string[];
   /** Free text over title and description, via the generated search_vector. */
   q?: string;
+  /** The declared canvas allocation — not the occupied footprint. See `size` below for that. */
   cols?: NumericRange;
   rows?: NumericRange;
-  /** Tile count (cols × rows), #24's "size is filtered by square unit" — not cols/rows independently. */
+  /**
+   * Occupied-footprint tile count (visibleCols × visibleRows), #24's "size is
+   * filtered by square unit" — not cols/rows independently, and not the
+   * declared canvas either (#55): a layout's canvas can be much bigger than
+   * what it actually occupies.
+   */
   size?: NumericRange;
   furniture?: NumericRange;
   areas?: NumericRange;
@@ -74,10 +80,11 @@ function sortExpr(sort: SortKey) {
     case 'furniture':
       return schema.layouts.furnitureCount;
     case 'largest':
-      // No dedicated index for this one yet — see schema.ts. Fine at current
-      // scale; #14 explicitly reserves the right to ask for more indexing
-      // "once the UI is real".
-      return sql`(${schema.layouts.cols} * ${schema.layouts.rows})`;
+      // The occupied footprint, not the declared canvas (#55) — see
+      // schema.ts's visibleCols/visibleRows. No dedicated index for this one
+      // yet; fine at current scale, and #14 explicitly reserves the right to
+      // ask for more indexing "once the UI is real".
+      return sql`(${schema.layouts.visibleCols} * ${schema.layouts.visibleRows})`;
     case 'title':
       return schema.layouts.title;
   }
@@ -139,13 +146,17 @@ function buildFilterConditions(filters: ListLayoutsFilters, scope: ListLayoutsSc
   }
 
   // Not a stored column, so it can't join the generic loop above — same
-  // `(cols * rows)` expression `sortExpr('largest')` orders by, filtered
-  // instead of sorted.
+  // `(visibleCols * visibleRows)` expression `sortExpr('largest')` orders
+  // by, filtered instead of sorted.
   if (filters.size?.min !== undefined) {
-    conditions.push(sql`(${schema.layouts.cols} * ${schema.layouts.rows}) >= ${filters.size.min}`);
+    conditions.push(
+      sql`(${schema.layouts.visibleCols} * ${schema.layouts.visibleRows}) >= ${filters.size.min}`,
+    );
   }
   if (filters.size?.max !== undefined) {
-    conditions.push(sql`(${schema.layouts.cols} * ${schema.layouts.rows}) <= ${filters.size.max}`);
+    conditions.push(
+      sql`(${schema.layouts.visibleCols} * ${schema.layouts.visibleRows}) <= ${filters.size.max}`,
+    );
   }
 
   return conditions;
@@ -208,7 +219,7 @@ function cursorValueOf(sort: SortKey, row: schema.Layout): string | number {
     case 'furniture':
       return row.furnitureCount;
     case 'largest':
-      return row.cols * row.rows;
+      return row.visibleCols * row.visibleRows;
     case 'title':
       return row.title;
   }

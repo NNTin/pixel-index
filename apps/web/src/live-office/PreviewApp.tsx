@@ -62,6 +62,21 @@ function toolRows(agents: MockAgent[]): Record<number, ToolActivity[]> {
   );
 }
 
+/**
+ * The bounding box of every non-VOID tile — the frame the camera fits to.
+ *
+ * Deliberately a private copy of `occupiedBounds()` in
+ * `@pixel-index/layout-core` (same algorithm, same fallback for an
+ * entirely-VOID layout), not an import of it: that package's barrel also
+ * re-exports `schemas.ts`/`upstream.ts`, which read the filesystem and shell
+ * out to git at module scope for the CLI/server use cases. Without a
+ * `"sideEffects": false` in its package.json, a bundler cannot prove those
+ * are safe to drop, so importing anything from the package pulls `node:fs`,
+ * `node:child_process` and `node:url` into this browser bundle — Vite
+ * externalizes them, and the first real call (`fileURLToPath`) throws at
+ * runtime and blanks the live preview. If `#55` needs to be revisited, keep
+ * this in sync with `occupiedBounds()` by hand rather than importing it.
+ */
 function visibleTileBounds(layout: OfficeLayout): {
   minCol: number;
   maxCol: number;

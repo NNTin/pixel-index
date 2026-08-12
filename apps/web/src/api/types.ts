@@ -30,6 +30,9 @@ export interface LayoutSummary {
   tags: string[];
   cols: number;
   rows: number;
+  /** The occupied-footprint width/height — what "size" means to a viewer. `cols`/`rows` is the declared canvas (#55). */
+  visibleCols: number;
+  visibleRows: number;
   furniture: number;
   areas: number;
   pets: number;

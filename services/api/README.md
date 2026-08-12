@@ -306,8 +306,8 @@ GET /api/v1/layouts?author=<uuid>&tags=cosy,small&q=office&minCols=15&maxFurnitu
 | `author` | A `users.id`. Click-an-author-name filtering (#14) uses the `author.id` a list/detail response already returns |
 | `tags` | Comma-separated tag names. **ALL**, not any — each one narrows further, the same way the numeric ranges compose |
 | `q` | Free text over title and description (the generated `search_vector` column, #3) |
-| `min*` / `max*` | `Cols`, `Rows`, `Size` (tile count, `cols × rows` — #24, not `Cols`/`Rows` independently), `Furniture`, `Areas`, `Pets`, `Seats` — each inclusive at both ends |
-| `sort` | `newest` (default), `furniture`, `largest` (`cols × rows`), `title` |
+| `min*` / `max*` | `Cols`, `Rows` (the declared canvas), `Size` (occupied-footprint tile count, `visibleCols × visibleRows` — #24, not `Cols`/`Rows` independently, and not the canvas either — #55), `Furniture`, `Areas`, `Pets`, `Seats` — each inclusive at both ends |
+| `sort` | `newest` (default), `furniture`, `largest` (`visibleCols × visibleRows`, #55), `title` |
 | `limit` | 1–100, default 24 |
 | `cursor` | Opaque, from a previous page's `nextCursor` |
 
@@ -820,10 +820,10 @@ to a synthetic system user created by migration 0002 at a fixed id
 `layouts.author_display` carries the human credit.
 
 **Stats are denormalised from `@pixel-index/layout-core`.** `layoutStats()` is the single
-source of truth for `cols`, `rows`, `furniture_count`, `area_count`, `pet_count`,
-`carpet_count`, `seat_count` and `layout_revision`, and must be applied on every write. A
-test asserts the stored columns equal what `layoutStats()` returns for a real layout, so
-the two cannot drift.
+source of truth for `cols`, `rows`, `visible_cols`, `visible_rows`, `furniture_count`,
+`area_count`, `pet_count`, `carpet_count`, `seat_count` and `layout_revision`, and must
+be applied on every write. A test asserts the stored columns equal what `layoutStats()`
+returns for a real layout, so the two cannot drift.
 
 `seat_count` (how many mock agents the live preview's slider allows, [#48](https://github.com/NNTin/pixel-index/issues/48))
 is the one denormalised stat that needs the furniture catalog, not just the layout's own
@@ -833,6 +833,17 @@ than one seat). That is also why a schema migration alone cannot backfill it for
 written before the column existed: `db/backfill-seats.ts` recomputes it from each row's
 stored `layout` column and corrects any that disagree, run once per boot from
 `docker-entrypoint.sh` alongside `migrate.ts` and `seed.ts`, idempotently.
+
+`visible_cols`/`visible_rows` ([#55](https://github.com/NNTin/pixel-index/issues/55)) is
+the bounding box of every non-`VOID` tile — the occupied footprint, as opposed to `cols`/
+`rows`, the declared canvas allocation. Three bundled seeds shared an identical canvas
+despite very different visual sizes, which is what made the bug visible: the gallery,
+`largest` sort and `size` filter all read `cols`/`rows` directly and so reported the same
+"size" for layouts nothing alike. `layoutStats()` now computes both — the same bounding-box
+algorithm the live-office preview already used to frame its camera
+(`apps/web/src/live-office/PreviewApp.tsx`), shared rather than reimplemented, via
+`occupiedBounds()`. Backfilled the same way as `seat_count`, by `db/backfill-visible-bounds.ts`,
+also wired into `docker-entrypoint.sh`.
 
 **`search_vector` is a generated column**, not something the application maintains, so it
 can never disagree with the title and description it indexes.
@@ -875,7 +886,7 @@ too.
 **#6 added `layouts_public_furniture_idx` and `layouts_public_title_idx`**, each ending
 in `id` as a tiebreaker, for the same reason `layouts_public_created_idx` already did —
 they make keyset pagination on those sort orders a fully covered index scan rather than
-a sort-then-filter. The `largest` sort (`cols × rows`) has no dedicated index yet; #14
+a sort-then-filter. The `largest` sort (`visibleCols × visibleRows`, #55) has no dedicated index yet; #14
 explicitly reserves the right to ask for one "once the UI is real", and at the dataset
 sizes this index is targeting, a plain `ORDER BY` is not a concern.
 

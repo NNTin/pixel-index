@@ -24,6 +24,8 @@ function summary(overrides: Record<string, unknown> = {}) {
     tags: [],
     cols: 25,
     rows: 22,
+    visibleCols: 25,
+    visibleRows: 22,
     furniture: 59,
     areas: 4,
     pets: 2,
@@ -207,7 +209,7 @@ describe('Home', () => {
     renderHome();
     await screen.findByText('Blue Office');
 
-    fireEvent.change(screen.getByLabelText('Minimum size in tiles (cols × rows)'), {
+    fireEvent.change(screen.getByLabelText('Minimum size in tiles (occupied footprint)'), {
       target: { value: '1000' },
     });
 

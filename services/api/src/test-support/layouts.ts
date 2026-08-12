@@ -49,6 +49,8 @@ export async function insertLayout(
       sha256: A_HASH(counter),
       cols: 10,
       rows: 10,
+      visibleCols: 10,
+      visibleRows: 10,
       furnitureCount: 0,
       areaCount: 0,
       petCount: 0,

@@ -11,7 +11,11 @@ function isSortKey(value: string | null): value is SortKey {
 export interface Filters {
   q: string;
   sort: SortKey;
-  /** Tile count (cols × rows) — #24: "size is filtered by square unit", not cols/rows independently. */
+  /**
+   * Occupied-footprint tile count (visibleCols × visibleRows) — #24: "size is
+   * filtered by square unit", not cols/rows independently, and not the
+   * declared canvas either (#55).
+   */
   minSize: number | null;
   maxSize: number | null;
   minFurniture: number | null;
