@@ -156,13 +156,13 @@ seeding from `seed/` above.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Content policy and moderation
 
 This index is post-moderated — content is public on submission, not reviewed before it
-appears. See [CONTENT_POLICY.md](CONTENT_POLICY.md) for what is not allowed and how to
-report a layout, and [MODERATORS.md](MODERATORS.md) for how the moderation team applies
+appears. See [CONTENT_POLICY.md](docs/CONTENT_POLICY.md) for what is not allowed and how to
+report a layout, and [MODERATORS.md](docs/MODERATORS.md) for how the moderation team applies
 it.
 
 ## License

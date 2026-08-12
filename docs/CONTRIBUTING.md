@@ -62,11 +62,11 @@ npm run check:mermaid  # every mermaid diagram still parses
 ```
 
 `lint:md` is [markdownlint](https://github.com/DavidAnson/markdownlint) with two
-house-style exceptions recorded in [`.markdownlint.json`](.markdownlint.json): line
+house-style exceptions recorded in [`.markdownlint.json`](../.markdownlint.json): line
 length is unenforced (this repo writes flowing prose, not hard-wrapped columns), and
 table pipe spacing only has to agree with itself, not with a fixed style.
 
-`check:links` is [`tools/check-links.mjs`](tools/check-links.mjs), and deliberately does
+`check:links` is [`tools/check-links.mjs`](../tools/check-links.mjs), and deliberately does
 **not** check http(s) links — only that a relative link (`[x](../OTHER.md)`) still
 resolves to a real file. That is the mistake worth catching for free on every push (a doc
 moved or renamed out from under a link elsewhere); confirming an external URL is still
@@ -85,7 +85,7 @@ node tools/check-mermaid.mjs docs/FOO.md    # just one file, while you iterate
 
 It reports every bad diagram in one pass, with the line to jump to. It parses rather
 than renders, so it needs no browser and takes about a second; see
-[`tools/check-mermaid.mjs`](tools/check-mermaid.mjs) for why, and for how to move the
+[`tools/check-mermaid.mjs`](../tools/check-mermaid.mjs) for why, and for how to move the
 pinned mermaid version when GitHub upgrades theirs.
 
 Two things worth knowing when you write the markdown itself:
@@ -99,8 +99,8 @@ Two things worth knowing when you write the markdown itself:
 ## Editing the code
 
 Every workspace is held to the same TypeScript strictness contract
-([`tsconfig.strict.json`](tsconfig.strict.json)) and linted by one type-aware ESLint
-config at the repo root ([`eslint.config.js`](eslint.config.js)). Both run in CI, and
+([`tsconfig.strict.json`](../tsconfig.strict.json)) and linted by one type-aware ESLint
+config at the repo root ([`eslint.config.js`](../eslint.config.js)). Both run in CI, and
 both run locally:
 
 ```bash
@@ -136,7 +136,7 @@ that was skipped or bypassed locally still gets caught before merge.
 **Commit messages must follow [Conventional Commits](https://www.conventionalcommits.org/)**
 (`type(scope): summary`, e.g. `fix(api): reject expired sessions`), checked by the
 `commit-msg` hook via [commitlint](https://commitlint.js.org/) against
-[`commitlint.config.js`](commitlint.config.js). The allowed `type`s are the standard set
+[`commitlint.config.js`](../commitlint.config.js). The allowed `type`s are the standard set
 (`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`,
 `revert`) plus `debug`, which this repo already used before anything enforced it.
 `scope` is free-form and optional. If a commit is rejected, amend the message
@@ -161,7 +161,7 @@ comment](https://github.com/gitleaks/gitleaks#allowlist) or a `.gitleaks.toml` a
 entry — and say why in the same commit.
 
 **PR titles are also checked**, separately from the commit-msg hook, by
-[`pr-title.yml`](.github/workflows/pr-title.yml) using the same Conventional Commits
+[`pr-title.yml`](../.github/workflows/pr-title.yml) using the same Conventional Commits
 rule. This is a second check rather than reuse of the hook because the PR title becomes
 the squash commit's message on merge, and it can be edited in the GitHub UI without ever
 running a local hook.

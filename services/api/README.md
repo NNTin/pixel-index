@@ -644,7 +644,7 @@ across all visibilities. Raw Discord IDs, role IDs, and membership are not retur
 
 The implementation and frontend rights table live in
 [`docs/discord-integration.md`](../../docs/discord-integration.md); moderation judgment
-lives in [MODERATORS.md](../../MODERATORS.md).
+lives in [MODERATORS.md](../../docs/MODERATORS.md).
 
 ### What #10 dropped, and why
 

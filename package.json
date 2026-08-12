@@ -14,7 +14,7 @@
     "apps/*"
   ],
   "scripts": {
-    "//prepare": "npm runs this after every install (including a contributor's first `npm ci`/`npm install`), which is what wires up the git hooks in .husky/ — see CONTRIBUTING.md for what they enforce.",
+    "//prepare": "npm runs this after every install (including a contributor's first `npm ci`/`npm install`), which is what wires up the git hooks in .husky/ — see docs/CONTRIBUTING.md for what they enforce.",
     "prepare": "husky",
     "build:core": "npm run build --workspace @pixel-index/layout-core",
     "validate": "npm run build:core && node packages/layout-core/dist/cli.js seed",

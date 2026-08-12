@@ -132,7 +132,7 @@ describe('SubmitPage', () => {
     renderSubmit();
     await waitForAuthReady();
     const link = screen.getByRole('link', { name: 'content policy' });
-    expect(link).toHaveAttribute('href', 'https://github.com/pixel-agents-hq/pixel-index/blob/main/CONTENT_POLICY.md');
+    expect(link).toHaveAttribute('href', 'https://github.com/pixel-agents-hq/pixel-index/blob/main/docs/CONTENT_POLICY.md');
   });
 
   it('shows the actionable validation issues the API returns, not a generic message', async () => {

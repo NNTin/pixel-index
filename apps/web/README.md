@@ -162,7 +162,7 @@ own notes flagged as a real risk ("tags is currently empty on all four seed layo
 \#15's original scope included a report button on every layout. #10 (moderation) had
 already dropped report intake entirely before it was built — no `POST /report`, no
 queue, see [its comment thread](https://github.com/pixel-agents-hq/pixel-index/issues/10) — so
-there is nothing for a report button to call. `CONTENT_POLICY.md` (#11) documents the
+there is nothing for a report button to call. `docs/CONTENT_POLICY.md` (#11) documents the
 actual path: contact a moderator directly. See the
 [#15 comment thread](https://github.com/pixel-agents-hq/pixel-index/issues/15) for the two backend
 additions this did need (`GET /moderation/layouts`, `GET /users?q=`) that #10/#9

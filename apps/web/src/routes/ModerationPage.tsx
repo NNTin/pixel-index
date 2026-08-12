@@ -186,7 +186,7 @@ export function ModerationPage() {
       <p className="mt-1 text-sm text-muted">
         Every layout, any author, any visibility. See{' '}
         <a
-          href="https://github.com/pixel-agents-hq/pixel-index/blob/main/MODERATORS.md"
+          href="https://github.com/pixel-agents-hq/pixel-index/blob/main/docs/MODERATORS.md"
           className="text-accent underline"
           target="_blank"
           rel="noreferrer"
