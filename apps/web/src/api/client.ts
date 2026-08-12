@@ -6,7 +6,9 @@
  * never has to grep the source for a hardcoded domain and replace it with
  * their own.
  */
+import type { OpenApiDocument } from './openapi';
 import type {
+  ApiInfo,
   LayoutDetail,
   ListLayoutsParams,
   ListLayoutsResponse,
@@ -173,6 +175,16 @@ export function getMeta(signal?: AbortSignal): Promise<MetaResponse> {
 
 export function listTags(signal?: AbortSignal): Promise<ListTagsResponse> {
   return apiRequest('/api/v1/tags', { signal });
+}
+
+/** `GET /` (#32) — the developer landing document: version, commit, and where to find the rest. */
+export function getApiInfo(signal?: AbortSignal): Promise<ApiInfo> {
+  return apiRequest('/', { signal });
+}
+
+/** The same document `@fastify/swagger` serves at `/docs` — the DeveloperPage renders its own reference from this. */
+export function getOpenApiSpec(signal?: AbortSignal): Promise<OpenApiDocument> {
+  return apiRequest('/openapi.json', { signal });
 }
 
 /**
