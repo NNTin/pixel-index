@@ -8,7 +8,7 @@ Install it, then retry:
                   package; grab a release binary, or `go install
                   github.com/gitleaks/gitleaks/v8@latest`)
 
-See CONTRIBUTING.md for what this hook checks and how to handle a false positive.
+See docs/CONTRIBUTING.md for what this hook checks and how to handle a false positive.
 EOF
   exit 1
 fi

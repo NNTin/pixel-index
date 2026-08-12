@@ -55,10 +55,10 @@ in logs for no benefit).
 | `PAGES_BASE_PATH` | No | `/` | Only when Pages serves this site from the **root**. Unset for any `/<repo>/` subpath, including under a user-site custom domain — see below. |
 
 **`PRODUCTION_API_BASE_URL` is the shared name for every workflow that builds the SPA**,
-not just `pages.yml`. Any future workflow that produces a frontend build — the vendor
-auto-update pipeline in #26, for instance, which needs to render layouts against a real
-API rather than a hardcoded host — should read `vars.PRODUCTION_API_BASE_URL` and pass it
-through as `VITE_API_BASE_URL`, exactly as `pages.yml` does:
+not just `pages.yml`. Any workflow that produces a frontend build and needs to render
+layouts against a real API, rather than a hardcoded host, should read
+`vars.PRODUCTION_API_BASE_URL` and pass it through as `VITE_API_BASE_URL`, exactly as
+`pages.yml` does:
 
 ```yaml
 env:
@@ -68,19 +68,15 @@ env:
 One variable, one place to change it. Introducing a second name for the same value is how
 a repository ends up with one workflow silently building against a stale API.
 
-**Repository-level, not Environment-level.** `pages.yml`'s `build` job deliberately
-declares no `environment:`, so environment-scoped variables are not in scope for it —
-only repository (or organisation) variables are. Adding `environment: github-pages` to
-the build job *would* bring the environment's variables into scope, but it also makes
-GitHub record a second, meaningless deployment against `github-pages` alongside the real
-one `actions/deploy-pages` creates, which muddies the environment's deployment history
-for no gain. Neither value is secret, so there is nothing an Environment would protect
-here. The `github-pages` Environment still exists and is still used — by the `deploy`
-job, for the deployment record and its URL.
+**Repository-level, not Environment-level.** `pages.yml`'s `build` job declares no
+`environment:`, so only repository (or organisation) variables are in scope for it, not
+environment-scoped ones. Neither value is secret, so there is nothing an Environment
+would protect here. The `github-pages` Environment still exists and is still used — by
+the `deploy` job, for the deployment record and its URL.
 
 If `PRODUCTION_API_BASE_URL` is unset, the build still succeeds and the site still
 loads; every API call then fails with the client's "Could not reach the API" message
-rather than a blank page. That is intentional (#12), not a bug to work around.
+rather than a blank page — intentional, not a bug to work around.
 
 **About `PAGES_BASE_PATH`.** A GitHub Pages *project* site is served from a repo-name
 subpath — `https://<user>.github.io/pixel-index/` — and that prefix has to be compiled
@@ -129,7 +125,7 @@ hand, so nothing is lost either way — but until it is enabled, every scheduled
 and needs a click. Nothing else in this repository needs the setting.
 
 **`PRODUCTION_API_BASE_URL` has a second reader: `vendor-update.yml`.** The daily job
-that bumps the pinned Pixel Agents (#26) uses it to fetch every public layout from your
+that bumps the pinned Pixel Agents uses it to fetch every public layout from your
 running index — `GET /api/v1/export/layouts.ndjson` — and render them against the
 candidate pin, so the PR can say exactly which of *your* layouts a bump would break.
 Leave it unset and the job still runs, but only over the committed `seed/` layouts: it
@@ -239,7 +235,7 @@ than one restart per missing value.
 | `DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY` | With a guild | `openssl rand -base64 32` | **API-only secret.** Encrypts retained Discord OAuth grants in Postgres. |
 | `DISCORD_MEMBERSHIP_CACHE_TTL_MS` | No | `60000` | Recommended one-minute role/membership cache. |
 | `VITE_API_BASE_URL` | Only if you build the `web` image | `https://api.example.com` | **Build-time**, baked into the bundle by `apps/web/Dockerfile`. `docker compose build web` after a change — restarting is not enough. |
-| `API_COMMIT` | No | `$(git rev-parse HEAD)` | **Build-time**, baked into the `api` image by `services/api/Dockerfile` (#32). Unset means `GET /` and `GET /api/v1/meta` report `commit: null` — see below. |
+| `API_COMMIT` | No | `$(git rev-parse HEAD)` | **Build-time**, baked into the `api` image by `services/api/Dockerfile`. Unset means `GET /` and `GET /api/v1/meta` report `commit: null` — see below. |
 | `API_TRUST_PROXY` | No (`true` by default in the app) | `true` | Compose ships `false`. Flip it to `true` the moment a reverse proxy is in front — see above. |
 | `WEB_PORT` / `API_PORT_HOST` | No | `8080` / `3000` | Host ports. |
 
@@ -251,8 +247,7 @@ Tuning knobs with working defaults you can usually ignore: `API_HOST`, `API_PORT
 
 ### The pinned commit ships as a file
 
-Nothing to configure — this is here because it used to be a variable, and because the
-failure it causes is quiet.
+Nothing to configure — the failure this avoids is quiet.
 
 A container cannot work out which Pixel Agents it holds. `vendor/pixel-agents/.git` is a
 *pointer* to a gitdir outside the Docker build context (under a git worktree, an absolute
@@ -262,11 +257,10 @@ back to the upstream *version*, which the pin routinely outruns by several commi
 different builds then serve each other's cached previews — and `/api/v1/meta` cannot say
 which upstream the index is actually serving.
 
-This was once a `PIXEL_AGENTS_COMMIT` build argument. Nobody passed it, so every deployed
-image reported `commit: null`. The pin now travels as `vendor/pixel-agents.commit`, copied
-into both images, kept equal to the gitlink by `npm run vendor:commit`, updated by the
-vendor-update workflow in the same commit as the bump, and verified on every CI run by
-`npm run vendor:commit:check` so it cannot drift from the pin it claims to describe.
+The pin travels as `vendor/pixel-agents.commit`, copied into both images, kept equal to
+the gitlink by `npm run vendor:commit`, updated by the vendor-update workflow in the same
+commit as the bump, and verified on every CI run by `npm run vendor:commit:check` so it
+cannot drift from the pin it claims to describe.
 
 ### `API_COMMIT` — pixel-index's own commit, a build argument instead
 
@@ -294,7 +288,7 @@ hostname is minted per deploy and cannot be enumerated in advance, so previews o
 repo's frontend get no CORS access and no working login. This variable is the opt-in
 escape hatch:
 
-```
+```text
 PUBLIC_WEB_ORIGIN_PATTERNS=https://my-project-*-my-team.vercel.app
 ```
 
@@ -318,7 +312,7 @@ Comma-separate for more than one. Both the CORS check and the OAuth redirect all
 consult it, so login from a preview works end to end rather than redirecting
 successfully and then failing on the first API call.
 
-#### Discord OAuth, membership, and roles (#21)
+#### Discord OAuth, membership, and roles
 
 The API performs Discord OAuth2 authorization-code flow with PKCE. Without a configured
 guild it requests `identify`; with `DISCORD_GUILD_ID` it requests `identify
@@ -469,15 +463,13 @@ API only ever sees the real client IP directly. The moment you put a reverse pro
 front of it, flip this to `true` in `.env` — otherwise rate limiting keys on the proxy's
 IP, and every client behind it shares one bucket.
 
-### The gotcha that costs real debugging time: `localhost` inside a container is IPv6
+### `localhost` inside a container resolves to IPv6 first
 
-Every health check in this repo's images probes `127.0.0.1`, never `localhost` —
-`localhost` resolves to `::1` first inside a container, and a listener bound to IPv4
-only then fails a check it should pass, the container gets marked unhealthy, and a
-reverse proxy quietly drops it from rotation with nothing more informative than a bare
-404 in the browser and nothing in any application log (the request never reached the
-app). If you write your own health check probing this stack from outside — or bind your
-proxy's upstream by hostname rather than an explicit address — keep this in mind.
+Every health check in this repo's images probes `127.0.0.1`, never `localhost`. A
+listener bound to IPv4 only fails a check against `localhost` inside a container, gets
+marked unhealthy, and a reverse proxy then quietly drops it from rotation with nothing
+more informative than a bare 404 — the request never reached the app. Bind your own
+health checks and proxy upstreams by explicit address, not by hostname.
 
 ## Traefik
 
@@ -510,7 +502,7 @@ service's `networks:` and to the top-level `networks:` block as `external: true`
 
 A `Caddyfile` alongside (not replacing) this repo's compose file:
 
-```
+```text
 gallery.example.com {
     reverse_proxy web:80
 }

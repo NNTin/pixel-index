@@ -1,0 +1,7 @@
+{
+  "default": true,
+  "//MD013": "This repo writes prose as flowing paragraphs, not hard-wrapped at a column count — a diff should show the sentence that changed, not every line of its paragraph reflowing around it.",
+  "MD013": false,
+  "//MD060": "Pipe spacing varies by table (compact in some docs, aligned in others). 'consistent' only requires a table to agree with itself, not with a repo-wide style.",
+  "MD060": { "style": "consistent" }
+}

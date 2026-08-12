@@ -8,13 +8,8 @@ autotiling, carpet marching-squares, per-tile colorize and z-sorting therefore m
 what a user will actually see, and a preview can never drift from its layout or from the
 pinned upstream.
 
-Ported from v1's `tools/render-previews.mjs` ([#4](https://github.com/NNTin/pixel-index/issues/4),
-since deleted along with the rest of the v1 pipeline in [#18](https://github.com/NNTin/pixel-index/issues/18)).
-At the time, the port was verified **byte-identical** against the v1 build script's own
-output — that parity check is gone now that there is no v1 output left to diff against,
-but `render.integration.test.ts` keeps everything else it proved: determinism,
-concurrency limits, timeouts, cache behaviour, and the HTTP surface, all against a real
-render.
+`render.integration.test.ts` proves determinism, concurrency limits, timeouts, cache
+behaviour, and the HTTP surface, all against a real render.
 
 ## How it works
 
@@ -88,9 +83,8 @@ falling back to a default.
 Keyed on the layout bytes **and** the upstream pin, because bumping
 `vendor/pixel-agents` can change what a layout looks like — a key that ignored the pin
 would serve the previous renderer's preview forever. On disk, so a redeploy is not a
-render stampede and a submission that duplicates an existing layout
-([#8](https://github.com/NNTin/pixel-index/issues/8) dedupes on the same hash) costs
-nothing.
+render stampede, and a submission that duplicates an existing layout (dedup on the same
+hash) costs nothing.
 
 At the ceiling it stops writing rather than evicting: previews are small and
 deterministic, so a cold entry costs one render, while an eviction policy costs
@@ -115,25 +109,24 @@ blur `imageSmoothingEnabled` might suggest, and byte size scales as measured:
 (`scale: 0.5` is larger on disk than the full image, every time — halving pixel art
 destroys the long runs of identical pixels PNG's filters exploit.)
 
-[#13](https://github.com/NNTin/pixel-index/issues/13) used to have `services/api`
-request `thumbnail.png` at `scale: 0.25` for the byte savings above. That was reverted:
-`apps/web`'s gallery card stretches the PNG to a responsive, non-integer container width
-with CSS `image-rendering: pixelated`, so a pre-shrunk 0.25 render is downscaled *twice*
-— once here, server-side, to a fixed 200×104-ish grid, and again by the browser to
-whatever the card actually measures. Each step is individually lossless, but the second
-step can only choose from the ~1-in-16 pixels the first step kept, not the source
-image's full detail — a genuinely different (and, compared side-by-side, visibly
+`services/api` always requests `scale: 1` for both `preview.png` and `thumbnail.png`,
+even though `apps/web`'s gallery card displays thumbnails much smaller: the card
+stretches the PNG to a responsive, non-integer container width with CSS
+`image-rendering: pixelated`, so a pre-shrunk `scale: 0.25` render would be downscaled
+*twice* — once here, server-side, to a fixed 200×104-ish grid, and again by the browser
+to whatever the card actually measures. Each step is individually lossless, but the
+second step can only choose from the ~1-in-16 pixels the first step kept, not the
+source image's full detail — a genuinely different (and, compared side-by-side, visibly
 softer) result than scaling the full render straight to the card's width in one step.
 Measured on `blue-office` at a representative card width: 12% of pixels differ between
-the double-hop and a direct single-hop scale, mean channel error ~6/255. `services/api`
-now always requests `scale: 1` for both `preview.png` and `thumbnail.png` — same bytes,
-one resize, done by the browser at the one size that actually matters. The `scale`
-parameter stays in this service because it is a correct, generic capability; it's just
-not the right tool for *this* API's thumbnail problem.
+the double-hop and a direct single-hop scale, mean channel error ~6/255. Same bytes, one
+resize, done by the browser at the one size that actually matters. The `scale` parameter
+stays in this service because it is a correct, generic capability; it's just not the
+right tool for the gallery's thumbnail problem.
 
 ## Five fixes not to lose
 
-Every one of these was diagnosed the hard way in v1, and each is invisible until it bites:
+Each of these is invisible until it bites:
 
 - **The layout must be injected by intercepting the default-layout fetch** (`page.route`).
   Dispatching `layoutLoaded` after page load races the browser mock's own late dispatch,
@@ -161,9 +154,9 @@ Every one of these was diagnosed the hard way in v1, and each is invisible until
 
 ## Shutdown
 
-`SIGTERM`/`SIGINT` close the HTTP server, then the browser, then the Vite process group.
-Verified by starting the service, rendering, sending `SIGTERM`, and confirming the
-Chromium and Vite process counts return to baseline.
+`SIGTERM`/`SIGINT` close the HTTP server, then the browser, then the Vite process
+group — Chromium and Vite process counts return to baseline, and the container stops in
+under half a second with exit `0`.
 
 ## Local development
 
@@ -177,10 +170,9 @@ npm test --workspace @pixel-index/renderer              # fast; no browser
 npm run test:integration --workspace @pixel-index/renderer   # real browser + Vite
 ```
 
-The integration suite is opt-in because it boots Vite and Chromium. It is also the only
-place that can prove the renderer still draws what v1 drew, so CI runs it on every pull
-request. If the parity test fails, **look at the images before touching the assertion** —
-it means the port changed what users see.
+The integration suite is opt-in because it boots Vite and Chromium, and CI runs it on
+every pull request since it is the only place that exercises a real render rather than a
+stub.
 
 ## Container
 
@@ -203,16 +195,11 @@ Three container-specific things, each of which broke the image once:
   to the upstream *version*, which the pin routinely outruns by several commits
   (`v1.4.0-14-g9794e07`), so two different builds would share cached previews. The
   Dockerfile copies `vendor/pixel-agents.commit`, kept equal to the gitlink by
-  `npm run vendor:commit` and enforced in CI. This used to be a `PIXEL_AGENTS_COMMIT`
-  build argument; nobody remembered to pass it, so every image reported `commit: null`.
-  The service still logs a warning at boot if the file is somehow missing.
+  `npm run vendor:commit` and enforced in CI. The service still logs a warning at boot
+  if the file is somehow missing.
 - **Ownership is set with `COPY --chown` and the vendor install runs as `pwuser`.** Vite
   bundles `vite.config.ts` to a `.timestamp-*.mjs` file *beside itself* at startup, and
   caches optimised deps under `node_modules/.vite`. A root-owned tree gives `EACCES` and
   the dev server never starts. Doing it at copy time rather than with a later `chown -R`
   avoids duplicating the whole tree into another layer.
 - **`NODE_ENV` is deliberately unset.** See the fifth trap above.
-
-Verified end to end: the image renders all four layouts byte-identically to the v1
-script, serves a cache hit on repeat, reports `healthy`, and stops in under half a second
-on `SIGTERM` with exit 0.

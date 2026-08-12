@@ -54,8 +54,8 @@ area:moderation:
       - any-glob-to-any-file:
           - services/api/src/moderation/**
           - services/api/src/users/**
-          - MODERATORS.md
-          - CONTENT_POLICY.md
+          - docs/MODERATORS.md
+          - docs/CONTENT_POLICY.md
 
 area:infra:
   - changed-files:
@@ -77,11 +77,12 @@ area:docs:
   - changed-files:
       - any-glob-to-any-file:
           - docs/**
-          # Every root-level markdown file (README.md, CONTRIBUTING.md,
-          # CONTENT_POLICY.md, MODERATORS.md, ...) plus every workspace's
-          # own README. A workspace README also matches that workspace's
-          # area glob above (e.g. services/api/README.md is area:api too)
-          # — deliberately: it's still telling a reviewer which area's
+          # Every root-level markdown file (README.md, ...) plus every
+          # workspace's own README. CONTRIBUTING.md/CONTENT_POLICY.md/
+          # MODERATORS.md live under docs/ (matched above), not here. A
+          # workspace README also matches that workspace's area glob above
+          # (e.g. services/api/README.md is area:api too) — deliberately:
+          # it's still telling a reviewer which area's
           # documentation moved, not just that docs moved.
           - '*.md'
           - '**/README.md'

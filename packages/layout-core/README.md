@@ -2,11 +2,9 @@
 
 The single definition of what a valid layout is.
 
-Three components need this answer — CI, the API's submission endpoint
-([#8](https://github.com/NNTin/pixel-index/issues/8)) and the renderer
-([#4](https://github.com/NNTin/pixel-index/issues/4)) — and three copies would drift. A
-drifted validator means the index accepts a layout that Pixel Agents will silently
-discard, which is the specific failure this project exists to prevent.
+Three components need this answer — CI, the API's submission endpoint, and the renderer
+— and three copies would drift. A drifted validator means the index accepts a layout
+that Pixel Agents will silently discard.
 
 The library takes **parsed objects, never paths**, so a server can validate an uploaded
 request body directly. Reading the *pinned upstream* from disk is the one exception: the
@@ -44,16 +42,15 @@ const { valid, issues } = validator.validateLayout(uploadedLayout);
 | `layoutStats(layout, opts?)` | cols, rows, furniture, areas, pets, carpets, seats, layoutRevision |
 | `furnitureCatalog(dir?)` / `knownFurnitureIds(dir?)` | what the pinned upstream can draw |
 | `bundledLayoutRevision(dir?)` / `upstreamPin(dir?)` | the pinned upstream's facts |
-| `sha256(input)` | dedupe (#8) and render-cache keys (#4) |
+| `sha256(input)` | dedupe and render-cache keys |
 | `layoutSchema` / `metaSchema` | the raw schemas, for serving and for 422 bodies |
 
 Issues are returned as data, never printed and never thrown, so the API can render them
 as a 422 and the CLI can format them for a terminal.
 
-`layoutStats` is the source of truth for the denormalised database columns
-([#3](https://github.com/NNTin/pixel-index/issues/3)): they are written from here on
-every insert and update, so a stat in the gallery cannot disagree with the layout beside
-it.
+`layoutStats` is the source of truth for the denormalised database columns: they are
+written from here on every insert and update, so a stat in the gallery cannot disagree
+with the layout beside it.
 
 ## Locating the pinned upstream
 
@@ -72,8 +69,7 @@ node packages/layout-core/dist/cli.js <dir>       # any directory of <slug>/ fol
 
 The CLI owns the on-disk convention (`<dir>/<slug>/{layout,meta}.json`) and the terminal
 formatting, and nothing else — that convention belongs to the git-versioned seed
-(`seed/`, [#18](https://github.com/NNTin/pixel-index/issues/18)), which is exactly why
-it lives in the CLI rather than in the library.
+(`seed/`), which is exactly why it lives in the CLI rather than in the library.
 
 ## The rule that eats layouts
 
@@ -85,9 +81,8 @@ explains the consequence rather than just refusing.
 
 ## Two false positives, permanently pinned by tests
 
-Both were found the hard way, and both appear in real published layouts — so
-`parity.test.ts` re-proves them against `seed/` on every run, and guards that the
-data still exercises them:
+Both appear in real published layouts — `parity.test.ts` re-proves them against `seed/`
+on every run, and guards that the data still exercises them:
 
 - **Virtual `:left` furniture ids.** Upstream synthesises entries like `PC_SIDE:left`
   for assets with `mirrorSide` and `orientation: "side"`, and layouts store that id
@@ -97,9 +92,6 @@ data still exercises them:
   row (`getWallPlacementRow: row - (footprintH - 1)`), so a 2-tall `CLOCK` on the top
   wall legitimately sits at row `-1`. The valid lower bound is
   `canPlaceOnWalls ? -(footprintH - 1) : 0`, not `0`.
-
-The published `layout.schema.json` carried the second bug — `row` had `minimum: 0`,
-which would have rejected `four-rooms` — and it is fixed here.
 
 ## Tests
 

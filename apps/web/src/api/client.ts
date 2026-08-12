@@ -197,4 +197,15 @@ export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path}`;
 }
 
+/**
+ * A link to a file in this instance's own repository, pinned to the exact
+ * commit `GET /` reports — the file existed there for certain, unlike a
+ * `main` branch link a later rename or move could break. Falls back to
+ * `main` only for a self-hosted deployment that never set `API_COMMIT`
+ * (services/api's config.ts), where there is no commit to pin to.
+ */
+export function repoFileUrl(info: ApiInfo, path: string): string {
+  return `${info.repository}/blob/${info.commit ?? 'main'}/${path}`;
+}
+
 export { API_BASE_URL, apiRequest, toQueryString };
