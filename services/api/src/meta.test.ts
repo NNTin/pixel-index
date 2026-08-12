@@ -44,6 +44,23 @@ describe('GET /api/v1/meta', () => {
     expect(response.json<MetaBody>().discordInviteUrl).toBeNull();
   });
 
+  it('reports no apiCommit when the build did not pass one, and the pinned one when it did — a different thing from pixelAgents.commit', async () => {
+    const unstamped = await app.inject({ method: 'GET', url: '/api/v1/meta' });
+    expect(unstamped.json<MetaBody>().apiCommit).toBeNull();
+
+    const stampedApp = await buildServer({
+      config: testConfig({ commit: 'b'.repeat(40) }),
+      pool: fakePool,
+      db: harness.db,
+    });
+    try {
+      const response = await stampedApp.inject({ method: 'GET', url: '/api/v1/meta' });
+      expect(response.json<MetaBody>().apiCommit).toBe('b'.repeat(40));
+    } finally {
+      await stampedApp.close();
+    }
+  });
+
   it('reports the invite URL unauthenticated, when configured — joining must not require already being signed in', async () => {
     const guildedApp = await buildServer({
       config: testConfig({

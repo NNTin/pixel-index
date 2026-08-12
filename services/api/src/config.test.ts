@@ -36,6 +36,7 @@ const ENV_KEYS = [
   'REFRESH_TOKEN_TTL_MS',
   'LOGIN_CODE_TTL_MS',
   'PIXEL_AGENTS_DIR',
+  'API_COMMIT',
   'MAX_LAYOUT_BYTES',
   'MAX_SUBMISSIONS_PER_USER_PER_DAY',
   'PUBLIC_WEB_ORIGIN_PATTERNS',
@@ -371,6 +372,18 @@ describe('loadConfig — upstream pin override (#6 /meta)', () => {
     // reported commit: null; it is a committed file now (upstream.ts).
     setRequired();
     expect('upstreamCommit' in loadConfig()).toBe(false);
+  });
+});
+
+describe('loadConfig — API_COMMIT (#32)', () => {
+  it('is absent by default — a local `npm run dev` has no Docker build arg to pass', () => {
+    setRequired();
+    expect('commit' in loadConfig()).toBe(false);
+  });
+
+  it('reads the commit baked in at build time', () => {
+    setRequired({ API_COMMIT: 'a'.repeat(40) });
+    expect(loadConfig().commit).toBe('a'.repeat(40));
   });
 });
 

@@ -22,6 +22,8 @@ const SCHEMA_VERSION = 1;
 export interface MetaBody {
   schemaVersion: number;
   generatedAt: string;
+  /** This checkout's own commit (config.commit) — not pixelAgents.commit below, which is the pinned upstream's. */
+  apiCommit: string | null;
   pixelAgents: UpstreamPin;
   count: number;
   discordInviteUrl: string | null;
@@ -48,6 +50,7 @@ export function registerMetaRoutes(app: FastifyInstance, config: ApiConfig, db: 
       return {
         schemaVersion: SCHEMA_VERSION,
         generatedAt: new Date().toISOString(),
+        apiCommit: config.commit ?? null,
         pixelAgents: pin,
         count,
         // Public by design — the invite is how someone joins the community in

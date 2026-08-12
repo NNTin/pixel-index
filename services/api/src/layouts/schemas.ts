@@ -133,6 +133,9 @@ export const metaResponseSchema = {
     properties: {
       schemaVersion: { type: 'integer' },
       generatedAt: { type: 'string', format: 'date-time' },
+      // This checkout's own commit — distinct from pixelAgents.commit below,
+      // which is the pinned Pixel Agents upstream's commit.
+      apiCommit: { type: ['string', 'null'] },
       pixelAgents: {
         type: 'object',
         properties: {
@@ -145,7 +148,23 @@ export const metaResponseSchema = {
       count: { type: 'integer' },
       discordInviteUrl: { type: ['string', 'null'] },
     },
-    required: ['schemaVersion', 'generatedAt', 'pixelAgents', 'count', 'discordInviteUrl'],
+    required: ['schemaVersion', 'generatedAt', 'apiCommit', 'pixelAgents', 'count', 'discordInviteUrl'],
+  },
+} as const;
+
+export const rootResponseSchema = {
+  200: {
+    type: 'object',
+    properties: {
+      name: { type: 'string' },
+      description: { type: 'string' },
+      version: { type: 'string' },
+      commit: { type: ['string', 'null'] },
+      documentation: { type: 'string' },
+      openapi: { type: 'string' },
+      repository: { type: 'string' },
+    },
+    required: ['name', 'description', 'version', 'commit', 'documentation', 'openapi', 'repository'],
   },
 } as const;
 

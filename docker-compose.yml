@@ -36,6 +36,13 @@ services:
     build:
       context: .
       dockerfile: services/api/Dockerfile
+      args:
+        # Optional — see services/api/Dockerfile's ARG API_COMMIT. Unset
+        # bakes in no commit (GET / and GET /api/v1/meta report null), so
+        # a plain `docker compose build` still works. Pass this repo's own
+        # HEAD to have the API report which commit it's actually running:
+        #   API_COMMIT=$(git rev-parse HEAD) docker compose build api
+        API_COMMIT: "${API_COMMIT:-}"
     restart: unless-stopped
     depends_on:
       postgres:

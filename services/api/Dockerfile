@@ -68,6 +68,17 @@ COPY --chown=pixelindex:pixelindex vendor/pixel-agents/webview-ui/public/assets 
 # operator had to remember; nobody did, and every image reported commit: null.
 COPY --chown=pixelindex:pixelindex vendor/pixel-agents.commit ./vendor/pixel-agents.commit
 
+# Which pixel-index this is, for GET / and GET /api/v1/meta (#32) — a
+# different problem from the pinned vendor/pixel-agents.commit above. That
+# one exists because the submodule's .git is unreachable from inside the
+# build context; THIS repo's own .git is ordinarily right there wherever
+# `docker build`/`docker compose build` runs, so a plain build ARG is enough
+# — no committed stamp file needed. Unset (empty string) reports commit: null
+# rather than failing the build; this is informational, not load-bearing.
+#   docker build -f services/api/Dockerfile --build-arg API_COMMIT=$(git rev-parse HEAD) .
+ARG API_COMMIT
+ENV API_COMMIT=${API_COMMIT}
+
 ENV PIXEL_AGENTS_DIR=/app/vendor/pixel-agents \
     API_HOST=:: \
     API_PORT=3000
