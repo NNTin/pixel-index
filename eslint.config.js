@@ -266,6 +266,42 @@ const TEST_FILES = [
   'apps/web/src/test/**/*.{ts,tsx}',
 ];
 
+/**
+ * A hardcoded GitHub blob/repo URL bakes this instance's owner and branch
+ * into shipped code — a self-hoster's fork breaks it immediately, and so did
+ * this repo's own pending org transfer to pixel-agents-hq (three frontend
+ * files had one hand-typed each, found and fixed one grep at a time). `GET /`
+ * already exposes `repository` and, for a link pinned to an exact file,
+ * `commit` — see services/api/src/root.ts for where those come from, and
+ * apps/web/src/api/client.ts's `repoFileUrl()` for the frontend helper that
+ * builds a link from them.
+ *
+ * Matches a bare string or a template literal's static text; it cannot see
+ * across an interpolation (`` `https://github.com/${owner}/pixel-index` ``
+ * would slip through), which is a known gap a no-restricted-syntax selector
+ * cannot close, not an oversight.
+ */
+const GITHUB_REPOSITORY_PATTERN = /https?:\/\/github\.com\/[^/\s'"`]+\/[^/\s'"`]+/;
+
+const GITHUB_REPOSITORY_MESSAGE =
+  "Don't hardcode a GitHub repository URL. Build it from GET /'s `repository` (and `commit`, " +
+  'for a link to a specific file) instead — see services/api/src/root.ts for where those come ' +
+  "from, and apps/web/src/api/client.ts's repoFileUrl() for the frontend helper.";
+
+const noHardcodedGithubRepository = {
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector: `Literal[value=/${GITHUB_REPOSITORY_PATTERN.source}/]`,
+      message: GITHUB_REPOSITORY_MESSAGE,
+    },
+    {
+      selector: `TemplateElement[value.raw=/${GITHUB_REPOSITORY_PATTERN.source}/]`,
+      message: GITHUB_REPOSITORY_MESSAGE,
+    },
+  ],
+};
+
 export default defineConfig([
   globalIgnores([
     '**/dist/**',
@@ -346,6 +382,16 @@ export default defineConfig([
       ...presetExceptions,
       ...unusedVarsWithUnderscoreEscape,
     },
+  },
+  {
+    // Repo-wide: the point is catching the *next* hardcoded link wherever it
+    // turns up, not just in apps/web where the first three did. root.ts is
+    // the one legitimate exception — it is the literal's actual source — and
+    // TEST_FILES mock or assert that same literal as fixture data, which is
+    // not the mistake this rule exists to catch.
+    files: ['**/*.{ts,tsx}'],
+    ignores: ['services/api/src/root.ts', ...TEST_FILES],
+    rules: { ...noHardcodedGithubRepository },
   },
 
   // ------------------------------------------------------------------ tests

@@ -114,7 +114,7 @@ which need real types to say anything — so it costs about as much as a typeche
 much as a formatter. It needs `vendor/pixel-agents` checked out, because `apps/web`
 compiles some of the upstream's own sources.
 
-Two conventions the config makes load-bearing rather than decorative:
+Three conventions the config makes load-bearing rather than decorative:
 
 - A leading underscore (`_request`, `_canvasBox`) means "deliberately unused". Anything
   else unused is an error.
@@ -122,6 +122,11 @@ Two conventions the config makes load-bearing rather than decorative:
   its hook live in separate files (`AuthProvider.tsx` / `authState.ts`). That is what
   lets Vite hot-replace a component in place instead of reloading the page, which for
   this app also means not having to log in again after every edit.
+- No file outside `services/api/src/root.ts` may contain a literal `https://github.com/<owner>/<repo>`
+  string — a `no-restricted-syntax` rule catches it. Build the link from `GET /`'s own
+  `repository`/`commit` fields instead (`apps/web/src/api/client.ts`'s `repoFileUrl()` is the
+  frontend helper); a hardcoded one breaks for every self-hoster's fork, and broke three
+  frontend files here the day this repo's own GitHub org changed.
 
 Where a rule is switched off, or a suppression is narrowed to one line, the reason is
 written next to it. If you need a new exception, write the reason too — a bare
