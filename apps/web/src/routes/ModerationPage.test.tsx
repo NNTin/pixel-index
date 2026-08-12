@@ -31,7 +31,7 @@ function ownerView(overrides: Record<string, unknown> = {}) {
   return {
     slug: 'reported-office',
     title: 'Reported Office',
-    author: { id: 'other-1', username: 'someone-else', displayName: 'someone-else', avatarUrl: null },
+    author: { discordId: 'other-1', username: 'someone-else', displayName: 'someone-else', avatarUrl: null },
     description: '',
     tags: [],
     cols: 4,

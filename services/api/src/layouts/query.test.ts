@@ -76,6 +76,37 @@ describe('listLayouts — owner scope', () => {
   });
 });
 
+describe('listLayouts — authorDiscordId (#61)', () => {
+  it('resolves a Discord id to the matching author, same result as filtering by the internal id', async () => {
+    const author = await insertUser(harness.db, { discordId: 'discord-resolve-1' });
+    const other = await insertUser(harness.db);
+    const mine = await insertLayout(harness.db, { authorUserId: author.id, visibility: 'public' });
+    await insertLayout(harness.db, { authorUserId: other.id, visibility: 'public' });
+    assert(author.discordId !== null, 'insertUser did not give the author a Discord id');
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { authorDiscordId: author.discordId },
+      sort: 'newest',
+      limit: 100,
+    });
+    expect(rows.map((r) => r.id)).toEqual([mine.id]);
+  });
+
+  it('returns zero results, not a database error, for a Discord id that matches no user', async () => {
+    // Regression guard: `layouts.authorUserId` is uuid-typed, so comparing it
+    // directly against an arbitrary Discord snowflake string used to risk an
+    // "invalid input syntax for type uuid" error rather than an empty page.
+    const { rows, total, nextCursor } = await listLayouts(harness.db, {
+      filters: { authorDiscordId: 'no-such-discord-id' },
+      sort: 'newest',
+      limit: 100,
+    });
+    expect(rows).toEqual([]);
+    expect(total).toBe(0);
+    expect(nextCursor).toBeNull();
+  });
+});
+
 describe('getLayoutBySlugAnyVisibility', () => {
   it('finds a non-public layout, unlike getLayoutBySlug', async () => {
     const layout = await insertLayout(harness.db, { slug: 'any-visibility-hidden', visibility: 'hidden' });

@@ -28,7 +28,7 @@ function ownerView(overrides: Record<string, unknown> = {}) {
   return {
     slug: 'my-office',
     title: 'My Office',
-    author: { id: 'owner-1', username: 'someone', displayName: 'someone', avatarUrl: null },
+    author: { discordId: 'owner-1', username: 'someone', displayName: 'someone', avatarUrl: null },
     description: '',
     tags: [],
     cols: 4,

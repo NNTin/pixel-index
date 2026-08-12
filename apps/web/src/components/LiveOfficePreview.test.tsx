@@ -9,7 +9,7 @@ function layout(overrides: Partial<LayoutDetail> = {}): LayoutDetail {
   return {
     slug: 'test-office',
     title: 'Test Office',
-    author: { id: null, username: 'tester', displayName: 'tester', avatarUrl: null },
+    author: { discordId: null, username: 'tester', displayName: 'tester', avatarUrl: null },
     description: '',
     tags: [],
     cols: 2,

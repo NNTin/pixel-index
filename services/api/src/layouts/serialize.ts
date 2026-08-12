@@ -7,10 +7,13 @@ import type * as schema from '../db/schema.js';
 
 export interface PublicAuthor {
   /**
-   * `null` only for legacy credited-but-unlinked system-owned seed data.
-   * Bundled layouts are associated with their known Discord author (#23).
+   * The Discord user id (snowflake) — not the internal Pixel Index UUID
+   * (#61): a Discord bot inherently knows a user's Discord id and has no way
+   * of knowing our unique naming convention. `null` only for legacy
+   * credited-but-unlinked system-owned seed data. Bundled layouts are
+   * associated with their known Discord author (#23).
    */
-  id: string | null;
+  discordId: string | null;
   /** Stable Discord account handle, or the legacy credit for an unlinked seed. */
   username: string;
   /** Guild nickname, then global Discord name, then username. */
@@ -54,7 +57,7 @@ export interface PublicLayoutDetail extends PublicLayoutSummary {
 export function publicAuthor(layout: schema.Layout, author: schema.User | null): PublicAuthor {
   if (layout.authorDisplay && (!author || author.isSystem)) {
     return {
-      id: null,
+      discordId: null,
       username: layout.authorDisplay,
       displayName: layout.authorDisplay,
       avatarUrl: null,
@@ -62,7 +65,7 @@ export function publicAuthor(layout: schema.Layout, author: schema.User | null):
   }
   const username = author?.username ?? 'unknown';
   return {
-    id: author?.id ?? null,
+    discordId: author?.discordId ?? null,
     username,
     displayName: author?.guildNickname ?? author?.globalName ?? username,
     avatarUrl: author?.avatarUrl ?? null,

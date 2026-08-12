@@ -10,12 +10,13 @@ export const publicAuthorSchema = {
   $id: 'PublicAuthor',
   type: 'object',
   properties: {
-    id: { type: ['string', 'null'], format: 'uuid' },
+    // The Discord user id (snowflake), not the internal Pixel Index UUID (#61).
+    discordId: { type: ['string', 'null'] },
     username: { type: 'string' },
     displayName: { type: 'string' },
     avatarUrl: { type: ['string', 'null'] },
   },
-  required: ['id', 'username', 'displayName', 'avatarUrl'],
+  required: ['discordId', 'username', 'displayName', 'avatarUrl'],
 } as const;
 
 const filesSchema = {
@@ -86,7 +87,8 @@ export const listLayoutsQuerySchema = {
     limit: { type: 'integer', minimum: 1, maximum: 100, default: 24 },
     cursor: { type: 'string' },
     sort: { type: 'string', enum: ['newest', 'furniture', 'largest', 'title'], default: 'newest' },
-    author: { type: 'string', format: 'uuid' },
+    // A Discord user id (snowflake), not the internal Pixel Index UUID (#61).
+    author: { type: 'string' },
     tags: { type: 'string', description: 'Comma-separated tag names; a layout must have all of them.' },
     q: { type: 'string', maxLength: 200 },
     // The declared canvas allocation, not the occupied footprint — see
