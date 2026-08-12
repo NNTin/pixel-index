@@ -114,6 +114,31 @@ describe('POST /api/v1/layouts — the happy path', () => {
     expect(listed.statusCode).toBe(200);
   });
 
+  it('reports the occupied footprint, not the declared canvas (#55)', async () => {
+    const { accessToken } = await tokenFor({ username: 'padded-canvas' });
+    // 6×6 canvas, VOID border, a 4×4 occupied interior.
+    // prettier-ignore
+    const tiles = [
+      255, 255, 255, 255, 255, 255,
+      255,   0,   0,   0,   0, 255,
+      255,   0,   0,   0,   0, 255,
+      255,   0,   0,   0,   0, 255,
+      255,   0,   0,   0,   0, 255,
+      255, 255, 255, 255, 255, 255,
+    ];
+    const response = await submit(
+      'title=Padded+Office',
+      validLayoutJson({ cols: 6, rows: 6, tiles }),
+      { authorization: `Bearer ${accessToken}` },
+    );
+    expect(response.statusCode).toBe(201);
+    const body = response.json<SubmitLayoutBody>();
+    expect(body.cols).toBe(6);
+    expect(body.rows).toBe(6);
+    expect(body.visibleCols).toBe(4);
+    expect(body.visibleRows).toBe(4);
+  });
+
   it('stores the layout byte-for-byte, including unusual whitespace', async () => {
     const { accessToken } = await tokenFor();
     const raw = `{"version": 1,\n  "layoutRevision":  ${BUNDLED_REVISION},\n"cols":2,"rows":2,"tiles":[0,0,0,0],"furniture":[]}`;

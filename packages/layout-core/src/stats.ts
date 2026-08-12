@@ -10,6 +10,59 @@ export interface LayoutStatsOptions {
   upstreamDir?: string;
 }
 
+export interface TileBounds {
+  minCol: number;
+  maxCol: number;
+  minRow: number;
+  maxRow: number;
+}
+
+/**
+ * The pinned upstream's `TileType.VOID` (webview-ui/src/office/types.ts).
+ * Inlined rather than imported: layout-core has no dependency on the
+ * vendored renderer, and this one value is stable enough (it is the
+ * all-bits-set sentinel, not an assigned tile type) to duplicate rather
+ * than take on that dependency for.
+ */
+const VOID_TILE = 255;
+
+/**
+ * The bounding box of every non-VOID tile — a layout's "canvas" (`cols` ×
+ * `rows`) is padding-inclusive and, for several bundled seeds, identical
+ * across layouts of very different visual size (#55); this is what a viewer
+ * actually sees.
+ *
+ * This is the *same* algorithm as `visibleTileBounds()` in
+ * apps/web/src/live-office/PreviewApp.tsx, which frames the live-preview
+ * camera from it — not a second, similar definition of "occupied". That
+ * function takes the upstream's own `OfficeLayout`, which is structurally
+ * compatible with the `Layout` shape here, so it calls this export directly
+ * rather than keeping its own copy.
+ */
+export function occupiedBounds(layout: Pick<Layout, 'cols' | 'rows' | 'tiles'>): TileBounds {
+  let minCol = layout.cols;
+  let maxCol = -1;
+  let minRow = layout.rows;
+  let maxRow = -1;
+
+  for (let row = 0; row < layout.rows; row += 1) {
+    for (let col = 0; col < layout.cols; col += 1) {
+      const tile = layout.tiles[row * layout.cols + col];
+      if (tile === VOID_TILE) continue;
+      minCol = Math.min(minCol, col);
+      maxCol = Math.max(maxCol, col);
+      minRow = Math.min(minRow, row);
+      maxRow = Math.max(maxRow, row);
+    }
+  }
+
+  // An entirely-VOID (or tiles-less) layout has no bounding box to report —
+  // fall back to the full declared canvas, same as PreviewApp.tsx.
+  return maxCol >= 0
+    ? { minCol, maxCol, minRow, maxRow }
+    : { minCol: 0, maxCol: layout.cols - 1, minRow: 0, maxRow: layout.rows - 1 };
+}
+
 /**
  * The denormalised facts the index stores, filters and displays per layout.
  *
@@ -34,9 +87,13 @@ export function layoutStats(layout: Layout, options: LayoutStatsOptions = {}): L
     seats += footprintW * Math.max(0, footprintH - backgroundTiles);
   }
 
+  const bounds = occupiedBounds(layout);
+
   return {
     cols: layout.cols,
     rows: layout.rows,
+    visibleCols: bounds.maxCol - bounds.minCol + 1,
+    visibleRows: bounds.maxRow - bounds.minRow + 1,
     // Not defensive like the four below: `furniture` is required by both the
     // Layout type and layout.schema.json, and every caller validates before
     // getting here (seed.ts, submit.ts, manage.ts). `areas`, `pets`, `carpets`

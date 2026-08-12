@@ -1,17 +1,12 @@
+import { occupiedBounds } from '@pixel-index/layout-core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { OfficeCanvas } from '../../../../vendor/pixel-agents/webview-ui/src/office/components/OfficeCanvas.js';
 import { ToolOverlay } from '../../../../vendor/pixel-agents/webview-ui/src/office/components/ToolOverlay.js';
 import { EditorState } from '../../../../vendor/pixel-agents/webview-ui/src/office/editor/editorState.js';
 import { OfficeState } from '../../../../vendor/pixel-agents/webview-ui/src/office/engine/officeState.js';
-import type {
-  OfficeLayout,
-  ToolActivity,
-} from '../../../../vendor/pixel-agents/webview-ui/src/office/types.js';
-import {
-  TILE_SIZE,
-  TileType,
-} from '../../../../vendor/pixel-agents/webview-ui/src/office/types.js';
+import type { ToolActivity } from '../../../../vendor/pixel-agents/webview-ui/src/office/types.js';
+import { TILE_SIZE } from '../../../../vendor/pixel-agents/webview-ui/src/office/types.js';
 import { loadLiveOfficeAssets } from './assets';
 import { parseInboundLayout } from './inboundLayout';
 import {
@@ -62,35 +57,6 @@ function toolRows(agents: MockAgent[]): Record<number, ToolActivity[]> {
   );
 }
 
-function visibleTileBounds(layout: OfficeLayout): {
-  minCol: number;
-  maxCol: number;
-  minRow: number;
-  maxRow: number;
-} {
-  let minCol = layout.cols;
-  let maxCol = -1;
-  let minRow = layout.rows;
-  let maxRow = -1;
-
-  for (let row = 0; row < layout.rows; row += 1) {
-    for (let col = 0; col < layout.cols; col += 1) {
-      // No `tile === undefined` check: parseInboundLayout has already pinned
-      // tiles.length to cols * rows, so every index this loop visits exists.
-      const tile = layout.tiles[row * layout.cols + col];
-      if (tile === TileType.VOID) continue;
-      minCol = Math.min(minCol, col);
-      maxCol = Math.max(maxCol, col);
-      minRow = Math.min(minRow, row);
-      maxRow = Math.max(maxRow, row);
-    }
-  }
-
-  return maxCol >= 0
-    ? { minCol, maxCol, minRow, maxRow }
-    : { minCol: 0, maxCol: layout.cols - 1, minRow: 0, maxRow: layout.rows - 1 };
-}
-
 export function PreviewApp() {
   const office = useMemo(() => new OfficeState(), []);
   const editor = useMemo(() => new EditorState(), []);
@@ -138,7 +104,7 @@ export function PreviewApp() {
         const bounds = containerRef.current?.getBoundingClientRect();
         if (bounds) {
           const dpr = window.devicePixelRatio || 1;
-          const visible = visibleTileBounds(layout);
+          const visible = occupiedBounds(layout);
           const visibleCols = visible.maxCol - visible.minCol + 1;
           const visibleRows = visible.maxRow - visible.minRow + 1;
           const fit = Math.floor(

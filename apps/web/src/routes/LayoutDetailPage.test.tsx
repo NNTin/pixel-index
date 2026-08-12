@@ -16,6 +16,8 @@ function detail(overrides: Record<string, unknown> = {}) {
     tags: ['cosy', 'small'],
     cols: 25,
     rows: 22,
+    visibleCols: 25,
+    visibleRows: 22,
     furniture: 59,
     areas: 4,
     pets: 2,

@@ -178,14 +178,41 @@ describe('listLayouts — filters compose', () => {
     expect(rows.map((r) => r.slug)).not.toContain('furniture-above');
   });
 
-  it('filters by tile count (cols × rows), not cols/rows independently', async () => {
+  it('filters by tile count (visibleCols × visibleRows), not cols/rows independently', async () => {
     // 21×22 = 462, same worked example as #24. A long thin layout (7×66 =
     // 462) matches the same size filter despite failing any cols/rows bucket
     // — the whole point of filtering on the product, not the two axes.
-    const square = await insertLayout(harness.db, { slug: 'size-square', cols: 21, rows: 22 });
-    const thin = await insertLayout(harness.db, { slug: 'size-thin', cols: 7, rows: 66 });
-    await insertLayout(harness.db, { slug: 'size-below', cols: 21, rows: 21 }); // 441
-    await insertLayout(harness.db, { slug: 'size-above', cols: 22, rows: 22 }); // 484
+    // visibleCols/visibleRows is set equal to cols/rows here (a fully-occupied
+    // canvas), so this exercises the same principle as before #55 on the
+    // field that now actually drives the filter.
+    const square = await insertLayout(harness.db, {
+      slug: 'size-square',
+      cols: 21,
+      rows: 22,
+      visibleCols: 21,
+      visibleRows: 22,
+    });
+    const thin = await insertLayout(harness.db, {
+      slug: 'size-thin',
+      cols: 7,
+      rows: 66,
+      visibleCols: 7,
+      visibleRows: 66,
+    });
+    await insertLayout(harness.db, {
+      slug: 'size-below',
+      cols: 21,
+      rows: 21,
+      visibleCols: 21,
+      visibleRows: 21,
+    }); // 441
+    await insertLayout(harness.db, {
+      slug: 'size-above',
+      cols: 22,
+      rows: 22,
+      visibleCols: 22,
+      visibleRows: 22,
+    }); // 484
 
     const { rows } = await listLayouts(harness.db, {
       filters: { size: { min: 462, max: 462 } },
@@ -197,6 +224,35 @@ describe('listLayouts — filters compose', () => {
     expect(ids).toContain(thin.id);
     expect(rows.map((r) => r.slug)).not.toContain('size-below');
     expect(rows.map((r) => r.slug)).not.toContain('size-above');
+  });
+
+  it('filters by the occupied footprint, not the declared canvas (#55)', async () => {
+    // Same 21×22 canvas as every other size test's worked example, but a
+    // small occupied footprint — must NOT match a size filter for ~462 tiles
+    // even though cols*rows would.
+    const canvasOnly = await insertLayout(harness.db, {
+      slug: 'size-canvas-only',
+      cols: 21,
+      rows: 22,
+      visibleCols: 5,
+      visibleRows: 5,
+    });
+    const trulyBig = await insertLayout(harness.db, {
+      slug: 'size-truly-big',
+      cols: 21,
+      rows: 22,
+      visibleCols: 21,
+      visibleRows: 22,
+    });
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { size: { min: 462, max: 462 } },
+      sort: 'newest',
+      limit: 100,
+    });
+    const ids = rows.map((r) => r.id);
+    expect(ids).toContain(trulyBig.id);
+    expect(ids).not.toContain(canvasOnly.id);
   });
 
   it('filters by seat count range, inclusive at both ends', async () => {
@@ -233,11 +289,54 @@ describe('listLayouts — sorting', () => {
     expect(rows[0]?.slug).toBe('sort-furn-high');
   });
 
-  it('largest sorts by cols*rows descending', async () => {
-    await insertLayout(harness.db, { slug: 'sort-size-small', cols: 5, rows: 5 });
-    await insertLayout(harness.db, { slug: 'sort-size-big', cols: 40, rows: 40 });
+  it('largest sorts by visibleCols*visibleRows descending', async () => {
+    await insertLayout(harness.db, {
+      slug: 'sort-size-small',
+      cols: 5,
+      rows: 5,
+      visibleCols: 5,
+      visibleRows: 5,
+    });
+    await insertLayout(harness.db, {
+      slug: 'sort-size-big',
+      cols: 40,
+      rows: 40,
+      visibleCols: 40,
+      visibleRows: 40,
+    });
     const { rows } = await listLayouts(harness.db, { filters: {}, sort: 'largest', limit: 1 });
     expect(rows[0]?.slug).toBe('sort-size-big');
+  });
+
+  it('largest sorts by the occupied footprint, not the declared canvas (#55)', async () => {
+    // Regression for #55: two rows share an identical 21×22 canvas, but very
+    // different actual footprints — the one that is genuinely bigger must win.
+    // Scoped to a unique tag (rather than an unfiltered `limit: 1`, which
+    // would just find whichever row this whole suite happened to make
+    // biggest) so the assertion only depends on these two rows' relative order.
+    const canvasOnly = await insertLayout(harness.db, {
+      slug: 'sort-canvas-only',
+      cols: 21,
+      rows: 22,
+      visibleCols: 5,
+      visibleRows: 5,
+    });
+    await tagLayout(harness.db, canvasOnly.id, 'sort-canvas-regression');
+    const trulyBig = await insertLayout(harness.db, {
+      slug: 'sort-truly-big',
+      cols: 21,
+      rows: 22,
+      visibleCols: 20,
+      visibleRows: 21,
+    });
+    await tagLayout(harness.db, trulyBig.id, 'sort-canvas-regression');
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { tags: ['sort-canvas-regression'] },
+      sort: 'largest',
+      limit: 2,
+    });
+    expect(rows.map((r) => r.id)).toEqual([trulyBig.id, canvasOnly.id]);
   });
 
   it('title sorts alphabetically ascending', async () => {

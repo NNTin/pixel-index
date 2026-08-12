@@ -38,6 +38,8 @@ describe('App routing', () => {
           tags: [],
           cols: 4,
           rows: 4,
+          visibleCols: 4,
+          visibleRows: 4,
           furniture: 0,
           areas: 0,
           pets: 0,

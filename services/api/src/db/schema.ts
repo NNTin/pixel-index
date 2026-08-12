@@ -193,6 +193,14 @@ export const layouts = pgTable(
     // ── Denormalised from layoutStats(). See the file header. ──
     cols: integer('cols').notNull(),
     rows: integer('rows').notNull(),
+    /**
+     * The occupied-footprint width/height — see `LayoutStats.visibleCols`.
+     * `cols`/`rows` above is the declared canvas allocation and stays that;
+     * these are what "size" means to a viewer, and what display, the
+     * `largest` sort and the `size` filter actually use (#55).
+     */
+    visibleCols: integer('visible_cols').notNull().default(0),
+    visibleRows: integer('visible_rows').notNull().default(0),
     furnitureCount: integer('furniture_count').notNull().default(0),
     areaCount: integer('area_count').notNull().default(0),
     petCount: integer('pet_count').notNull().default(0),

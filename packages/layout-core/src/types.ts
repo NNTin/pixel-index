@@ -69,6 +69,18 @@ export interface UpstreamPin {
 export interface LayoutStats {
   cols: number;
   rows: number;
+  /**
+   * The width/height of the smallest rectangle enclosing every non-VOID tile —
+   * what a viewer actually perceives as this layout's size, as opposed to
+   * `cols`/`rows`, which is the declared canvas allocation and can be
+   * (and, for several bundled seeds, is) identical across layouts of wildly
+   * different visual size (#55). Same definition and same bounding-box
+   * algorithm as the live-office preview's own camera-fit logic
+   * (apps/web/src/live-office/PreviewApp.tsx, via `occupiedBounds` below) —
+   * this is not a second definition of "occupied", it is that one, shared.
+   */
+  visibleCols: number;
+  visibleRows: number;
   furniture: number;
   areas: number;
   pets: number;

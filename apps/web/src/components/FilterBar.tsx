@@ -115,7 +115,7 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
               })
             }
             placeholder="min"
-            aria-label="Minimum size in tiles (cols × rows)"
+            aria-label="Minimum size in tiles (occupied footprint)"
             className={`w-16 ${inputClass}`}
           />
           –
@@ -131,7 +131,7 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
               })
             }
             placeholder="max"
-            aria-label="Maximum size in tiles (cols × rows)"
+            aria-label="Maximum size in tiles (occupied footprint)"
             className={`w-16 ${inputClass}`}
           />
         </label>

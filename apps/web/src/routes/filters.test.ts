@@ -55,7 +55,7 @@ describe('filtersFromSearchParams / filtersToSearchParams', () => {
 });
 
 describe('filtersToApiParams', () => {
-  it('passes the size range through as minSize/maxSize — the tile count (cols × rows), not cols/rows independently', () => {
+  it('passes the size range through as minSize/maxSize — the occupied-footprint tile count, not cols/rows independently', () => {
     // #24's worked example: 21×22 = 462.
     const params = filtersToApiParams({ ...DEFAULT_FILTERS, minSize: 462, maxSize: 462 });
     expect(params).toMatchObject({ minSize: 462, maxSize: 462 });

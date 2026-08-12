@@ -1,8 +1,18 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
-import { layoutStats, sha256 } from './stats.js';
+import { layoutStats, occupiedBounds, sha256 } from './stats.js';
 import { makeLayout } from './test-support/fixtures.js';
-import type { FurnitureCatalog } from './types.js';
+import type { FurnitureCatalog, Layout } from './types.js';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../seed');
+
+function loadSeed(slug: string): Layout {
+  return JSON.parse(fs.readFileSync(path.join(REPO_ROOT, slug, 'layout.json'), 'utf-8')) as Layout;
+}
 
 /**
  * A synthetic catalog rather than the real one, so these tests describe the
@@ -35,6 +45,13 @@ describe('layoutStats', () => {
     expect(stats).toEqual({
       cols: 21,
       rows: 22,
+      // makeLayout()'s default `tiles` is shorter than cols * rows (never
+      // true for a real, validated layout — see validate.ts's
+      // `layout.grid.tiles_mismatch`), so every index the bounds loop visits
+      // beyond that is `undefined`, which reads as "not VOID" — the bounds
+      // span the full declared canvas, same as a fully-occupied layout would.
+      visibleCols: 21,
+      visibleRows: 22,
       furniture: 1,
       areas: 2,
       pets: 1,
@@ -86,6 +103,72 @@ describe('layoutStats', () => {
 
   it('defaults a missing layoutRevision to 0 so the rule can catch it', () => {
     expect(layoutStats(makeLayout({ layoutRevision: undefined })).layoutRevision).toBe(0);
+  });
+});
+
+describe('occupiedBounds / visibleCols / visibleRows (#55)', () => {
+  it('is the full canvas for a layout with no VOID padding', () => {
+    const stats = layoutStats(makeLayout({ cols: 3, rows: 2, tiles: [0, 0, 0, 0, 0, 0] }));
+    expect(stats.visibleCols).toBe(3);
+    expect(stats.visibleRows).toBe(2);
+  });
+
+  it('excludes VOID padding from the bounding box', () => {
+    // 3×3, VOID border, one real tile in the centre.
+    // prettier-ignore
+    const tiles = [
+      255, 255, 255,
+      255, 0, 255,
+      255, 255, 255,
+    ];
+    const stats = layoutStats(makeLayout({ cols: 3, rows: 3, tiles }));
+    expect(stats.visibleCols).toBe(1);
+    expect(stats.visibleRows).toBe(1);
+  });
+
+  it('falls back to the full canvas for an entirely-VOID layout', () => {
+    const stats = layoutStats(makeLayout({ cols: 3, rows: 2, tiles: [255, 255, 255, 255, 255, 255] }));
+    expect(stats.visibleCols).toBe(3);
+    expect(stats.visibleRows).toBe(2);
+  });
+
+  // The bug report's exact numbers: default, four-rooms and severance-office
+  // all declare the same 21×22 canvas (#55's screenshot) but occupy very
+  // different actual footprints. blue-office (a different declared canvas,
+  // 25×22) is included as a fourth, independently-verified data point.
+  it.each([
+    ['default', 21, 22, 20, 11],
+    ['four-rooms', 21, 22, 20, 21],
+    ['severance-office', 21, 22, 20, 12],
+    ['blue-office', 25, 22, 25, 12],
+  ])('%s declares %d×%d but occupies %d×%d', (slug, cols, rows, visibleCols, visibleRows) => {
+    const layout = loadSeed(slug);
+    expect(layout.cols).toBe(cols);
+    expect(layout.rows).toBe(rows);
+
+    const stats = layoutStats(layout);
+    expect(stats.visibleCols).toBe(visibleCols);
+    expect(stats.visibleRows).toBe(visibleRows);
+
+    const bounds = occupiedBounds(layout);
+    expect(bounds.maxCol - bounds.minCol + 1).toBe(visibleCols);
+    expect(bounds.maxRow - bounds.minRow + 1).toBe(visibleRows);
+  });
+
+  it('default, four-rooms and severance-office share a canvas but not a footprint', () => {
+    // The bug itself: reading cols/rows directly reports the same "size" for
+    // three visually distinct layouts.
+    const defaultLayout = loadSeed('default');
+    const fourRooms = loadSeed('four-rooms');
+    const severance = loadSeed('severance-office');
+    expect(new Set([defaultLayout.cols, fourRooms.cols, severance.cols]).size).toBe(1);
+    expect(new Set([defaultLayout.rows, fourRooms.rows, severance.rows]).size).toBe(1);
+
+    const footprints = [defaultLayout, fourRooms, severance].map((layout) => {
+      const stats = layoutStats(layout);
+      return `${stats.visibleCols}x${stats.visibleRows}`;
+    });
+    expect(new Set(footprints).size).toBe(3);
   });
 });
 

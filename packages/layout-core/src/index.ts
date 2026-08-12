@@ -14,7 +14,13 @@
 
 export { withFormats } from './ajv.js';
 export { layoutSchema, metaSchema, SCHEMA_DIR } from './schemas.js';
-export { layoutStats, type LayoutStatsOptions, sha256 } from './stats.js';
+export {
+  layoutStats,
+  type LayoutStatsOptions,
+  occupiedBounds,
+  sha256,
+  type TileBounds,
+} from './stats.js';
 export type {
   Area,
   FurnitureCatalog,

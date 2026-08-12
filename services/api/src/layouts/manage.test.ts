@@ -451,6 +451,29 @@ describe('PUT /api/v1/layouts/:slug/layout — owner replace', () => {
     expect(download.body).toBe(raw);
   });
 
+  it('replaces with a padded canvas and reports the occupied footprint, not the declared canvas (#55)', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    stubRenderer();
+    // 6×6 canvas, VOID border, a 4×4 occupied interior.
+    // prettier-ignore
+    const tiles = [
+      255, 255, 255, 255, 255, 255,
+      255,   0,   0,   0,   0, 255,
+      255,   0,   0,   0,   0, 255,
+      255,   0,   0,   0,   0, 255,
+      255,   0,   0,   0,   0, 255,
+      255, 255, 255, 255, 255, 255,
+    ];
+    const raw = validLayoutJson({ cols: 6, rows: 6, tiles });
+    const response = await put(layout.slug, raw, accessToken);
+    expect(response.statusCode).toBe(200);
+    const body = response.json<OwnerLayoutView>();
+    expect(body.cols).toBe(6);
+    expect(body.rows).toBe(6);
+    expect(body.visibleCols).toBe(4);
+    expect(body.visibleRows).toBe(4);
+  });
+
   it('rejects a replacement that fails layout-core validation', async () => {
     const { accessToken, layout } = await ownedLayout();
     stubRenderer();
