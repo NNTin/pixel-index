@@ -93,7 +93,7 @@ npm run test:e2e --workspace @pixel-index/web  # pinned live viewer in a product
 # The full stack (Postgres + api + renderer + web), for anything beyond
 # layout-core's own unit tests:
 cp .env.example .env
-docker compose up --build
+API_COMMIT=$(git rev-parse HEAD) docker compose up --build
 ```
 
 Each workspace also has its own `npm run dev` (`apps/web`, `services/api`,
@@ -125,8 +125,14 @@ bumps its bundled default, affected layouts have to be re-exported.
 
 ```bash
 cp .env.example .env    # fill in the REQUIRED values — see the file itself
-docker compose up --build
+API_COMMIT=$(git rev-parse HEAD) docker compose up --build
 ```
+
+`API_COMMIT` is optional — the stack still comes up without it — but skipping it is
+why `GET /` and `GET /api/v1/meta` would report `commit: null` ("unknown" on the
+`/developer` page) instead of the commit you actually built from. See
+[`docs/deployment.md`](docs/deployment.md#api_commit--pixel-indexs-own-commit-a-build-argument-instead)
+for why this has to be passed at build time rather than detected automatically.
 
 Brings up a complete, self-hostable index on a clean checkout: Postgres, the API
 (`services/api`), the renderer (`services/renderer`), and the built frontend

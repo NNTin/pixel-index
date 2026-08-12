@@ -82,6 +82,8 @@ export interface ListLayoutsParams {
 export interface MetaResponse {
   schemaVersion: number;
   generatedAt: string;
+  /** This checkout's own commit — distinct from pixelAgents.commit below, which is the pinned upstream's. */
+  apiCommit: string | null;
   pixelAgents: {
     version: string | null;
     commit: string | null;
@@ -89,6 +91,17 @@ export interface MetaResponse {
   };
   count: number;
   discordInviteUrl: string | null;
+}
+
+/** `GET /` (#32) — a third-party integrator's entry point into the bare API origin. */
+export interface ApiInfo {
+  name: string;
+  description: string;
+  version: string;
+  commit: string | null;
+  documentation: string;
+  openapi: string;
+  repository: string;
 }
 
 export interface TagUsage {

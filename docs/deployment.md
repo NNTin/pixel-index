@@ -239,6 +239,7 @@ than one restart per missing value.
 | `DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY` | With a guild | `openssl rand -base64 32` | **API-only secret.** Encrypts retained Discord OAuth grants in Postgres. |
 | `DISCORD_MEMBERSHIP_CACHE_TTL_MS` | No | `60000` | Recommended one-minute role/membership cache. |
 | `VITE_API_BASE_URL` | Only if you build the `web` image | `https://api.example.com` | **Build-time**, baked into the bundle by `apps/web/Dockerfile`. `docker compose build web` after a change — restarting is not enough. |
+| `API_COMMIT` | No | `$(git rev-parse HEAD)` | **Build-time**, baked into the `api` image by `services/api/Dockerfile` (#32). Unset means `GET /` and `GET /api/v1/meta` report `commit: null` — see below. |
 | `API_TRUST_PROXY` | No (`true` by default in the app) | `true` | Compose ships `false`. Flip it to `true` the moment a reverse proxy is in front — see above. |
 | `WEB_PORT` / `API_PORT_HOST` | No | `8080` / `3000` | Host ports. |
 
@@ -266,6 +267,25 @@ image reported `commit: null`. The pin now travels as `vendor/pixel-agents.commi
 into both images, kept equal to the gitlink by `npm run vendor:commit`, updated by the
 vendor-update workflow in the same commit as the bump, and verified on every CI run by
 `npm run vendor:commit:check` so it cannot drift from the pin it claims to describe.
+
+### `API_COMMIT` — pixel-index's own commit, a build argument instead
+
+A different, easier problem from the one above. `vendor/pixel-agents.commit` exists
+because the *submodule's* `.git` is unreachable from inside the build context. This
+repository's own `.git` has no such issue — whoever runs `docker build` or `docker
+compose build` on a checkout of this repo has that checkout's own `.git` sitting right
+there, the same as any ordinary image build. So `API_COMMIT` stays a plain build
+argument rather than a committed stamp file: pass this repo's own `git rev-parse HEAD`
+at build time and `services/api/Dockerfile` bakes it in as an `ENV`, read at runtime by
+`GET /` and `GET /api/v1/meta`.
+
+```sh
+API_COMMIT=$(git rev-parse HEAD) docker compose build api
+```
+
+Leaving it unset does not fail the build — this is informational (which commit a third
+party is actually talking to), not load-bearing the way the vendor pin is — it just
+means both endpoints report `commit: null` until you rebuild with it set.
 
 #### `PUBLIC_WEB_ORIGIN_PATTERNS`, and its trade-off
 

@@ -95,6 +95,17 @@ export interface ApiConfig {
    * value; see auth/discord.ts and the ADR.
    */
   publicApiOrigin: string;
+  /**
+   * This checkout's own `git rev-parse HEAD`, for `GET /` and `GET
+   * /api/v1/meta` — a different thing from `upstreamDir`'s pinned Pixel
+   * Agents commit above. Unlike that pin, this repository's own `.git` is
+   * ordinarily reachable wherever `docker build` runs, so this travels as a
+   * plain build ARG (see `services/api/Dockerfile`'s `API_COMMIT`) rather
+   * than a committed stamp file. `undefined` — reported as `commit: null` —
+   * whenever nobody passed one, e.g. a local `npm run dev` with no Docker
+   * involved at all; this is informational only, so that is not an error.
+   */
+  commit?: string;
   /** Signs access tokens (HS256) and the transient OAuth state cookie. */
   sessionSecret: string;
   /** How long a minted access token is valid without a fresh DB lookup. */
@@ -457,6 +468,7 @@ export function loadConfig(): ApiConfig {
   const inviteUrl = discordInviteUrl(problems);
   const oauthTokenEncryptionKey = discordEncryptionKey(problems);
   const upstreamDir = optionalEnv('PIXEL_AGENTS_DIR');
+  const commit = optionalEnv('API_COMMIT');
 
   if (discordGuildId && !DISCORD_SNOWFLAKE_RE.test(discordGuildId)) {
     problems.push(`DISCORD_GUILD_ID must be a Discord snowflake, got ${JSON.stringify(discordGuildId)}`);
@@ -511,6 +523,7 @@ export function loadConfig(): ApiConfig {
       60_000,
       problems,
     ),
+    ...(commit ? { commit } : {}),
     publicApiOrigin: requireOrigin('PUBLIC_API_ORIGIN', problems),
     sessionSecret: requireSessionSecret(problems),
     accessTokenTtlMs: intFromEnv('ACCESS_TOKEN_TTL_MS', 15 * 60_000, problems),

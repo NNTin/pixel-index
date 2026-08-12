@@ -5,6 +5,7 @@ import { RequireAuth } from './components/RequireAuth';
 import { AdminPage } from './routes/AdminPage';
 import { AuditLogPage } from './routes/AuditLogPage';
 import { AuthorPage } from './routes/AuthorPage';
+import { DeveloperPage } from './routes/DeveloperPage';
 import { Home } from './routes/Home';
 import { LayoutDetailPage } from './routes/LayoutDetailPage';
 import { ModerationPage } from './routes/ModerationPage';
@@ -20,6 +21,7 @@ export function App() {
         <Route path="layouts/:slug" element={<LayoutDetailPage />} />
         <Route path="authors/:id" element={<AuthorPage />} />
         <Route path="submit" element={<SubmitPage />} />
+        <Route path="developer" element={<DeveloperPage />} />
         <Route
           path="me/layouts"
           element={

@@ -32,6 +32,7 @@ import { buildUpstreamValidator } from './layouts/upstreamValidator.js';
 import { registerMetaRoutes } from './meta.js';
 import { registerAuditRoutes } from './moderation/auditRoutes.js';
 import { registerModerationRoutes } from './moderation/routes.js';
+import { API_VERSION, registerRootRoutes } from './root.js';
 import { registerUserAdminRoutes } from './users/routes.js';
 
 export interface BuildServerDeps {
@@ -126,7 +127,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
       openapi: '3.1.0',
       info: {
         title: 'Pixel Index API',
-        version: '1',
+        version: API_VERSION,
         description:
           'The public read API for a Pixel Index instance. No authentication required — ' +
           'reading is public. See /api/v1/meta for the pinned Pixel Agents version.',
@@ -151,6 +152,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
   // upstreamValidator.ts for why this never throws.
   const upstream = buildUpstreamValidator(config, app.log, 'layout submission and editing');
 
+  registerRootRoutes(app, config);
   registerAuthRoutes(app, { config, db });
   registerAuthorRoutes(app, { db });
   registerMetaRoutes(app, config, db);

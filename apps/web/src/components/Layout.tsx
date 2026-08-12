@@ -33,6 +33,9 @@ function Nav() {
       <Link to="/submit" className="text-ink hover:text-accent">
         Submit
       </Link>
+      <Link to="/developer" className="text-ink hover:text-accent">
+        Developer
+      </Link>
       {status === 'loading' ? null : status === 'anonymous' ? (
         <button
           type="button"

@@ -285,7 +285,8 @@ would confirm something is there to hide.
 
 | Route | Purpose |
 |---|---|
-| `GET /api/v1/meta` | The pinned Pixel Agents (version, commit, `layoutRevision`) and the public layout count — the live equivalent of v1's `dist/index.json` header |
+| `GET /` | Developer landing page (JSON): what this API is, its own running commit (`API_COMMIT`, see the root `docs/deployment.md`), and pointers to `/docs` and `/openapi.json` for third-party integrators (#32) |
+| `GET /api/v1/meta` | This API's own commit (`apiCommit`), the pinned Pixel Agents (version, commit, `layoutRevision`), and the public layout count — the live equivalent of v1's `dist/index.json` header |
 | `GET /api/v1/tags` | Every tag in use on a public layout, with its count, most-used first — what #14's tag filter is populated from |
 | `GET /api/v1/layouts` | List: filtered, sorted, keyset-paginated |
 | `GET /api/v1/layouts/:slug` | Full record, including the parsed layout |
