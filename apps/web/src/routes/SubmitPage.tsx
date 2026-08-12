@@ -131,7 +131,7 @@ export function SubmitPage() {
       <p className="mt-2 text-sm text-muted">
         This index is <strong>public on publish</strong>, not reviewed first — read the{' '}
         <a
-          href="https://github.com/NNTin/pixel-index/blob/main/CONTENT_POLICY.md"
+          href="https://github.com/pixel-agents-hq/pixel-index/blob/main/CONTENT_POLICY.md"
           className="text-accent underline"
           target="_blank"
           rel="noreferrer"

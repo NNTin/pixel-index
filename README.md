@@ -9,7 +9,7 @@ Browse the gallery, download a `layout.json`, and load it in Pixel Agents with
 ## Repository layout
 
 An npm workspace, built out across the epic tracked in
-[#19](https://github.com/NNTin/pixel-index/issues/19):
+[#19](https://github.com/pixel-agents-hq/pixel-index/issues/19):
 
 ```
 packages/layout-core/    validation, stats, JSON Schemas — shared by everything below
@@ -40,7 +40,7 @@ what Pixel Agents exported, so importing it can never be surprising.
 
 There was a v1 here: a static site rebuilt by a pull request, previews rendered at
 build time, and no per-user ownership. It's gone — retired in
-[#18](https://github.com/NNTin/pixel-index/issues/18) once the database-backed API
+[#18](https://github.com/pixel-agents-hq/pixel-index/issues/18) once the database-backed API
 (#6–#10), the SPA (#12–#16) and self-hosting (#17) could actually replace it, not
 before.
 
@@ -151,7 +151,7 @@ nginx.
 
 The static v1 pipeline this replaced (`tools/build-index.mjs`, `build-site.mjs`,
 `serve.mjs`, the old root `Dockerfile`/`nginx.conf`) was retired in
-[#18](https://github.com/NNTin/pixel-index/issues/18), which also added the first-boot
+[#18](https://github.com/pixel-agents-hq/pixel-index/issues/18), which also added the first-boot
 seeding from `seed/` above.
 
 ## Contributing

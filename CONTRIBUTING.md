@@ -37,7 +37,7 @@ it, never inside it.
 
 The handful of layouts the index ships with by default — so a fresh install is never an
 empty page — are git-versioned in `seed/` and loaded into the database on first boot
-([#18](https://github.com/NNTin/pixel-index/issues/18)), rather than living only in the
+([#18](https://github.com/pixel-agents-hq/pixel-index/issues/18)), rather than living only in the
 database. Proposing a *new* seed layout, or a fix to an existing one, is still a pull
 request:
 

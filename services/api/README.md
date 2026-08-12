@@ -12,15 +12,15 @@ requires a pull request.
 
 | Issue | Scope | State |
 |---|---|---|
-| [#3](https://github.com/NNTin/pixel-index/issues/3) | schema, migrations, migration entrypoint | done |
-| [#5](https://github.com/NNTin/pixel-index/issues/5) | service skeleton: config, CORS, health, error envelope, rate limits | done |
-| [#6](https://github.com/NNTin/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | done |
-| [#7](https://github.com/NNTin/pixel-index/issues/7) | Discord OAuth, sessions, roles | done |
-| [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | done |
-| [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service: edit, replace, delete | done |
-| [#10](https://github.com/NNTin/pixel-index/issues/10) | layout moderation and audit log | done |
-| [#21](https://github.com/NNTin/pixel-index/issues/21) | Discord membership and role capabilities | done |
-| [#23](https://github.com/NNTin/pixel-index/issues/23) | Discord authors and public author pages | done |
+| [#3](https://github.com/pixel-agents-hq/pixel-index/issues/3) | schema, migrations, migration entrypoint | done |
+| [#5](https://github.com/pixel-agents-hq/pixel-index/issues/5) | service skeleton: config, CORS, health, error envelope, rate limits | done |
+| [#6](https://github.com/pixel-agents-hq/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | done |
+| [#7](https://github.com/pixel-agents-hq/pixel-index/issues/7) | Discord OAuth, sessions, roles | done |
+| [#8](https://github.com/pixel-agents-hq/pixel-index/issues/8) | submission: validate, dedupe, render, publish | done |
+| [#9](https://github.com/pixel-agents-hq/pixel-index/issues/9) | owner self-service: edit, replace, delete | done |
+| [#10](https://github.com/pixel-agents-hq/pixel-index/issues/10) | layout moderation and audit log | done |
+| [#21](https://github.com/pixel-agents-hq/pixel-index/issues/21) | Discord membership and role capabilities | done |
+| [#23](https://github.com/pixel-agents-hq/pixel-index/issues/23) | Discord authors and public author pages | done |
 
 ## The HTTP surface today
 
@@ -543,7 +543,7 @@ GET    /api/v1/me/layouts               the caller's own layouts, every visibili
 #10 originally scoped a report-intake and moderation API of its own — `POST
 .../report`, a queue of open reports, dedicated hide/remove/restore routes. Before
 building that, the plan was adjusted (see the comment thread on
-[#10](https://github.com/NNTin/pixel-index/issues/10)): there is no report queue, and a
+[#10](https://github.com/pixel-agents-hq/pixel-index/issues/10)): there is no report queue, and a
 moderator hides, removes or restores a layout through the **same** `PATCH
 /api/v1/layouts/:slug` an owner uses to fix a typo, not a parallel `/moderate` surface.
 The difference between an owner's edit and a moderator's action is which fields the
@@ -658,7 +658,7 @@ implementation, in favor of moderators acting directly through `PATCH` above:
 - **The webhook idea had no trigger left without report intake**, so it was dropped for
   this pass rather than built against a queue that does not exist.
 
-See the [#10 comment thread](https://github.com/NNTin/pixel-index/issues/10) for the full
+See the [#10 comment thread](https://github.com/pixel-agents-hq/pixel-index/issues/10) for the full
 before/after and the four decisions that replaced the original scope.
 
 ### Finding something to moderate: `GET /api/v1/moderation/layouts`
@@ -813,7 +813,7 @@ may republish what they withdrew, but re-uploading moderator-removed content mus
 launder it back onto the front page. The row always survives, because slug reuse by a
 different author is a quiet impersonation vector.
 
-**Seed layouts have a real owner.** [#18](https://github.com/NNTin/pixel-index/issues/18)
+**Seed layouts have a real owner.** [#18](https://github.com/pixel-agents-hq/pixel-index/issues/18)
 loads git-versioned layouts with no Discord account behind them. Rather than a nullable
 owner — which would force every permission check and join to handle null — they belong
 to a synthetic system user created by migration 0002 at a fixed id
@@ -826,7 +826,7 @@ source of truth for `cols`, `rows`, `visible_cols`, `visible_rows`, `furniture_c
 be applied on every write. A test asserts the stored columns equal what `layoutStats()`
 returns for a real layout, so the two cannot drift.
 
-`seat_count` (how many mock agents the live preview's slider allows, [#48](https://github.com/NNTin/pixel-index/issues/48))
+`seat_count` (how many mock agents the live preview's slider allows, [#48](https://github.com/pixel-agents-hq/pixel-index/issues/48))
 is the one denormalised stat that needs the furniture catalog, not just the layout's own
 JSON — a seat is a footprint tile of a chair-category item (`layoutStats()`'s `seats`
 mirrors upstream's own `layoutToSeats()`, so a multi-tile item like a SOFA counts as more
@@ -835,7 +835,7 @@ written before the column existed: `db/backfill-seats.ts` recomputes it from eac
 stored `layout` column and corrects any that disagree, run once per boot from
 `docker-entrypoint.sh` alongside `migrate.ts` and `seed.ts`, idempotently.
 
-`visible_cols`/`visible_rows` ([#55](https://github.com/NNTin/pixel-index/issues/55)) is
+`visible_cols`/`visible_rows` ([#55](https://github.com/pixel-agents-hq/pixel-index/issues/55)) is
 the bounding box of every non-`VOID` tile — the occupied footprint, as opposed to `cols`/
 `rows`, the declared canvas allocation. Three bundled seeds shared an identical canvas
 despite very different visual sizes, which is what made the bug visible: the gallery,
@@ -874,14 +874,14 @@ ORDER BY created_at;
 ## Indexes
 
 Every public read path filters on visibility first, so the indexes for
-[#6](https://github.com/NNTin/pixel-index/issues/6) and
-[#14](https://github.com/NNTin/pixel-index/issues/14) are **partial**
+[#6](https://github.com/pixel-agents-hq/pixel-index/issues/6) and
+[#14](https://github.com/pixel-agents-hq/pixel-index/issues/14) are **partial**
 (`WHERE visibility = 'public'`). They stay small as removed and deleted rows accumulate.
 Verified against Postgres 17 with 20k rows across 60 authors: listing uses
 `layouts_public_created_idx`, author filtering uses `layouts_public_author_idx`, dedupe
 uses `layouts_sha256_idx`, and full-text search uses the partial GIN
 `layouts_public_search_idx`. `layouts_author_idx` is deliberately *not* partial, because
-owner dashboards ([#9](https://github.com/NNTin/pixel-index/issues/9)) list hidden rows
+owner dashboards ([#9](https://github.com/pixel-agents-hq/pixel-index/issues/9)) list hidden rows
 too.
 
 **#6 added `layouts_public_furniture_idx` and `layouts_public_title_idx`**, each ending

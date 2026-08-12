@@ -3,8 +3,8 @@
 The single definition of what a valid layout is.
 
 Three components need this answer — CI, the API's submission endpoint
-([#8](https://github.com/NNTin/pixel-index/issues/8)) and the renderer
-([#4](https://github.com/NNTin/pixel-index/issues/4)) — and three copies would drift. A
+([#8](https://github.com/pixel-agents-hq/pixel-index/issues/8)) and the renderer
+([#4](https://github.com/pixel-agents-hq/pixel-index/issues/4)) — and three copies would drift. A
 drifted validator means the index accepts a layout that Pixel Agents will silently
 discard, which is the specific failure this project exists to prevent.
 
@@ -51,7 +51,7 @@ Issues are returned as data, never printed and never thrown, so the API can rend
 as a 422 and the CLI can format them for a terminal.
 
 `layoutStats` is the source of truth for the denormalised database columns
-([#3](https://github.com/NNTin/pixel-index/issues/3)): they are written from here on
+([#3](https://github.com/pixel-agents-hq/pixel-index/issues/3)): they are written from here on
 every insert and update, so a stat in the gallery cannot disagree with the layout beside
 it.
 
@@ -72,7 +72,7 @@ node packages/layout-core/dist/cli.js <dir>       # any directory of <slug>/ fol
 
 The CLI owns the on-disk convention (`<dir>/<slug>/{layout,meta}.json`) and the terminal
 formatting, and nothing else — that convention belongs to the git-versioned seed
-(`seed/`, [#18](https://github.com/NNTin/pixel-index/issues/18)), which is exactly why
+(`seed/`, [#18](https://github.com/pixel-agents-hq/pixel-index/issues/18)), which is exactly why
 it lives in the CLI rather than in the library.
 
 ## The rule that eats layouts

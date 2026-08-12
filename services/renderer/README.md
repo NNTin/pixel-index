@@ -8,8 +8,8 @@ autotiling, carpet marching-squares, per-tile colorize and z-sorting therefore m
 what a user will actually see, and a preview can never drift from its layout or from the
 pinned upstream.
 
-Ported from v1's `tools/render-previews.mjs` ([#4](https://github.com/NNTin/pixel-index/issues/4),
-since deleted along with the rest of the v1 pipeline in [#18](https://github.com/NNTin/pixel-index/issues/18)).
+Ported from v1's `tools/render-previews.mjs` ([#4](https://github.com/pixel-agents-hq/pixel-index/issues/4),
+since deleted along with the rest of the v1 pipeline in [#18](https://github.com/pixel-agents-hq/pixel-index/issues/18)).
 At the time, the port was verified **byte-identical** against the v1 build script's own
 output — that parity check is gone now that there is no v1 output left to diff against,
 but `render.integration.test.ts` keeps everything else it proved: determinism,
@@ -89,7 +89,7 @@ Keyed on the layout bytes **and** the upstream pin, because bumping
 `vendor/pixel-agents` can change what a layout looks like — a key that ignored the pin
 would serve the previous renderer's preview forever. On disk, so a redeploy is not a
 render stampede and a submission that duplicates an existing layout
-([#8](https://github.com/NNTin/pixel-index/issues/8) dedupes on the same hash) costs
+([#8](https://github.com/pixel-agents-hq/pixel-index/issues/8) dedupes on the same hash) costs
 nothing.
 
 At the ceiling it stops writing rather than evicting: previews are small and
@@ -115,7 +115,7 @@ blur `imageSmoothingEnabled` might suggest, and byte size scales as measured:
 (`scale: 0.5` is larger on disk than the full image, every time — halving pixel art
 destroys the long runs of identical pixels PNG's filters exploit.)
 
-[#13](https://github.com/NNTin/pixel-index/issues/13) used to have `services/api`
+[#13](https://github.com/pixel-agents-hq/pixel-index/issues/13) used to have `services/api`
 request `thumbnail.png` at `scale: 0.25` for the byte savings above. That was reverted:
 `apps/web`'s gallery card stretches the PNG to a responsive, non-integer container width
 with CSS `image-rendering: pixelated`, so a pre-shrunk 0.25 render is downscaled *twice*

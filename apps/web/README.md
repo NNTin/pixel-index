@@ -15,13 +15,13 @@ styled with tokens lifted from the office webview and the docs site, not invente
 
 | Issue | Scope | State |
 |---|---|---|
-| [#12](https://github.com/NNTin/pixel-index/issues/12) | SPA shell, API client, Pages deploy, Vercel PR previews | done |
-| [#13](https://github.com/NNTin/pixel-index/issues/13) | gallery, layout detail, preview, download | done |
-| [#14](https://github.com/NNTin/pixel-index/issues/14) | search and filter | done |
-| [#15](https://github.com/NNTin/pixel-index/issues/15) | login, submit, my layouts, moderation console, admin | done |
-| [#16](https://github.com/NNTin/pixel-index/issues/16) | visual alignment with the office and docs site | done |
-| [#27](https://github.com/NNTin/pixel-index/issues/27) | live office, mock agents, formatted/copyable layout.json | done |
-| [#32](https://github.com/NNTin/pixel-index/issues/32) | public `/developer` page: reads `GET /openapi.json` itself, links the API's own Swagger UI, third-party integration pitch | done |
+| [#12](https://github.com/pixel-agents-hq/pixel-index/issues/12) | SPA shell, API client, Pages deploy, Vercel PR previews | done |
+| [#13](https://github.com/pixel-agents-hq/pixel-index/issues/13) | gallery, layout detail, preview, download | done |
+| [#14](https://github.com/pixel-agents-hq/pixel-index/issues/14) | search and filter | done |
+| [#15](https://github.com/pixel-agents-hq/pixel-index/issues/15) | login, submit, my layouts, moderation console, admin | done |
+| [#16](https://github.com/pixel-agents-hq/pixel-index/issues/16) | visual alignment with the office and docs site | done |
+| [#27](https://github.com/pixel-agents-hq/pixel-index/issues/27) | live office, mock agents, formatted/copyable layout.json | done |
+| [#32](https://github.com/pixel-agents-hq/pixel-index/issues/32) | public `/developer` page: reads `GET /openapi.json` itself, links the API's own Swagger UI, third-party integration pitch | done |
 
 ```
 src/main.tsx                     mounts <App>, wrapped in BrowserRouter + ThemeProvider +
@@ -161,10 +161,10 @@ own notes flagged as a real risk ("tags is currently empty on all four seed layo
 
 #15's original scope included a report button on every layout. #10 (moderation) had
 already dropped report intake entirely before it was built — no `POST /report`, no
-queue, see [its comment thread](https://github.com/NNTin/pixel-index/issues/10) — so
+queue, see [its comment thread](https://github.com/pixel-agents-hq/pixel-index/issues/10) — so
 there is nothing for a report button to call. `CONTENT_POLICY.md` (#11) documents the
 actual path: contact a moderator directly. See the
-[#15 comment thread](https://github.com/NNTin/pixel-index/issues/15) for the two backend
+[#15 comment thread](https://github.com/pixel-agents-hq/pixel-index/issues/15) for the two backend
 additions this did need (`GET /moderation/layouts`, `GET /users?q=`) that #10/#9
 deliberately deferred rather than built speculatively.
 
