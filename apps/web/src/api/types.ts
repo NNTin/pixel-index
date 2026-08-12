@@ -10,7 +10,8 @@
  */
 
 export interface PublicAuthor {
-  id: string | null;
+  /** The Discord user id (snowflake), not the internal Pixel Index UUID (#61). */
+  discordId: string | null;
   username: string;
   displayName: string;
   avatarUrl: string | null;
@@ -62,6 +63,7 @@ export interface ListLayoutsParams {
   limit?: number;
   cursor?: string;
   sort?: 'newest' | 'furniture' | 'largest' | 'title';
+  /** A Discord user id (snowflake), not the internal Pixel Index UUID (#61). */
   author?: string;
   tags?: string;
   q?: string;

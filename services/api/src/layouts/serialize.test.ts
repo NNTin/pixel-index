@@ -56,10 +56,10 @@ function makeUser(overrides: Partial<User> = {}): User {
 }
 
 describe('toSummary — author mapping', () => {
-  it('a real user is exposed with their real id', () => {
+  it('a real user is exposed with their Discord id, not the internal UUID (#61)', () => {
     const summary = toSummary(makeLayout(), makeUser(), []);
     expect(summary.author).toEqual({
-      id: 'author-id',
+      discordId: '123',
       username: 'someone',
       displayName: 'someone',
       avatarUrl: 'https://cdn.discordapp.com/avatars/123/abc.png',
@@ -69,13 +69,14 @@ describe('toSummary — author mapping', () => {
   it('authorDisplay remains a fallback for legacy system-owned layouts', () => {
     // The system user's id (#3) is an implementation detail — a seed layout
     // is credited to a person, not to the account that technically owns the row.
+    // The system user never has a discordId either, so this stays null.
     const summary = toSummary(
       makeLayout({ authorDisplay: 'legacy-credit' }),
-      makeUser({ isSystem: true }),
+      makeUser({ isSystem: true, discordId: null }),
       [],
     );
     expect(summary.author).toEqual({
-      id: null,
+      discordId: null,
       username: 'legacy-credit',
       displayName: 'legacy-credit',
       avatarUrl: null,
@@ -85,7 +86,7 @@ describe('toSummary — author mapping', () => {
   it('falls back to "unknown" if somehow there is no author row and no display name', () => {
     const summary = toSummary(makeLayout(), null, []);
     expect(summary.author.username).toBe('unknown');
-    expect(summary.author.id).toBeNull();
+    expect(summary.author.discordId).toBeNull();
   });
 });
 

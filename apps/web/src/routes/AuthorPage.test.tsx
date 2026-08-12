@@ -14,7 +14,7 @@ describe('AuthorPage', () => {
       if (url.includes('/api/v1/authors/author-1')) {
         return Response.json({
           schemaVersion: 1,
-          author: { id: 'author-1', username: 'discord-handle', displayName: 'Guild Nick', avatarUrl: null },
+          author: { discordId: 'author-1', username: 'discord-handle', displayName: 'Guild Nick', avatarUrl: null },
           publicLayoutCount: 1,
         });
       }
@@ -27,7 +27,7 @@ describe('AuthorPage', () => {
           layouts: [{
             slug: 'public-office',
             title: 'Public Office',
-            author: { id: 'author-1', username: 'discord-handle', displayName: 'Guild Nick', avatarUrl: null },
+            author: { discordId: 'author-1', username: 'discord-handle', displayName: 'Guild Nick', avatarUrl: null },
             description: '',
             tags: [],
             cols: 4,

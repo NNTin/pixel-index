@@ -81,7 +81,7 @@ export function registerLayoutRoutes(app: FastifyInstance, { config, db }: Layou
         limit: query.limit,
         ...(query.cursor ? { cursor: query.cursor } : {}),
         filters: {
-          ...(query.author ? { author: query.author } : {}),
+          ...(query.author ? { authorDiscordId: query.author } : {}),
           ...(tags && tags.length > 0 ? { tags } : {}),
           ...(query.q ? { q: query.q } : {}),
           ...(colsRange ? { cols: colsRange } : {}),

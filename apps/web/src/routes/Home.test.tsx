@@ -19,7 +19,7 @@ function summary(overrides: Record<string, unknown> = {}) {
   return {
     slug: 'blue-office',
     title: 'Blue Office',
-    author: { id: null, username: 'someone', displayName: 'someone', avatarUrl: null },
+    author: { discordId: null, username: 'someone', displayName: 'someone', avatarUrl: null },
     description: 'A cosy office.',
     tags: [],
     cols: 25,

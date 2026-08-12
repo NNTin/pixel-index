@@ -61,7 +61,12 @@ describe('GET /api/v1/layouts', () => {
     expect(validateList(body), JSON.stringify(validateList.errors)).toBe(true);
 
     const entry = body.layouts.find((l) => l.slug === 'route-list-basic');
-    expect(entry?.author).toEqual({ id: author.id, username: 'route-author', displayName: 'route-author', avatarUrl: null });
+    expect(entry?.author).toEqual({
+      discordId: author.discordId,
+      username: 'route-author',
+      displayName: 'route-author',
+      avatarUrl: null,
+    });
     expect(entry?.tags).toEqual(['route-tag']);
     expect(entry?.files.layout).toBe('/api/v1/layouts/route-list-basic/download');
   });
@@ -86,10 +91,13 @@ describe('GET /api/v1/layouts', () => {
     });
     await tagLayout(harness.db, match.id, 'route-compose-tag');
     await insertLayout(harness.db, { slug: 'route-compose-other-author', cols: 30, rows: 30 });
+    assert(author.discordId !== null, 'insertUser did not give the author a Discord id');
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/layouts?author=${author.id}&tags=route-compose-tag&minCols=25`,
+      // ?author= is a Discord id (#61), not the internal UUID — the route
+      // must resolve it before filtering.
+      url: `/api/v1/layouts?author=${author.discordId}&tags=route-compose-tag&minCols=25`,
     });
     const slugs = response.json<ListLayoutsBody>().layouts.map((l) => l.slug);
     expect(slugs).toEqual(['route-compose-match']);

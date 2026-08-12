@@ -18,8 +18,20 @@ export interface NumericRange {
 }
 
 export interface ListLayoutsFilters {
-  /** users.id — the author to restrict to. */
+  /**
+   * users.id — the author to restrict to. Internal use only (moderation
+   * search, owner queries) — this is the Pixel Index UUID, not what the
+   * public API accepts. See `authorDiscordId` for the public equivalent.
+   */
   author?: string;
+  /**
+   * users.discordId — the public author-facing filter (#61): a Discord user
+   * id, resolved to the internal `author` id before the query runs. Not a
+   * UUID, so it can't just be compared against `layouts.authorUserId`
+   * directly — an unmatched id (or one that doesn't resolve to any user)
+   * yields zero results rather than a Postgres type error.
+   */
+  authorDiscordId?: string;
   /** Tag names. A layout must have every one of these (AND, not OR). */
   tags?: string[];
   /** Free text over title and description, via the generated search_vector. */
@@ -173,7 +185,19 @@ export async function listLayouts(
   db: AnyDatabase,
   { filters, sort, limit, cursor: cursorParam, scope = { type: 'public' } }: ListLayoutsOptions,
 ): Promise<ListLayoutsResult> {
-  const conditions = buildFilterConditions(filters, scope);
+  let resolvedFilters = filters;
+  if (filters.authorDiscordId) {
+    const [authorRow] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.discordId, filters.authorDiscordId));
+    // No user with that Discord id — same "not found is empty" shape as
+    // every other filter, not a type error from comparing a snowflake
+    // against the uuid-typed `authorUserId` column.
+    if (!authorRow) return { rows: [], total: 0, nextCursor: null };
+    resolvedFilters = { ...filters, author: authorRow.id };
+  }
+  const conditions = buildFilterConditions(resolvedFilters, scope);
 
   const [totalRow] = await db
     .select({ total: sql<number>`count(*)::int` })

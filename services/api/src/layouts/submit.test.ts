@@ -106,7 +106,12 @@ describe('POST /api/v1/layouts — the happy path', () => {
     const body = response.json<SubmitLayoutBody>();
     expect(body.slug).toBeTruthy();
     expect(body.title).toBe('My New Office');
-    expect(body.author).toEqual({ id: user.id, username: 'happy-path', displayName: 'happy-path', avatarUrl: null });
+    expect(body.author).toEqual({
+      discordId: user.discordId,
+      username: 'happy-path',
+      displayName: 'happy-path',
+      avatarUrl: null,
+    });
     expect(body.tags.sort()).toEqual(['cosy', 'small']);
     expect(response.headers.location).toBe(`/api/v1/layouts/${body.slug}`);
 

@@ -175,7 +175,7 @@ describe('SubmitPage', () => {
       Response.json({
         slug: 'my-new-office',
         title: 'My New Office',
-        author: { id: '1', username: 'someone', displayName: 'someone', avatarUrl: null },
+        author: { discordId: '1', username: 'someone', displayName: 'someone', avatarUrl: null },
         description: '',
         tags: [],
         cols: 2,
