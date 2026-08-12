@@ -70,6 +70,10 @@ describe('published layouts', () => {
     expect(layoutStats(layout)).toMatchObject({
       cols: 25,
       rows: 22,
+      // The declared canvas (above) is not the occupied footprint (#55) —
+      // see stats.test.ts for this and the other seeds' numbers.
+      visibleCols: 25,
+      visibleRows: 12,
       furniture: 59,
       areas: 4,
       seats: 20,

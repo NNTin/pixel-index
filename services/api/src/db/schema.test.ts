@@ -342,6 +342,8 @@ describe('denormalised stats come from layout-core', () => {
       sha256: sha256(raw),
       cols: stats.cols,
       rows: stats.rows,
+      visibleCols: stats.visibleCols,
+      visibleRows: stats.visibleRows,
       furnitureCount: stats.furniture,
       areaCount: stats.areas,
       petCount: stats.pets,
@@ -353,6 +355,8 @@ describe('denormalised stats come from layout-core', () => {
     expect({
       cols: stored.cols,
       rows: stored.rows,
+      visibleCols: stored.visibleCols,
+      visibleRows: stored.visibleRows,
       furniture: stored.furnitureCount,
       areas: stored.areaCount,
       pets: stored.petCount,
@@ -360,6 +364,10 @@ describe('denormalised stats come from layout-core', () => {
       seats: stored.seatCount,
       layoutRevision: stored.layoutRevision,
     }).toEqual(stats);
+    // The exact numbers #55 was filed against: blue-office's declared canvas
+    // (25×22) is not its occupied footprint (25×12).
+    expect(stored.visibleCols).toBe(25);
+    expect(stored.visibleRows).toBe(12);
     expect(stored.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 

@@ -39,6 +39,8 @@ export const layoutSummarySchema = {
     tags: { type: 'array', items: { type: 'string' } },
     cols: { type: 'integer' },
     rows: { type: 'integer' },
+    visibleCols: { type: 'integer' },
+    visibleRows: { type: 'integer' },
     furniture: { type: 'integer' },
     areas: { type: 'integer' },
     pets: { type: 'integer' },
@@ -53,9 +55,9 @@ export const layoutSummarySchema = {
     files: filesSchema,
   },
   required: [
-    'slug', 'title', 'author', 'description', 'tags', 'cols', 'rows', 'furniture',
-    'areas', 'pets', 'carpets', 'seats', 'layoutRevision', 'pixelAgentsVersion', 'bytes',
-    'sha256', 'createdAt', 'updatedAt', 'files',
+    'slug', 'title', 'author', 'description', 'tags', 'cols', 'rows', 'visibleCols',
+    'visibleRows', 'furniture', 'areas', 'pets', 'carpets', 'seats', 'layoutRevision',
+    'pixelAgentsVersion', 'bytes', 'sha256', 'createdAt', 'updatedAt', 'files',
   ],
 } as const;
 
@@ -87,12 +89,23 @@ export const listLayoutsQuerySchema = {
     author: { type: 'string', format: 'uuid' },
     tags: { type: 'string', description: 'Comma-separated tag names; a layout must have all of them.' },
     q: { type: 'string', maxLength: 200 },
+    // The declared canvas allocation, not the occupied footprint — see
+    // minSize/maxSize below for the latter. Kept as its own filter because
+    // furniture placement is absolute against the full canvas.
     minCols: { type: 'integer', minimum: 0 },
     maxCols: { type: 'integer', minimum: 0 },
     minRows: { type: 'integer', minimum: 0 },
     maxRows: { type: 'integer', minimum: 0 },
-    minSize: { type: 'integer', minimum: 0, description: 'Tile count (cols × rows), inclusive.' },
-    maxSize: { type: 'integer', minimum: 0, description: 'Tile count (cols × rows), inclusive.' },
+    minSize: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Occupied-footprint tile count (visibleCols × visibleRows), inclusive.',
+    },
+    maxSize: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Occupied-footprint tile count (visibleCols × visibleRows), inclusive.',
+    },
     minFurniture: { type: 'integer', minimum: 0 },
     maxFurniture: { type: 'integer', minimum: 0 },
     minAreas: { type: 'integer', minimum: 0 },

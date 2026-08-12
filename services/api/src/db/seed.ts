@@ -119,6 +119,8 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
           sha256: sha256(raw),
           cols: stats.cols,
           rows: stats.rows,
+          visibleCols: stats.visibleCols,
+          visibleRows: stats.visibleRows,
           furnitureCount: stats.furniture,
           areaCount: stats.areas,
           petCount: stats.pets,

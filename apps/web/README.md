@@ -134,12 +134,20 @@ its own copy in `useState` — the URL *is* the state, so the browser back butto
 bookmark, and a pasted link all just work, with no separate synchronization code to keep
 them aligned.
 
-**Size is filtered by tile count (`cols × rows`), not by cols/rows independently** (#24).
+**Size is filtered by tile count, not by cols/rows independently** (#24).
 An earlier version offered a small/medium/large bucket that applied the same range to
 both axes, ANDed — a long, thin layout (say 8×40, 320 tiles) fell outside every bucket
 despite being a perfectly reasonable size. `minSize`/`maxSize` filter on the product
-instead, computed server-side in `query.ts` (`(cols * rows)`, the same expression the
-`largest` sort key already ordered by) rather than as a client-side approximation.
+instead, computed server-side in `query.ts`.
+
+That product is `visibleCols * visibleRows` — the *occupied footprint* — not
+`cols * rows`, the declared canvas (#55). `cols`/`rows` is a fixed allocation shared
+across many layouts (furniture placement needs a stable canvas to be absolute against),
+so three seed layouts can — and did — declare the identical 21×22 canvas while looking
+nothing alike. `visibleCols`/`visibleRows` is the bounding box of every non-VOID tile,
+computed once in `@pixel-index/layout-core`'s `layoutStats()` and denormalised onto the
+row exactly like `seats` is; it is what `facts.ts` displays, what `largest` sorts by,
+and what `minSize`/`maxSize` filters on.
 
 ### The tag picker never offers a filter guaranteed to return nothing
 

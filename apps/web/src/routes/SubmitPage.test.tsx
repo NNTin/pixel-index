@@ -180,6 +180,8 @@ describe('SubmitPage', () => {
         tags: [],
         cols: 2,
         rows: 2,
+        visibleCols: 2,
+        visibleRows: 2,
         furniture: 0,
         areas: 0,
         pets: 0,

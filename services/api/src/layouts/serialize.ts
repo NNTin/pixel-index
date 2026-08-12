@@ -26,6 +26,9 @@ export interface PublicLayoutSummary {
   tags: string[];
   cols: number;
   rows: number;
+  /** The occupied-footprint width/height — see `LayoutStats.visibleCols`. What "size" means to a viewer (#55). */
+  visibleCols: number;
+  visibleRows: number;
   furniture: number;
   areas: number;
   pets: number;
@@ -87,6 +90,8 @@ export function toSummary(
     tags,
     cols: layout.cols,
     rows: layout.rows,
+    visibleCols: layout.visibleCols,
+    visibleRows: layout.visibleRows,
     furniture: layout.furnitureCount,
     areas: layout.areaCount,
     pets: layout.petCount,
