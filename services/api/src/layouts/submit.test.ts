@@ -1,6 +1,6 @@
-import { bundledLayoutRevision, sha256 } from '@pixel-index/layout-core';
+import { bundledLayoutRevision, sha256, SLUG_RE } from '@pixel-index/layout-core';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { signAccessToken } from '../auth/tokens.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
@@ -305,7 +305,7 @@ describe('POST /api/v1/layouts — dedupe', () => {
 });
 
 describe('POST /api/v1/layouts — slugs', () => {
-  it('is stable and collision-safe: same title twice gets two different slugs', async () => {
+  it('never derives the slug from the title (#29): same title twice gets two unrelated random slugs', async () => {
     const { accessToken: a } = await tokenFor();
     const first = await submit(
       'title=Duplicate+Title',
@@ -320,8 +320,28 @@ describe('POST /api/v1/layouts — slugs', () => {
     );
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(201);
-    expect(first.json<SubmitLayoutBody>().slug).not.toBe(second.json<SubmitLayoutBody>().slug);
-    expect(second.json<SubmitLayoutBody>().slug).toBe(`${first.json<SubmitLayoutBody>().slug}-2`);
+    const firstSlug = first.json<SubmitLayoutBody>().slug;
+    const secondSlug = second.json<SubmitLayoutBody>().slug;
+    expect(firstSlug).not.toBe(secondSlug);
+    expect(firstSlug).toMatch(SLUG_RE);
+    expect(secondSlug).toMatch(SLUG_RE);
+    // Neither slug carries any trace of the shared title — no "duplicate-title" prefix.
+    expect(firstSlug).not.toContain('duplicate');
+    expect(secondSlug).not.toContain('duplicate');
+  });
+
+  it('gives every submitter a random slug regardless of role (#29): an admin gets no special treatment', async () => {
+    const { accessToken, user } = await tokenFor({ role: 'admin' });
+    assert(user.discordId !== null, 'insertUser did not give the admin a Discord id');
+    config.discordAdminIds.push(user.discordId);
+    const response = await submit('title=Admin+Submitted+Office', validLayoutJson(), {
+      authorization: `Bearer ${accessToken}`,
+    });
+    expect(response.statusCode).toBe(201);
+    const slug = response.json<SubmitLayoutBody>().slug;
+    expect(slug).toMatch(SLUG_RE);
+    expect(slug).not.toContain('admin');
+    expect(slug).not.toContain('office');
   });
 });
 

@@ -1,8 +1,11 @@
-import { bundledLayoutRevision, sha256 } from '@pixel-index/layout-core';
+import { bundledLayoutRevision, sha256, SLUG_RE } from '@pixel-index/layout-core';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { signAccessToken } from '../auth/tokens.js';
+import { one } from '../db/rows.js';
+import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
@@ -73,6 +76,10 @@ async function ownedLayout(overrides: Parameters<typeof insertLayout>[1] = {}) {
     ...overrides,
   });
   return { user, accessToken, layout };
+}
+
+async function getLayoutById(id: string): Promise<schema.Layout> {
+  return one(await harness.db.select().from(schema.layouts).where(eq(schema.layouts.id, id)));
 }
 
 function stubRenderer(mode: 'ok' | 'down' = 'ok') {
@@ -198,6 +205,226 @@ describe('PATCH /api/v1/layouts/:slug — moderation', () => {
     const response = await patch(layout.slug, { visibility: 'public', reason: 'appeal granted' }, modToken);
     expect(response.statusCode).toBe(200);
     expect(response.json<OwnerLayoutView>().visibility).toBe('public');
+  });
+});
+
+describe('PATCH /api/v1/layouts/:slug — vanity slug (#29)', () => {
+  it('lets a moderator set a vanity slug with a reason', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(
+      layout.slug,
+      { slug: 'severance-office', reason: 'vanity url granted' },
+      modToken,
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json<OwnerLayoutView>().slug).toBe('severance-office');
+
+    const atNewSlug = await app.inject({ method: 'GET', url: '/api/v1/layouts/severance-office' });
+    expect(atNewSlug.statusCode).toBe(200);
+
+    const atOldSlug = await app.inject({ method: 'GET', url: `/api/v1/layouts/${layout.slug}` });
+    expect(atOldSlug.statusCode).toBe(404);
+  });
+
+  it('rejects an exact collision with a 409 rather than silently suffixing it', async () => {
+    await insertLayout(harness.db, { slug: 'taken-vanity-slug' });
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(layout.slug, { slug: 'taken-vanity-slug', reason: 'rename' }, modToken);
+    expect(response.statusCode).toBe(409);
+  });
+
+  it("refuses a non-moderator — even the layout's own owner — from setting a slug", async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const response = await patch(layout.slug, { slug: 'my-own-vanity-slug', reason: 'x' }, accessToken);
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('requires a reason for a slug change', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(layout.slug, { slug: 'no-reason-given' }, modToken);
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('rejects a slug that does not match the shared kebab-case format', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(layout.slug, { slug: 'Not Valid!', reason: 'x' }, modToken);
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('frees the old slug immediately — a different layout can claim it once it is vacated', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const renamed = await patch(layout.slug, { slug: 'new-vanity-name', reason: 'rename' }, modToken);
+    expect(renamed.statusCode).toBe(200);
+
+    const { layout: otherLayout } = await ownedLayout();
+    const reclaim = await patch(otherLayout.slug, { slug: layout.slug, reason: 'reuse the freed slug' }, modToken);
+    expect(reclaim.statusCode).toBe(200);
+  });
+
+  it('lets a layout rename back to a slug it used to have', async () => {
+    const { layout } = await ownedLayout({ slug: 'blue-office' });
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+
+    const away = await patch(layout.slug, { slug: 'temporary-random-name', reason: 'testing' }, modToken);
+    expect(away.statusCode).toBe(200);
+
+    const back = await patch('temporary-random-name', { slug: 'blue-office', reason: 'revert' }, modToken);
+    expect(back.statusCode).toBe(200);
+    expect(back.json<OwnerLayoutView>().slug).toBe('blue-office');
+
+    const atRevertedSlug = await app.inject({ method: 'GET', url: '/api/v1/layouts/blue-office' });
+    expect(atRevertedSlug.statusCode).toBe(200);
+  });
+
+  it('still blocks a slug held by a HIDDEN layout — it might come back to public', async () => {
+    await insertLayout(harness.db, { slug: 'hidden-office', visibility: 'hidden' });
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(layout.slug, { slug: 'hidden-office', reason: 'x' }, modToken);
+    expect(response.statusCode).toBe(409);
+  });
+
+  it('lets a newer layout take over a REMOVED layout\'s vanity slug (#29 "reuse the same URL")', async () => {
+    const superseded = await insertLayout(harness.db, { slug: 'moonbase-office', visibility: 'removed' });
+    const { layout: newer } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+
+    const response = await patch(newer.slug, { slug: 'moonbase-office', reason: 'newer version' }, modToken);
+    expect(response.statusCode).toBe(200);
+    expect(response.json<OwnerLayoutView>().slug).toBe('moonbase-office');
+
+    const atSlug = await app.inject({ method: 'GET', url: '/api/v1/layouts/moonbase-office' });
+    expect(atSlug.statusCode).toBe(200);
+    expect(atSlug.json<{ sha256: string }>().sha256).toBe(newer.sha256);
+
+    // The superseded layout is not left slug-less — it was evicted to a
+    // fresh, still-valid random slug, not silently deleted or broken.
+    const evictedRow = await getLayoutById(superseded.id);
+    expect(evictedRow.slug).not.toBe('moonbase-office');
+    expect(evictedRow.slug).toMatch(SLUG_RE);
+  });
+
+  it("lets a newer layout take over a DELETED (owner-withdrawn) layout's vanity slug", async () => {
+    await insertLayout(harness.db, { slug: 'withdrawn-office', visibility: 'deleted' });
+    const { layout: newer } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+
+    const response = await patch(newer.slug, { slug: 'withdrawn-office', reason: 'newer version' }, modToken);
+    expect(response.statusCode).toBe(200);
+    expect(response.json<OwnerLayoutView>().slug).toBe('withdrawn-office');
+  });
+
+  it('records an audit entry for the evicted layout, attributed to the acting moderator', async () => {
+    const superseded = await insertLayout(harness.db, { slug: 'evicted-office', visibility: 'removed' });
+    const { layout: newer } = await ownedLayout();
+    const { accessToken: modToken, user: moderator } = await tokenFor({ role: 'moderator' });
+
+    const response = await patch(newer.slug, { slug: 'evicted-office', reason: 'newer version' }, modToken);
+    expect(response.statusCode).toBe(200);
+
+    const evictionEntries = await harness.db
+      .select()
+      .from(schema.moderationActions)
+      .where(eq(schema.moderationActions.targetId, superseded.id));
+    const evictionEntry = evictionEntries.find((entry) => entry.action === 'layout.rename_slug');
+    expect(evictionEntry).toBeDefined();
+    expect(evictionEntry?.actorUserId).toBe(moderator.id);
+    expect(evictionEntry?.before).toMatchObject({ slug: 'evicted-office' });
+    // The exact reason the moderator typed, not a synthesized paraphrase of
+    // it — the automatic-reassignment context is already implicit in the
+    // action label and the before/after snapshot.
+    expect(evictionEntry?.reason).toBe('newer version');
+  });
+});
+
+describe('PATCH /api/v1/layouts/:slug — audit trail granularity', () => {
+  async function moderationActionsFor(targetId: string) {
+    return harness.db
+      .select()
+      .from(schema.moderationActions)
+      .where(eq(schema.moderationActions.targetId, targetId))
+      .orderBy(schema.moderationActions.createdAt);
+  }
+
+  it('writes one row per category of change, all sharing the same reason', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(
+      layout.slug,
+      { title: 'Retitled', visibility: 'hidden', reason: 'combined moderation pass' },
+      modToken,
+    );
+    expect(response.statusCode).toBe(200);
+
+    const entries = await moderationActionsFor(layout.id);
+    const actions = entries.map((entry) => entry.action).sort();
+    expect(actions).toEqual(['layout.hide', 'layout.moderate_edit'].sort());
+    expect(entries.every((entry) => entry.reason === 'combined moderation pass')).toBe(true);
+  });
+
+  it('writes three rows when metadata, visibility and slug all change in one request', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await patch(
+      layout.slug,
+      { title: 'Retitled', visibility: 'hidden', slug: 'three-at-once', reason: 'full sweep' },
+      modToken,
+    );
+    expect(response.statusCode).toBe(200);
+
+    const entries = await moderationActionsFor(layout.id);
+    const actions = entries.map((entry) => entry.action).sort();
+    expect(actions).toEqual(['layout.hide', 'layout.moderate_edit', 'layout.rename_slug'].sort());
+  });
+
+  it('scopes the metadata row\'s before/after to only the fields that actually changed', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const response = await patch(layout.slug, { title: 'New Title Only' }, accessToken);
+    expect(response.statusCode).toBe(200);
+
+    const entries = await moderationActionsFor(layout.id);
+    const metadataEntry = entries.find((entry) => entry.action === 'layout.update');
+    expect(metadataEntry?.before).toEqual({ title: layout.title });
+    expect(metadataEntry?.after).toEqual({ title: 'New Title Only' });
+  });
+
+  it('captures a tag change in the metadata row even though title/description are untouched', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const response = await patch(layout.slug, { tags: ['cosy', 'small'] }, accessToken);
+    expect(response.statusCode).toBe(200);
+
+    const entries = await moderationActionsFor(layout.id);
+    const metadataEntry = entries.find((entry) => entry.action === 'layout.update');
+    expect(metadataEntry).toBeDefined();
+    expect(metadataEntry?.before).toEqual({ tags: [] });
+    expect(metadataEntry?.after).toEqual({ tags: ['cosy', 'small'] });
+  });
+
+  it('writes nothing for a no-op resubmission of the same title', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const before = await moderationActionsFor(layout.id);
+    const response = await patch(layout.slug, { title: layout.title }, accessToken);
+    expect(response.statusCode).toBe(200);
+
+    const after = await moderationActionsFor(layout.id);
+    expect(after).toHaveLength(before.length);
+  });
+
+  it('writes nothing for a no-op resubmission of the same tag set, regardless of order', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    await patch(layout.slug, { tags: ['cosy', 'small'] }, accessToken);
+    const before = await moderationActionsFor(layout.id);
+
+    const response = await patch(layout.slug, { tags: ['small', 'cosy'] }, accessToken);
+    expect(response.statusCode).toBe(200);
+
+    const after = await moderationActionsFor(layout.id);
+    expect(after).toHaveLength(before.length);
   });
 });
 

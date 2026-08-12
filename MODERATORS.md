@@ -21,6 +21,15 @@ The dashboard has a moderation page. The corresponding API actions are:
   — hide, remove, or restore a layout. A reason is required.
 - `PATCH /api/v1/layouts/:slug` with metadata and a `reason` — correct another user's
   title, description, or tags without hiding an otherwise acceptable layout.
+- `PATCH /api/v1/layouts/:slug` with `{ "slug": "new-vanity-name", "reason": "…" }` —
+  grant a vanity URL. Every submission starts with a random slug by design, to prevent
+  first-come-first-served name-squatting; a moderator is the only one who can hand out a
+  memorable one afterwards, for anyone. A slug already in use by a **public or hidden**
+  layout is rejected outright (never silently modified into something like
+  `-2`). A slug that only a **removed or deleted** layout still holds is not blocking: it
+  is handed to the layout you're patching, and the old holder is automatically given a
+  fresh random slug in the same action, so nothing is left broken. There is no redirect
+  from wherever a slug used to point to wherever it ends up next.
 - Admins additionally get a **read-only** directory of accounts that have interacted
   with Pixel Index, their last verified Basic/Moderator/Admin capability, and their
   total submitted layouts. It does not enumerate the Discord guild.

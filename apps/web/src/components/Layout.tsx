@@ -56,6 +56,11 @@ function Nav() {
               Admin
             </Link>
           )}
+          {user?.role === 'admin' && (
+            <Link to="/admin/history" className="text-ink hover:text-accent">
+              History
+            </Link>
+          )}
           <span className="text-muted">{user?.displayName}</span>
           <button
             type="button"

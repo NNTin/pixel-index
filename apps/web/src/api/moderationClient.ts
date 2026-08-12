@@ -1,7 +1,9 @@
-/** Moderator layout browsing and the Admin read-only user directory. */
+/** Moderator layout browsing, the Admin read-only user directory, and the admin audit log. */
 import { apiRequest, toQueryString } from './client';
 import type {
   ListAdminUsersResponse,
+  ListAuditLogParams,
+  ListAuditLogResponse,
   ListModerationLayoutsParams,
   ListOwnerLayoutsResponse,
   Role,
@@ -21,4 +23,12 @@ export function getAdminUsers(
   signal?: AbortSignal,
 ): Promise<ListAdminUsersResponse> {
   return apiRequest(`/api/v1/admin/users${toQueryString(params)}`, { accessToken, signal });
+}
+
+export function getAuditLog(
+  params: ListAuditLogParams,
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<ListAuditLogResponse> {
+  return apiRequest(`/api/v1/admin/moderation-actions${toQueryString(params)}`, { accessToken, signal });
 }

@@ -100,6 +100,8 @@ export const auditAction = pgEnum('audit_action', [
   'layout.remove',
   'layout.restore',
   'layout.moderate_edit',
+  /** Moderator-only (#29): a vanity slug assigned or changed via manage.ts's PATCH. */
+  'layout.rename_slug',
   'report.create',
   'report.resolve',
   'report.dismiss',
