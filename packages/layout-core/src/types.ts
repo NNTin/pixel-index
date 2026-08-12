@@ -76,8 +76,9 @@ export interface LayoutStats {
    * (and, for several bundled seeds, is) identical across layouts of wildly
    * different visual size (#55). Same definition and same bounding-box
    * algorithm as the live-office preview's own camera-fit logic
-   * (apps/web/src/live-office/PreviewApp.tsx, via `occupiedBounds` below) —
-   * this is not a second definition of "occupied", it is that one, shared.
+   * (apps/web/src/live-office/PreviewApp.tsx's `visibleTileBounds`) — see
+   * `occupiedBounds()` in stats.ts for why that one is a hand-kept copy
+   * rather than an import of this package's.
    */
   visibleCols: number;
   visibleRows: number;

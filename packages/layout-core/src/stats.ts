@@ -35,9 +35,13 @@ const VOID_TILE = 255;
  * This is the *same* algorithm as `visibleTileBounds()` in
  * apps/web/src/live-office/PreviewApp.tsx, which frames the live-preview
  * camera from it — not a second, similar definition of "occupied". That
- * function takes the upstream's own `OfficeLayout`, which is structurally
- * compatible with the `Layout` shape here, so it calls this export directly
- * rather than keeping its own copy.
+ * function is a hand-kept copy rather than an import of this one: this
+ * package's barrel also re-exports `schemas.ts`/`upstream.ts`, which read the
+ * filesystem and shell out to git for the CLI/server use cases, and without a
+ * `"sideEffects": false` in package.json a bundler cannot prove those are
+ * safe to drop — importing anything from here into a browser bundle pulls in
+ * `node:fs`/`node:child_process`/`node:url`, which break at runtime once
+ * actually called. Keep both copies in sync by hand if this changes.
  */
 export function occupiedBounds(layout: Pick<Layout, 'cols' | 'rows' | 'tiles'>): TileBounds {
   let minCol = layout.cols;
