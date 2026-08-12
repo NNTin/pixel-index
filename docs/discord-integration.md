@@ -45,30 +45,24 @@ flowchart TB
 
 **Pixel Agents is a dependency of three of the four services, not just `renderer` and
 `web`.** `renderer` drives it live — a real Vite dev server plus Playwright, at request
-time, for pixel-perfect PNGs. `web` only ever touches it at *build* time, compiling
-selected modules and decoded sprites into the static bundle for the live-office viewer;
-once built, `web` has no runtime dependency on it at all (the dotted edge, same
-convention as `docs/ARCHITECTURE.md`'s own diagram). Less visibly, `api` reads it too, at
-runtime, via `packages/layout-core`'s `PIXEL_AGENTS_DIR` resolution — the furniture
-catalog and `layoutRevision` checks a submission is validated against, and the pinned
-version/commit `GET /api/v1/meta` and `GET /` report, all come from the same vendored
-tree the other two consume.
+time, for pixel-perfect PNGs. `web` only touches it at *build* time, compiling selected
+modules and decoded sprites into the static bundle for the live-office viewer, with no
+runtime dependency once built (the dotted edge). `api` reads it too, at runtime, via
+`packages/layout-core`'s `PIXEL_AGENTS_DIR` resolution — the furniture catalog and
+`layoutRevision` checks a submission is validated against, and the pinned version/commit
+`GET /api/v1/meta` and `GET /` report, all come from the same vendored tree.
 
 **Discord's only role here is identity.** It authenticates a user and hands `api` back
 who they are (see below for exactly which scopes and why); it has no idea Pixel Index's
 `web`, `renderer` or Postgres exist, and never talks to any of them directly.
 
 **Pico depends on Pixel Index; Pixel Index does not depend on Pico.** Pico is an
-ordinary caller of the same public, unauthenticated read routes anyone can hit —
+ordinary caller of the public, unauthenticated read routes anyone can hit —
 `GET /api/v1/layouts`, `GET /api/v1/layouts/:slug/preview.png`, and the rest of the
-[#6](https://github.com/pixel-agents-hq/pixel-index/issues/6)/[#32](https://github.com/pixel-agents-hq/pixel-index/issues/32)
-public contract (see `services/api/README.md`). Nothing in Pixel Index calls
-Pico, waits on it, or even knows it exists at runtime; every one of those routes answers
-identically whether Pico is online, crashed, or was never written. That asymmetry is why
-the arrow above runs from Pico to `api` and never the other way — Pico reaching into
-Pixel Index, not Pixel Index reaching out to it — and it's dotted for the same reason
-`web`'s build-time-only edge to Pixel Agents is: present, but not something Pixel
-Index's own correctness depends on.
+public API (see `services/api/README.md`). Nothing in Pixel Index calls Pico, waits on
+it, or knows it exists at runtime; every route answers identically whether Pico is
+online, crashed, or was never written — which is why the arrow above runs from Pico to
+`api`, dotted, and never the other way.
 
 ## Discord roles → dashboard capabilities
 

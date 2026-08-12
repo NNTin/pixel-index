@@ -36,10 +36,9 @@ it, never inside it.
 ## Proposing a seed layout (pull request)
 
 The handful of layouts the index ships with by default — so a fresh install is never an
-empty page — are git-versioned in `seed/` and loaded into the database on first boot
-([#18](https://github.com/pixel-agents-hq/pixel-index/issues/18)), rather than living only in the
-database. Proposing a *new* seed layout, or a fix to an existing one, is still a pull
-request:
+empty page — are git-versioned in `seed/` and loaded into the database on first boot,
+rather than living only in the database. Proposing a *new* seed layout, or a fix to an
+existing one, is still a pull request:
 
 ```bash
 git submodule update --init --recursive
@@ -125,8 +124,7 @@ Three conventions the config makes load-bearing rather than decorative:
 - No file outside `services/api/src/root.ts` may contain a literal `https://github.com/<owner>/<repo>`
   string — a `no-restricted-syntax` rule catches it. Build the link from `GET /`'s own
   `repository`/`commit` fields instead (`apps/web/src/api/client.ts`'s `repoFileUrl()` is the
-  frontend helper); a hardcoded one breaks for every self-hoster's fork, and broke three
-  frontend files here the day this repo's own GitHub org changed.
+  frontend helper); a hardcoded one breaks for every self-hoster's fork.
 
 Where a rule is switched off, or a suppression is narrowed to one line, the reason is
 written next to it. If you need a new exception, write the reason too — a bare
@@ -143,8 +141,7 @@ that was skipped or bypassed locally still gets caught before merge.
 `commit-msg` hook via [commitlint](https://commitlint.js.org/) against
 [`commitlint.config.js`](../commitlint.config.js). The allowed `type`s are the standard set
 (`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`,
-`revert`) plus `debug`, which this repo already used before anything enforced it.
-`scope` is free-form and optional. If a commit is rejected, amend the message
+`revert`) plus `debug`. `scope` is free-form and optional. If a commit is rejected, amend the message
 (`git commit --amend`) and try again — the hook only checks the message, not the diff.
 
 **Staged changes are scanned for secrets before every commit** by the `pre-commit` hook,
