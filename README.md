@@ -11,7 +11,7 @@ Browse the gallery, download a `layout.json`, and load it in Pixel Agents with
 An npm workspace, built out across the epic tracked in
 [#19](https://github.com/pixel-agents-hq/pixel-index/issues/19):
 
-```
+```text
 packages/layout-core/    validation, stats, JSON Schemas — shared by everything below
 apps/web/                the gallery SPA        -> GitHub Pages, or self-hosted (#17)
 services/api/            Fastify + Postgres     -> container, the public API and auth

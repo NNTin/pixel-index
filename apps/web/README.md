@@ -23,7 +23,7 @@ styled with tokens lifted from the office webview and the docs site, not invente
 | [#27](https://github.com/pixel-agents-hq/pixel-index/issues/27) | live office, mock agents, formatted/copyable layout.json | done |
 | [#32](https://github.com/pixel-agents-hq/pixel-index/issues/32) | public `/developer` page: reads `GET /openapi.json` itself, links the API's own Swagger UI, third-party integration pitch | done |
 
-```
+```text
 src/main.tsx                     mounts <App>, wrapped in BrowserRouter + ThemeProvider +
                                   AuthProvider
 src/App.tsx                      routes, public /authors/:id and authenticated dashboard pages
@@ -159,7 +159,7 @@ own notes flagged as a real risk ("tags is currently empty on all four seed layo
 
 ### No "report" control
 
-#15's original scope included a report button on every layout. #10 (moderation) had
+\#15's original scope included a report button on every layout. #10 (moderation) had
 already dropped report intake entirely before it was built — no `POST /report`, no
 queue, see [its comment thread](https://github.com/pixel-agents-hq/pixel-index/issues/10) — so
 there is nothing for a report button to call. `CONTENT_POLICY.md` (#11) documents the
@@ -177,7 +177,7 @@ deliberately deferred rather than built speculatively.
   so self-hosters never inherit an owner's own deployment.
 - **Deep links need help.** Pages has no rewrite rules. Chosen: the `404.html` fallback
   (`vite.config.ts`'s `ghPagesSpaFallback` plugin + `index.html`'s restore script,
-  https://github.com/rafgraph/spa-github-pages), not hash routing — clean URLs
+  <https://github.com/rafgraph/spa-github-pages>), not hash routing — clean URLs
   (`/layouts/some-office`, not `/#/layouts/some-office`) matter more here than avoiding
   one redirect hop on an already-rare hard-refresh-on-a-deep-link case. Vercel needs
   none of this: it has real rewrite rules (`vercel.json`), so the plugin is a no-op there.

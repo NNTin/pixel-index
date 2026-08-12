@@ -53,6 +53,25 @@ publishing your own layout for the community index is the web flow above.
 
 ## Editing the docs
 
+Markdown is also linted and checked in CI — run all of it locally with:
+
+```bash
+npm run lint:md        # style: headings, fenced-code languages, bare URLs, …
+npm run check:links    # every relative link between markdown files still resolves
+npm run check:mermaid  # every mermaid diagram still parses
+```
+
+`lint:md` is [markdownlint](https://github.com/DavidAnson/markdownlint) with two
+house-style exceptions recorded in [`.markdownlint.json`](.markdownlint.json): line
+length is unenforced (this repo writes flowing prose, not hard-wrapped columns), and
+table pipe spacing only has to agree with itself, not with a fixed style.
+
+`check:links` is [`tools/check-links.mjs`](tools/check-links.mjs), and deliberately does
+**not** check http(s) links — only that a relative link (`[x](../OTHER.md)`) still
+resolves to a real file. That is the mistake worth catching for free on every push (a doc
+moved or renamed out from under a link elsewhere); confirming an external URL is still
+alive is a noisier, flakier problem this repo doesn't take on in CI.
+
 Several documents draw their diagrams with [mermaid](https://mermaid.js.org/), which
 GitHub renders inline from a ` ```mermaid ` code block. A diagram with a syntax error
 does not fail anything — it just renders as a red error box on github.com, which nobody

@@ -294,7 +294,7 @@ hostname is minted per deploy and cannot be enumerated in advance, so previews o
 repo's frontend get no CORS access and no working login. This variable is the opt-in
 escape hatch:
 
-```
+```text
 PUBLIC_WEB_ORIGIN_PATTERNS=https://my-project-*-my-team.vercel.app
 ```
 
@@ -510,7 +510,7 @@ service's `networks:` and to the top-level `networks:` block as `external: true`
 
 A `Caddyfile` alongside (not replacing) this repo's compose file:
 
-```
+```text
 gallery.example.com {
     reverse_proxy web:80
 }

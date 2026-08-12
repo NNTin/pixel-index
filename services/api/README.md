@@ -24,7 +24,7 @@ requires a pull request.
 
 ## The HTTP surface today
 
-```
+```text
 src/config.ts          env-only config, validated at boot, all problems reported at once
 src/errors.ts           ApiError + the one error envelope every response uses
 src/rateLimit.ts        writeRateLimitConfig() — the tighter per-route bucket
@@ -192,7 +192,7 @@ that first if something here seems arbitrary. This section is the practical surf
 
 ### The flow
 
-```
+```text
 Browser                    API                              Discord
   │  GET /api/v1/auth/discord/login?returnTo=...
   ├──────────────────────────▶│  sets state+PKCE cookie (Path=/callback)
@@ -246,7 +246,7 @@ and normal self-hosted functionality stays available.
 
 ### Setting up the Discord application
 
-1. https://discord.com/developers/applications → **New Application**.
+1. <https://discord.com/developers/applications> → **New Application**.
 2. **OAuth2** tab → note the **Client ID** and **Client Secret** → `DISCORD_CLIENT_ID` /
    `DISCORD_CLIENT_SECRET`.
 3. **OAuth2 → Redirects** → add exactly `${PUBLIC_API_ORIGIN}/callback` — e.g.
@@ -298,7 +298,7 @@ would confirm something is there to hide.
 
 ### List: filters, sorting, pagination
 
-```
+```text
 GET /api/v1/layouts?author=<uuid>&tags=cosy,small&q=office&minCols=15&maxFurniture=80&sort=furniture&limit=24&cursor=…
 ```
 
@@ -382,7 +382,7 @@ and the caller would get a silently-unfiltered result instead of an error tellin
 what they got wrong. `server.ts` sets `ajv: { customOptions: { removeAdditional: false } }`
 so `additionalProperties: false` means what it says.
 
-**`sql\`= ANY(${array})\`` is not the same as `IN (…)` when the array comes from a plain
+**`` `sql`= ANY(${array})` `` is not the same as `IN (…)` when the array comes from a plain
 JS value via drizzle's `sql` template.** Drizzle expands a JS array into parenthesised
 scalars (`($1, $2)`), and Postgres's `ANY()` operator requires an actual bound array on
 its right-hand side — the combination throws `op ANY/ALL (array) requires array on right
@@ -391,7 +391,7 @@ side` **at query time**, not at compile time. The tags ALL-match filter
 
 ## Submitting a layout
 
-```
+```text
 POST /api/v1/layouts?title=<1-60 chars>&description=<0-300 chars>&tags=<comma,separated>
 Authorization: Bearer <access token>
 Content-Type: application/json
@@ -515,7 +515,7 @@ anyway" when nothing was going to be saved either way.
 ### Verified against a real renderer, not just a stub
 
 Beyond the unit and route-level suite (stubbed renderer, matching #6/#7's own pattern),
-#8 was checked against the **actual, built renderer image** rendering a submission
+\#8 was checked against the **actual, built renderer image** rendering a submission
 end-to-end: a real login-free JWT signed with the container's own `SESSION_SECRET`,
 `POST`ed to the live API, produced a `201` with `previewReady: true`, a subsequent
 `GET .../preview.png` returned a genuine 736×768 rendered PNG (not a stub), `/download`
@@ -531,7 +531,7 @@ see "Automated end-to-end suite" further down.
 
 ## Editing, replacing, deleting and moderating a layout
 
-```
+```text
 PATCH  /api/v1/layouts/:slug            edit title/description/tags, or (moderator) visibility/slug (#29)
 PUT    /api/v1/layouts/:slug/layout     replace the layout.json content — owner-only
 DELETE /api/v1/layouts/:slug            withdraw — owner-only, idempotent
@@ -540,7 +540,7 @@ GET    /api/v1/me/layouts               the caller's own layouts, every visibili
 
 ### One `PATCH`, not a separate moderator endpoint
 
-#10 originally scoped a report-intake and moderation API of its own — `POST
+\#10 originally scoped a report-intake and moderation API of its own — `POST
 .../report`, a queue of open reports, dedicated hide/remove/restore routes. Before
 building that, the plan was adjusted (see the comment thread on
 [#10](https://github.com/pixel-agents-hq/pixel-index/issues/10)): there is no report queue, and a
@@ -633,7 +633,7 @@ member stops new submissions, edits, replacements, and privileged actions after 
 short cache expires. Existing public layouts stay public; layout visibility remains a
 separate moderation decision.
 
-```
+```text
 GET /api/v1/admin/users?q=<text>&capability=user|moderator|admin
 ```
 
@@ -666,7 +666,7 @@ before/after and the four decisions that replaced the original scope.
 `PATCH /api/v1/layouts/:slug` (above) is how a moderator **acts** on a layout, but #10
 never built a way to **find** one — a moderator could only act on a slug they already
 knew, which was fine when #10 shipped (no UI existed yet to browse from) but not once
-#15's moderation console needed something to list. `GET /api/v1/moderation/layouts`
+\#15's moderation console needed something to list. `GET /api/v1/moderation/layouts`
 (moderator-minimum) is #6's public list with the one constraint that defines "public"
 removed: every author, every visibility, optionally narrowed to exactly one
 (`?visibility=hidden` to see what's already been actioned, `?visibility=public` with a
@@ -687,7 +687,7 @@ unconditionally, so a stranger with a copy of the exact bytes of *anyone's* with
 layout could republish it as their own. Only "the SAME owner republishing their own
 withdrawn content" is what schema.ts documents. Caught during the live end-to-end pass
 below — not by the unit suite, which had only ever exercised the same-owner case — the
-fix now checks `duplicate.authorUserId === ` the submitting user, and a cross-owner
+fix now checks `duplicate.authorUserId ===` the submitting user, and a cross-owner
 regression test (`submit.test.ts`, "still rejects a STRANGER…") was added and
 mutation-tested alongside it.
 
@@ -726,7 +726,7 @@ the default `def-0`/`def-1` — see "two subtleties" above.
 
 ### Automated end-to-end suite
 
-```
+```text
 services/api/e2e/docker-compose.yml   Postgres + the real renderer + API images
 services/api/e2e/run.ts               the assertions — one full owner+admin session
 services/api/e2e/e2e.sh               build, bring the stack up, run run.ts, always tear down
@@ -755,7 +755,7 @@ PGlite-and-a-stub coverage can.
 
 ## The database
 
-```
+```text
 src/db/schema.ts      the tables, and why they are shaped that way
 src/db/client.ts      pool + Drizzle handle from DATABASE_URL
 src/db/migrate.ts     container entrypoint: apply pending migrations, exit
@@ -938,7 +938,7 @@ all four sort orders, and keyset pagination directly at the SQL layer — includ
 that inserts a new highest-ranked row *between* two page requests and asserts page 2 is
 unaffected, which is the specific failure `OFFSET` pagination cannot avoid.
 
-#6 was additionally verified against a real containerised Postgres 17 with a real seed
+\#6 was additionally verified against a real containerised Postgres 17 with a real seed
 layout inserted by hand (#8 did not exist yet): `/api/v1/meta` reports the real
 build-arg-supplied commit, `/download` is **byte-identical** to the source file on disk,
 and a `RENDERER_URL` pointed at nothing produces a real `502` from the live container,

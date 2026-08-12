@@ -259,9 +259,13 @@ renders — most weeks, none are. There are three shapes:
 > Candidate Pixel Agents 0f823e2 draws every layout exactly as the API's 9794e07 does —
 > **nothing changed visually**, so every preview here is the API's own image.
 
+<!-- -->
+
 > **3 layouts** render differently under candidate Pixel Agents 0f823e2 and are shown here.
 > The API is still on 9794e07; every other preview is its image, which is byte-identical to
 > what the candidate draws.
+
+<!-- -->
 
 > **800 layouts** render differently under candidate Pixel Agents 0f823e2 — too many to
 > show. A sample of 50 is displayed here; the rest keep the API's current images.
