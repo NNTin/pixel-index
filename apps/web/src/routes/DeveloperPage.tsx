@@ -49,7 +49,7 @@ export function DeveloperPage() {
           extension, a companion tool, whatever helps the community. Have an idea? Open an issue
           or a pull request on{' '}
           <a
-            href="https://github.com/pixel-agents-hq/pixel-index"
+            href={infoState.status === 'ready' ? infoState.data.repository : undefined}
             target="_blank"
             rel="noreferrer"
             className="text-accent underline"

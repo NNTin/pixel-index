@@ -58,6 +58,19 @@ function ownerView(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// Backs the MODERATORS.md link's repository/commit pin (see client.ts's
+// repoFileUrl) — every test gets a real link, not `undefined`, without
+// having to know that's why `/` is being requested.
+const ROOT_RESPONSE = {
+  name: 'Pixel Index API',
+  description: 'Third-party integration is encouraged.',
+  version: '1',
+  commit: 'a'.repeat(40),
+  documentation: 'http://localhost:3000/docs',
+  openapi: 'http://localhost:3000/openapi.json',
+  repository: 'https://github.com/pixel-agents-hq/pixel-index',
+};
+
 function stubFetch(
   handleOther: (url: string, init?: RequestInit) => Response,
   authResponse: typeof AUTH_RESPONSE = AUTH_RESPONSE,
@@ -67,6 +80,7 @@ function stubFetch(
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
       if (url.includes('/auth/token')) return Response.json(authResponse);
+      if (new URL(url).pathname === '/') return Response.json(ROOT_RESPONSE);
       return handleOther(url, init);
     }),
   );
@@ -90,6 +104,18 @@ describe('ModerationPage', () => {
     renderPage();
     expect(await screen.findByText('Reported Office')).toBeInTheDocument();
     expect(screen.getByText(/someone-else/)).toBeInTheDocument();
+  });
+
+  it('links the moderator handbook, pinned to the running commit rather than a branch', async () => {
+    stubFetch(() =>
+      Response.json({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null }),
+    );
+    renderPage();
+    const link = await screen.findByRole('link', { name: 'MODERATORS.md' });
+    expect(link).toHaveAttribute(
+      'href',
+      `${ROOT_RESPONSE.repository}/blob/${ROOT_RESPONSE.commit}/docs/MODERATORS.md`,
+    );
   });
 
   it('does not let a slow response for the previous filter replace the current one', async () => {

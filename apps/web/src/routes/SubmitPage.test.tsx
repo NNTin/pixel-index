@@ -33,6 +33,19 @@ const META_RESPONSE = {
   discordInviteUrl: null as string | null,
 };
 
+// Backs the content-policy link's repository/commit pin (see client.ts's
+// repoFileUrl) — every test gets a real link, not `undefined`, without
+// having to know that's why `/` is being requested.
+const ROOT_RESPONSE = {
+  name: 'Pixel Index API',
+  description: 'Third-party integration is encouraged.',
+  version: '1',
+  commit: 'a'.repeat(40),
+  documentation: 'http://localhost:3000/docs',
+  openapi: 'http://localhost:3000/openapi.json',
+  repository: 'https://github.com/pixel-agents-hq/pixel-index',
+};
+
 function stubFetch(
   handleOther: (url: string, init?: RequestInit) => Response,
   authResponse: unknown = AUTH_RESPONSE,
@@ -44,6 +57,7 @@ function stubFetch(
       const url = requestUrl(input);
       if (url.includes('/auth/token')) return Response.json(authResponse);
       if (url.includes('/meta')) return Response.json(metaResponse);
+      if (new URL(url).pathname === '/') return Response.json(ROOT_RESPONSE);
       return handleOther(url, init);
     }),
   );
@@ -131,8 +145,11 @@ describe('SubmitPage', () => {
     stubFetch(() => new Response('{}', { status: 200 }));
     renderSubmit();
     await waitForAuthReady();
-    const link = screen.getByRole('link', { name: 'content policy' });
-    expect(link).toHaveAttribute('href', 'https://github.com/pixel-agents-hq/pixel-index/blob/main/docs/CONTENT_POLICY.md');
+    const link = await screen.findByRole('link', { name: 'content policy' });
+    expect(link).toHaveAttribute(
+      'href',
+      `${ROOT_RESPONSE.repository}/blob/${ROOT_RESPONSE.commit}/docs/CONTENT_POLICY.md`,
+    );
   });
 
   it('shows the actionable validation issues the API returns, not a generic message', async () => {

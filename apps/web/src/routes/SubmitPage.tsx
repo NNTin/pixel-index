@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { ApiError, getMeta } from '../api/client';
+import { ApiError, getApiInfo, getMeta, repoFileUrl } from '../api/client';
 import { previewCheck, submitLayout } from '../api/manageClient';
 import { useApi } from '../api/useApi';
 import { useAuth } from '../auth/authState';
@@ -20,6 +20,9 @@ export function SubmitPage() {
   // Public, not gated behind login — someone deciding whether to join the
   // community must not need to sign in first just to see the invite.
   const inviteUrl = metaState.status === 'ready' ? metaState.data.discordInviteUrl : null;
+  const infoState = useApi((signal) => getApiInfo(signal), []);
+  const contentPolicyUrl =
+    infoState.status === 'ready' ? repoFileUrl(infoState.data, 'docs/CONTENT_POLICY.md') : undefined;
 
   const [raw, setRaw] = useState('');
   const [title, setTitle] = useState('');
@@ -131,7 +134,7 @@ export function SubmitPage() {
       <p className="mt-2 text-sm text-muted">
         This index is <strong>public on publish</strong>, not reviewed first — read the{' '}
         <a
-          href="https://github.com/pixel-agents-hq/pixel-index/blob/main/docs/CONTENT_POLICY.md"
+          href={contentPolicyUrl}
           className="text-accent underline"
           target="_blank"
           rel="noreferrer"

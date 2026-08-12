@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { ApiError } from '../api/client';
+import { ApiError, getApiInfo, repoFileUrl } from '../api/client';
 import { patchLayout } from '../api/manageClient';
 import { getModerationLayouts } from '../api/moderationClient';
 import type { OwnerLayoutView } from '../api/types';
+import { useApi } from '../api/useApi';
 import { useAuth } from '../auth/authState';
 import { ErrorNotice } from '../components/ErrorNotice';
 
@@ -139,6 +140,9 @@ function ModerationRow({
 
 export function ModerationPage() {
   const { accessToken } = useAuth();
+  const infoState = useApi((signal) => getApiInfo(signal), []);
+  const moderatorsUrl =
+    infoState.status === 'ready' ? repoFileUrl(infoState.data, 'docs/MODERATORS.md') : undefined;
   // Typed as the union the API actually accepts, plus '' for "any". Declaring
   // it `string` meant the request had to assert the value back into the union
   // on the way out.
@@ -186,7 +190,7 @@ export function ModerationPage() {
       <p className="mt-1 text-sm text-muted">
         Every layout, any author, any visibility. See{' '}
         <a
-          href="https://github.com/pixel-agents-hq/pixel-index/blob/main/docs/MODERATORS.md"
+          href={moderatorsUrl}
           className="text-accent underline"
           target="_blank"
           rel="noreferrer"
