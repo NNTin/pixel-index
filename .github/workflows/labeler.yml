@@ -1,0 +1,37 @@
+name: "Pull Request Labeler"
+
+# pull_request_target, not pull_request: under plain pull_request, a PR
+# opened from a fork gets a read-only GITHUB_TOKEN, and this action needs
+# pull-requests: write to apply labels — the exact audience this workflow
+# exists for (issue #47 is about surfacing area changes made by outside
+# contributors, who don't have push access to open same-repo branches).
+#
+# This is one of the few safe uses of pull_request_target: actions/labeler
+# only reads the PR's changed-file list via the GitHub API — it never checks
+# out, builds, or executes the fork's code — so running with base-repo
+# permissions doesn't hand a malicious PR any code-execution surface. The
+# config below is likewise read from the base branch, not the PR head, so a
+# PR can't smuggle in label rules of its own.
+#
+# One consequence: this workflow can't be exercised by the PR that
+# introduces it — pull_request_target always runs off the base branch, so it
+# only takes effect once this file and .github/labeler.yml are on main (see
+# actions/labeler's README, "Initial set up of the labeler action").
+on:
+  pull_request_target
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    name: Apply area labels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v6
+        with:
+          # A label is removed if a later push no longer touches that area,
+          # same as any other check re-evaluating on synchronize — without
+          # this, labels only ever accumulate and drift stale.
+          sync-labels: true

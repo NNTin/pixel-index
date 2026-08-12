@@ -1,0 +1,87 @@
+# Path-based PR labeling. Maps changed files to the area:* labels already
+# defined in the repo (see `gh label list`) — this file doesn't invent new
+# labels, only wires up which paths trigger which existing ones. Applied by
+# .github/workflows/labeler.yml via actions/labeler.
+#
+# A path can, and often should, match more than one label — e.g. a file
+# under services/api/migrations/ is both area:api (it ships inside the api
+# service) and area:database (it's the part of the service that actually
+# changed). Each label's globs are evaluated independently, so listing the
+# same path under two labels is how that dual-labeling happens; it is not
+# a mistake or an overlap to clean up.
+
+area:frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/web/**
+          # web's live-office viewer builds directly against the pinned
+          # submodule (see issue #47's diagram, the dotted web -> upstream
+          # edge), so a pin bump is a frontend-relevant change too.
+          - vendor/pixel-agents
+          - vendor/pixel-agents.commit
+
+area:api:
+  - changed-files:
+      - any-glob-to-any-file:
+          - services/api/**
+          # Shared source dependency of both api and renderer. No
+          # area:layout-core (or area:shared) label exists; rather than
+          # growing the taxonomy for one package, it's tagged with both of
+          # its consumers' areas.
+          - packages/layout-core/**
+
+area:database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - services/api/migrations/**
+          - services/api/src/db/**
+
+area:renderer:
+  - changed-files:
+      - any-glob-to-any-file:
+          - services/renderer/**
+          - packages/layout-core/**
+          # Rendering fixtures the renderer's harness runs against
+          # (vendor-update.yml's `--source seed`).
+          - seed/**
+          # The renderer spawns a Vite dev server against this submodule
+          # and drives it with Playwright (see issue #47's diagram).
+          - vendor/pixel-agents
+          - vendor/pixel-agents.commit
+
+area:moderation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - services/api/src/moderation/**
+          - services/api/src/users/**
+          - MODERATORS.md
+          - CONTENT_POLICY.md
+
+area:infra:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - .husky/**
+          - docker-compose.yml
+          - tools/**
+          - package.json
+          - package-lock.json
+          - .env.example
+          - .gitmodules
+          - tsconfig.strict.json
+          - eslint.config.js
+          - commitlint.config.js
+          - vitest.tools.config.mjs
+
+area:docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          # Every root-level markdown file (README.md, CONTRIBUTING.md,
+          # CONTENT_POLICY.md, MODERATORS.md, ...) plus every workspace's
+          # own README. A workspace README also matches that workspace's
+          # area glob above (e.g. services/api/README.md is area:api too)
+          # — deliberately: it's still telling a reviewer which area's
+          # documentation moved, not just that docs moved.
+          - '*.md'
+          - '**/README.md'
