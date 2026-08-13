@@ -11,6 +11,17 @@ shows different pictures than production" is alarming if you don't know it's del
 See [`deployment.md`](deployment.md) for the variables and secrets behind all of this, and
 [`ARCHITECTURE.md`](ARCHITECTURE.md) for why there are two origins in the first place.
 
+**Staging note ([#64](https://github.com/pixel-agents-hq/index/issues/64)).** This
+document was written when Vercel's Production environment tracked `main` and every
+preview called the same API as production. Once Vercel's Production Branch is switched to
+`develop` (see `deployment.md`'s new "Environments" section), "the production API" below
+means **staging's** API — `develop`'s `VITE_API_BASE_URL` — for every Vercel-hosted
+surface (Production environment and PR previews alike). GitHub Pages is unaffected: it
+still builds `main` against `vars.PRODUCTION_API_BASE_URL`, which still means true
+production. The rendering/candidate-preview mechanics described below (the vendor-update
+pipeline, the banner, the manifest gates) are unchanged either way — only *which* API the
+non-vendor-PR previews call shifts.
+
 ---
 
 ## The thing every preview shares

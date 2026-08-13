@@ -14,6 +14,24 @@ authoritative list of what to set, where each value goes, and what shape it take
 including the two hosted frontends (GitHub Pages, Vercel), which are configured outside
 this repository entirely.
 
+## Environments
+
+Three tiers, each backed by its own API and its own Postgres — see
+[#64](https://github.com/pixel-agents-hq/index/issues/64) for the full rationale:
+
+| Tier | Branch | Frontend | API | Data |
+|---|---|---|---|---|
+| **Production** | `main` | GitHub Pages, *and* a self-hosted deployment (Traefik example below) | The self-hosted deployment's API | Persisted, stable |
+| **Staging** | `develop` | Vercel **Production environment** | A second self-hosted deployment, same shape as production, different host/DB | Reset on demand — this is where risk lives before it reaches `main` |
+| **PR preview** | any branch | Vercel **Preview environment** | Staging's API (same `VITE_API_BASE_URL` as the Production environment above) | Whatever staging currently holds |
+
+`main` only ever advances by merging a stabilized `develop` — never a feature branch
+directly (enforced by `.github/workflows/enforce-merge-source.yml` as a required check).
+`develop` takes PRs from anywhere. Everything below this section — the three config
+surfaces, Traefik/Caddy/nginx examples — applies identically to a production deployment
+and a staging one; run through it twice, once per environment, pointing each at its own
+hostnames and its own `.env`.
+
 ## Environment variables
 
 Every deployment-specific string in this project — API hostname, web hostname, Discord
