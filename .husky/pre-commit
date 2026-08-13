@@ -1,0 +1,16 @@
+if ! command -v gitleaks >/dev/null 2>&1; then
+  cat <<'EOF' >&2
+gitleaks is not installed, so staged changes cannot be scanned for secrets before commit.
+
+Install it, then retry:
+  macOS           brew install gitleaks
+  Linux/Windows   see https://github.com/gitleaks/gitleaks#installing (no apt/choco
+                  package; grab a release binary, or `go install
+                  github.com/gitleaks/gitleaks/v8@latest`)
+
+See docs/CONTRIBUTING.md for what this hook checks and how to handle a false positive.
+EOF
+  exit 1
+fi
+
+gitleaks protect --staged --redact -v

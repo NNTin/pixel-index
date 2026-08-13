@@ -12,18 +12,20 @@
  * dedupe -> daily cap -> insert.
  */
 
-import { layoutStats, sha256, type Layout } from '@pixel-index/layout-core';
+import { type Layout, layoutStats, sha256 } from '@pixel-index/layout-core';
 import type { FastifyInstance } from 'fastify';
+import type { FromSchema } from 'json-schema-to-ts';
 
 import { requireSubmissionCapability } from '../auth/capability.js';
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { ApiError } from '../errors.js';
-import { requestPreview } from '../renderer/client.js';
-import { writeRateLimitConfig } from '../rateLimit.js';
-import { isUniqueViolation, parseAndValidateTags } from './metadata.js';
 import { recordModerationAction } from '../moderation/audit.js';
+import { writeRateLimitConfig } from '../rateLimit.js';
+import { requestPreview } from '../renderer/client.js';
+import { isUniqueViolation, parseAndValidateTags } from './metadata.js';
 import { attachTags, countUserSubmissionsSince, findLayoutBySha256 } from './query.js';
 import { toDetail } from './serialize.js';
 import { generateUniqueSlug } from './slug.js';
@@ -45,12 +47,6 @@ const submitQuerySchema = {
   required: ['title'],
 } as const;
 
-interface SubmitQuery {
-  title: string;
-  description?: string;
-  tags?: string;
-}
-
 export interface SubmitRoutesDeps {
   config: ApiConfig;
   db: AnyDatabase;
@@ -59,6 +55,12 @@ export interface SubmitRoutesDeps {
 }
 
 export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstream }: SubmitRoutesDeps): void {
+  // `async` selects Fastify's FastifyPluginAsync overload. Without it the
+  // callback overload applies, which takes a third `done` argument and must
+  // call it — so the plugin would never finish booting. The body has no
+  // `await` because addContentTypeParser and the route registration below are
+  // both synchronous; the `async` is the encapsulation contract, not a smell.
+  // eslint-disable-next-line @typescript-eslint/require-await
   app.register(async (instance) => {
     // Scoped to this plugin only — every other application/json route (list,
     // detail, auth) keeps Fastify's normal parsed-object behaviour. Overriding
@@ -75,7 +77,12 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
       done(null, body);
     });
 
-    instance.post(
+      // `Body: string` rather than a schema: the scoped content-type parser above
+      // hands this route the request bytes verbatim, which is the whole point —
+      // the layout is stored byte-for-byte. `Params`/`Querystring` still come
+      // from the schemas, via FromSchema, because supplying any explicit route
+      // generic switches the type provider off for the whole route.
+    instance.post<{ Body: string; Querystring: FromSchema<typeof submitQuerySchema> }>(
       '/api/v1/layouts',
       { ...writeRateLimitConfig(config), schema: { querystring: submitQuerySchema } },
       async (request, reply) => {
@@ -92,10 +99,10 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
 
         const user = await requireSubmissionCapability(db, config, request);
 
-        const query = request.query as SubmitQuery;
+        const query = request.query;
         const tagNames = parseAndValidateTags(query.tags);
 
-        const raw = request.body as string;
+        const raw = request.body;
         const byteLength = Buffer.byteLength(raw, 'utf-8');
         if (byteLength > config.maxLayoutBytes) {
           throw new ApiError(
@@ -145,17 +152,18 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
           );
         }
 
-        const stats = layoutStats(parsedLayout as Layout);
+        const stats = layoutStats(parsedLayout as Layout, { catalog: validator.catalog });
 
         // A true race between two concurrent submissions that both generated
         // the same slug before either committed is rare but real — retried
         // rather than surfaced, since it is not the caller's mistake to fix.
         let created: schema.Layout | undefined;
         for (let attempt = 0; attempt < 3 && !created; attempt += 1) {
-          const slug = await generateUniqueSlug(db, query.title);
+          const slug = await generateUniqueSlug(db);
           try {
             created = await db.transaction(async (tx: AnyDatabase) => {
-              const [row] = await tx
+              const row = one(
+                await tx
                 .insert(schema.layouts)
                 .values({
                   slug,
@@ -167,24 +175,28 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
                   sha256: hash,
                   cols: stats.cols,
                   rows: stats.rows,
+                  visibleCols: stats.visibleCols,
+                  visibleRows: stats.visibleRows,
                   furnitureCount: stats.furniture,
                   areaCount: stats.areas,
                   petCount: stats.pets,
                   carpetCount: stats.carpets,
+                  seatCount: stats.seats,
                   layoutRevision: stats.layoutRevision,
                   pixelAgentsVersion: pin.version,
                 })
-                .returning();
-              await attachTags(tx, row!.id, tagNames);
+                .returning(),
+              );
+              await attachTags(tx, row.id, tagNames);
               await recordModerationAction(tx, {
                 actorUserId: user.id,
                 actorLabel: user.username,
                 action: 'layout.create',
                 targetType: 'layout',
-                targetId: row!.id,
+                targetId: row.id,
                 after: { slug, title: query.title, visibility: 'public' },
               });
-              return row!;
+              return row;
             });
           } catch (error) {
             if (isUniqueViolation(error, 'layouts_slug_key')) continue;
@@ -220,7 +232,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
     // the same actionable, field-naming errors), then a direct proxy to the
     // renderer, exactly like #6's own preview.png route, just without a
     // slug to address it by yet.
-    instance.post(
+    instance.post<{ Body: string }>(
       '/api/v1/layouts/preview-check',
       writeRateLimitConfig(config),
       async (request, reply) => {
@@ -237,7 +249,7 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
 
         await requireSubmissionCapability(db, config, request);
 
-        const raw = request.body as string;
+        const raw = request.body;
         const byteLength = Buffer.byteLength(raw, 'utf-8');
         if (byteLength > config.maxLayoutBytes) {
           throw new ApiError(

@@ -16,14 +16,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { sha256, upstreamPin } from '@pixel-index/layout-core';
+import { type Layout, sha256, upstreamPin } from '@pixel-index/layout-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { PreviewCache, cacheKey } from './cache.js';
-import { startDevServer, type DevServer } from './devServer.js';
-import { Renderer, RenderTimeoutError } from './render.js';
-import { buildServer } from './server.js';
+import { cacheKey, PreviewCache } from './cache.js';
 import { loadConfig } from './config.js';
+import { type DevServer, startDevServer } from './devServer.js';
+import { Renderer, RenderTimeoutError } from './render.js';
+import { buildServer, type ReadyBody, type RenderErrorBody } from './server.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const SEED_DIR = path.join(REPO_ROOT, 'seed');
@@ -37,11 +37,25 @@ const slugs = fs
   .map((entry) => entry.name)
   .sort();
 
-const readLayout = (slug: string) =>
-  JSON.parse(fs.readFileSync(path.join(SEED_DIR, slug, 'layout.json'), 'utf-8'));
+/**
+ * The `as Layout` is the unavoidable one: JSON.parse returns `any`. The seed
+ * layouts are the same files `npm run validate` checks in CI, so by the time
+ * this suite runs they really do have this shape.
+ */
+const readLayout = (slug: string): Layout =>
+  JSON.parse(fs.readFileSync(path.join(SEED_DIR, slug, 'layout.json'), 'utf-8')) as Layout;
 
-let devServer: DevServer;
-let renderer: Renderer;
+// `| undefined` because beforeAll boots a real browser and can fail: afterAll
+// then has to tear down whatever did come up without throwing a second error
+// over the first. Reading them through the accessors below keeps that honest
+// rather than declaring them non-optional and hoping.
+let devServer: DevServer | undefined;
+let renderer: Renderer | undefined;
+
+function activeRenderer(): Renderer {
+  if (!renderer) throw new Error('the renderer did not start');
+  return renderer;
+}
 
 beforeAll(async () => {
   devServer = await startDevServer();
@@ -52,13 +66,15 @@ beforeAll(async () => {
 afterAll(async () => {
   await renderer?.close();
   devServer?.stop();
+  renderer = undefined;
+  devServer = undefined;
 });
 
 describe('rendering', () => {
   it(
     'produces a PNG',
     async () => {
-      const png = await renderer.render(readLayout('four-rooms'));
+      const png = await activeRenderer().render(readLayout('four-rooms'));
       // PNG magic, so a failure here is "not an image" rather than "wrong image".
       expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
       expect(png.length).toBeGreaterThan(1000);
@@ -73,8 +89,8 @@ describe('rendering', () => {
       // races the browser mock's own late dispatch, and the default office
       // renders instead. Two different layouts must not produce one image.
       const [a, b] = await Promise.all([
-        renderer.render(readLayout('four-rooms')),
-        renderer.render(readLayout('severance-office')),
+        activeRenderer().render(readLayout('four-rooms')),
+        activeRenderer().render(readLayout('severance-office')),
       ]);
       expect(sha256(a)).not.toBe(sha256(b));
     },
@@ -85,8 +101,8 @@ describe('rendering', () => {
     'is deterministic — the same layout twice gives the same bytes',
     async () => {
       const layout = readLayout('default');
-      const first = await renderer.render(layout);
-      const second = await renderer.render(layout);
+      const first = await activeRenderer().render(layout);
+      const second = await activeRenderer().render(layout);
       expect(sha256(first)).toBe(sha256(second));
     },
     RENDER_TIMEOUT,
@@ -101,15 +117,18 @@ describe('rendering', () => {
       // layout in the index (+1% to +9%). Only 0.25 actually saves bytes
       // (~57%). See the README — #13 should pick 0.25 knowingly.
       const layout = readLayout('severance-office');
-      const full = await renderer.render(layout, { scale: 1 });
-      const half = await renderer.render(layout, { scale: 0.5 });
-      const quarter = await renderer.render(layout, { scale: 0.25 });
+      const full = await activeRenderer().render(layout, { scale: 1 });
+      const half = await activeRenderer().render(layout, { scale: 0.5 });
+      const quarter = await activeRenderer().render(layout, { scale: 0.25 });
 
-      const dimensions = (png: Buffer) => [png.readUInt32BE(16), png.readUInt32BE(20)];
+      // Annotated as a tuple: inferred as `number[]`, destructuring it gives
+      // `number | undefined` under noUncheckedIndexedAccess, which is what the
+      // four assertions here used to answer.
+      const dimensions = (png: Buffer): [number, number] => [png.readUInt32BE(16), png.readUInt32BE(20)];
       const [fullWidth, fullHeight] = dimensions(full);
 
-      expect(dimensions(half)).toEqual([fullWidth! / 2, fullHeight! / 2]);
-      expect(dimensions(quarter)).toEqual([fullWidth! / 4, fullHeight! / 4]);
+      expect(dimensions(half)).toEqual([fullWidth / 2, fullHeight / 2]);
+      expect(dimensions(quarter)).toEqual([fullWidth / 4, fullHeight / 4]);
       expect(quarter.length).toBeLessThan(full.length);
       expect(quarter.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     },
@@ -119,7 +138,7 @@ describe('rendering', () => {
   it(
     'enforces the timeout',
     async () => {
-      await expect(renderer.render(readLayout('blue-office'), { timeoutMs: 1 })).rejects.toThrow(
+      await expect(activeRenderer().render(readLayout('blue-office'), { timeoutMs: 1 })).rejects.toThrow(
         RenderTimeoutError,
       );
     },
@@ -132,10 +151,10 @@ describe('rendering', () => {
       let peak = 0;
       const layouts = slugs.map(readLayout);
       const watcher = setInterval(() => {
-        peak = Math.max(peak, renderer.inFlight);
+        peak = Math.max(peak, activeRenderer().inFlight);
       }, 5);
       try {
-        await Promise.all(layouts.map((layout) => renderer.render(layout)));
+        await Promise.all(layouts.map((layout) => activeRenderer().render(layout)));
       } finally {
         clearInterval(watcher);
       }
@@ -159,7 +178,7 @@ describe('the HTTP surface', () => {
       };
       const cache = new PreviewCache(config.cacheDir, config.cacheMaxEntries);
       await cache.init();
-      const app = await buildServer({ config, renderer, cache });
+      const app = await buildServer({ config, renderer: activeRenderer(), cache });
 
       try {
         const layout = readLayout('four-rooms');
@@ -189,7 +208,7 @@ describe('the HTTP surface', () => {
       const config = { ...loadConfig(), cacheMaxEntries: 0 };
       const app = await buildServer({
         config,
-        renderer,
+        renderer: activeRenderer(),
         cache: new PreviewCache(config.cacheDir, 0),
       });
       try {
@@ -199,11 +218,9 @@ describe('the HTTP surface', () => {
           payload: { layout: { version: 1, cols: 2, rows: 2, tiles: [0], furniture: [] } },
         });
         expect(response.statusCode).toBe(422);
-        const body = response.json();
+        const body = response.json<RenderErrorBody>();
         expect(body.error).toBe('invalid_layout');
-        expect(body.issues.map((issue: { code: string }) => issue.code)).toContain(
-          'layout.grid.tiles_mismatch',
-        );
+        expect(body.issues?.map((issue) => issue.code)).toContain('layout.grid.tiles_mismatch');
       } finally {
         await app.close();
       }
@@ -217,7 +234,7 @@ describe('the HTTP surface', () => {
       const config = loadConfig();
       const app = await buildServer({
         config,
-        renderer,
+        renderer: activeRenderer(),
         cache: new PreviewCache(config.cacheDir, 0),
       });
       try {
@@ -227,7 +244,7 @@ describe('the HTTP surface', () => {
           payload: { layout: readLayout('default'), scale: 3 },
         });
         expect(response.statusCode).toBe(400);
-        expect(response.json().error).toBe('invalid_scale');
+        expect(response.json<RenderErrorBody>().error).toBe('invalid_scale');
       } finally {
         await app.close();
       }
@@ -241,13 +258,13 @@ describe('the HTTP surface', () => {
       const config = loadConfig();
       const app = await buildServer({
         config,
-        renderer,
+        renderer: activeRenderer(),
         cache: new PreviewCache(config.cacheDir, 0),
       });
       try {
         const ready = await app.inject({ method: 'GET', url: '/ready' });
         expect(ready.statusCode).toBe(200);
-        expect(ready.json().pixelAgents.version).toBe(upstreamPin().version);
+        expect(ready.json<ReadyBody>().pixelAgents.version).toBe(upstreamPin().version);
 
         const health = await app.inject({ method: 'GET', url: '/health' });
         expect(health.statusCode).toBe(200);

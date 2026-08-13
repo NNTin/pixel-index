@@ -36,6 +36,7 @@ const ENV_KEYS = [
   'REFRESH_TOKEN_TTL_MS',
   'LOGIN_CODE_TTL_MS',
   'PIXEL_AGENTS_DIR',
+  'API_COMMIT',
   'MAX_LAYOUT_BYTES',
   'MAX_SUBMISSIONS_PER_USER_PER_DAY',
   'PUBLIC_WEB_ORIGIN_PATTERNS',
@@ -44,13 +45,18 @@ const ENV_KEYS = [
 function setRequired(overrides: Partial<Record<string, string>> = {}) {
   for (const [key, value] of Object.entries(REQUIRED)) process.env[key] = value;
   for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete process.env[key];
+    if (value === undefined) Reflect.deleteProperty(process.env, key);
     else process.env[key] = value;
   }
 }
 
 afterEach(() => {
-  for (const key of ENV_KEYS) delete process.env[key];
+  // Reflect.deleteProperty rather than `delete`: unsetting a variable is the
+  // only correct behaviour here (assigning undefined gives the literal string
+  // "undefined", which is the bug these tests exist to catch), and this is the
+  // spelling that says so without tripping no-dynamic-delete. Same idiom as
+  // apps/web's LayoutJsonPanel.test.tsx.
+  for (const key of ENV_KEYS) Reflect.deleteProperty(process.env, key);
 });
 
 describe('loadConfig — required variables', () => {
@@ -366,6 +372,18 @@ describe('loadConfig — upstream pin override (#6 /meta)', () => {
     // reported commit: null; it is a committed file now (upstream.ts).
     setRequired();
     expect('upstreamCommit' in loadConfig()).toBe(false);
+  });
+});
+
+describe('loadConfig — API_COMMIT (#32)', () => {
+  it('is absent by default — a local `npm run dev` has no Docker build arg to pass', () => {
+    setRequired();
+    expect('commit' in loadConfig()).toBe(false);
+  });
+
+  it('reads the commit baked in at build time', () => {
+    setRequired({ API_COMMIT: 'a'.repeat(40) });
+    expect(loadConfig().commit).toBe('a'.repeat(40));
   });
 });
 

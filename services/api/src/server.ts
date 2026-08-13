@@ -26,12 +26,14 @@ import { registerErrorHandling } from './errors.js';
 import { registerExportRoutes } from './layouts/export.js';
 import { registerManageRoutes } from './layouts/manage.js';
 import { registerLayoutRoutes } from './layouts/routes.js';
+import { sharedSchemas } from './layouts/schemas.js';
 import { registerSubmitRoutes } from './layouts/submit.js';
 import { buildUpstreamValidator } from './layouts/upstreamValidator.js';
-import { registerModerationRoutes } from './moderation/routes.js';
-import { registerUserAdminRoutes } from './users/routes.js';
-import { sharedSchemas } from './layouts/schemas.js';
 import { registerMetaRoutes } from './meta.js';
+import { registerAuditRoutes } from './moderation/auditRoutes.js';
+import { registerModerationRoutes } from './moderation/routes.js';
+import { API_VERSION, registerRootRoutes } from './root.js';
+import { registerUserAdminRoutes } from './users/routes.js';
 
 export interface BuildServerDeps {
   config: ApiConfig;
@@ -45,6 +47,24 @@ export interface BuildServerDeps {
   db: AnyDatabase;
 }
 
+/**
+ * The request-validation options every route's schema is compiled with.
+ *
+ * Fastify's ajv default is `removeAdditional: true`, which SILENTLY STRIPS
+ * unrecognised query/body properties even when a schema declares
+ * `additionalProperties: false` — "no error" is the ajv default whenever both
+ * options are set. For a filtering API that is the worst failure mode:
+ * `?minCols=…` typo'd as `?mincols=…` would be dropped rather than rejected,
+ * and the caller gets a silently-unfiltered result they never asked for
+ * instead of a 400 telling them what they got wrong.
+ *
+ * Exported because route handlers now rely on ajv's *other* default,
+ * `useDefaults`, to apply `default:` from the schema — the reason they no
+ * longer carry `?? 24` fallbacks. schemas.test.ts pins that against this exact
+ * object rather than a copy of it.
+ */
+export const AJV_OPTIONS = { customOptions: { removeAdditional: false } };
+
 export async function buildServer({ config, pool, db }: BuildServerDeps): Promise<FastifyInstance> {
   const app = Fastify({
     bodyLimit: config.bodyLimitBytes,
@@ -52,14 +72,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
     // Without this, every client shares the proxy's IP and one bucket.
     trustProxy: config.trustProxy,
     logger: { level: config.logLevel },
-    // Fastify's ajv default is removeAdditional: true, which SILENTLY STRIPS
-    // unrecognised query/body properties even when a schema declares
-    // additionalProperties: false — "no error" is the ajv default whenever
-    // both options are set. For a filtering API that is the worst failure
-    // mode: `?minCols=…` typo'd as `?mincols=…` would be dropped rather than
-    // rejected, and the caller gets a silently-unfiltered result they never
-    // asked for instead of a 400 telling them what they got wrong.
-    ajv: { customOptions: { removeAdditional: false } },
+    ajv: AJV_OPTIONS,
   });
 
   registerErrorHandling(app);
@@ -114,7 +127,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
       openapi: '3.1.0',
       info: {
         title: 'Pixel Index API',
-        version: '1',
+        version: API_VERSION,
         description:
           'The public read API for a Pixel Index instance. No authentication required — ' +
           'reading is public. See /api/v1/meta for the pinned Pixel Agents version.',
@@ -130,7 +143,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
     },
   });
   await app.register(swaggerUi, { routePrefix: '/docs' });
-  app.get('/openapi.json', { schema: { hide: true } }, async () => app.swagger());
+  app.get('/openapi.json', { schema: { hide: true } }, () => app.swagger());
 
   for (const schema of sharedSchemas) app.addSchema(schema);
 
@@ -139,6 +152,7 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
   // upstreamValidator.ts for why this never throws.
   const upstream = buildUpstreamValidator(config, app.log, 'layout submission and editing');
 
+  registerRootRoutes(app, config);
   registerAuthRoutes(app, { config, db });
   registerAuthorRoutes(app, { db });
   registerMetaRoutes(app, config, db);
@@ -148,8 +162,9 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
   registerManageRoutes(app, { config, db, upstream });
   registerUserAdminRoutes(app, { config, db });
   registerModerationRoutes(app, { config, db });
+  registerAuditRoutes(app, { config, db });
 
-  app.get('/health', { schema: { hide: true } }, async () => ({ status: 'ok' }));
+  app.get('/health', { schema: { hide: true } }, () => ({ status: 'ok' }));
 
   /**
    * Readiness is not liveness. A health check that always returns 200 is how

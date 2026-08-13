@@ -1,4 +1,5 @@
 {
+  "extends": "../../tsconfig.strict.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
     "target": "ES2023",
@@ -13,13 +14,14 @@
     "moduleDetection": "force",
     "noEmit": true,
 
-    "strict": true,
-    "allowUnreachableCode": false,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+
+    // build/liveOfficeAssets.ts decodes the upstream's sprite PNGs by importing
+    // vendor/pixel-agents/core/src/assets/* directly, so tsc typechecks those
+    // sources too and they do not satisfy either flag. Same reasoning as
+    // tsconfig.live-office.json — see the longer note there.
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false
   },
   "include": ["vite.config.ts", "vitest.config.ts", "build/**/*.ts"]
 }

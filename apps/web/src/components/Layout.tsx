@@ -2,8 +2,8 @@ import { Link, Outlet } from 'react-router-dom';
 
 import { getMeta } from '../api/client';
 import { useApi } from '../api/useApi';
-import { useAuth } from '../auth/AuthContext';
-import { useTheme } from '../theme/ThemeContext';
+import { useAuth } from '../auth/authState';
+import { useTheme } from '../theme/themeState';
 import { CandidatePinBanner } from './CandidatePinBanner';
 
 /**
@@ -20,7 +20,7 @@ import { CandidatePinBanner } from './CandidatePinBanner';
  */
 function Nav() {
   const { status, user, login, logout } = useAuth();
-  const metaState = useApi(() => getMeta(), []);
+  const metaState = useApi((signal) => getMeta(signal), []);
   const inviteUrl = metaState.status === 'ready' ? metaState.data.discordInviteUrl : null;
 
   return (
@@ -32,6 +32,9 @@ function Nav() {
       )}
       <Link to="/submit" className="text-ink hover:text-accent">
         Submit
+      </Link>
+      <Link to="/developer" className="text-ink hover:text-accent">
+        Developer
       </Link>
       {status === 'loading' ? null : status === 'anonymous' ? (
         <button
@@ -54,6 +57,11 @@ function Nav() {
           {user?.role === 'admin' && (
             <Link to="/admin" className="text-ink hover:text-accent">
               Admin
+            </Link>
+          )}
+          {user?.role === 'admin' && (
+            <Link to="/admin/history" className="text-ink hover:text-accent">
+              History
             </Link>
           )}
           <span className="text-muted">{user?.displayName}</span>

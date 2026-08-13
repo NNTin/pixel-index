@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { requestUrl } from '../test/fetchStub';
 import { Home } from './Home';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -18,15 +19,18 @@ function summary(overrides: Record<string, unknown> = {}) {
   return {
     slug: 'blue-office',
     title: 'Blue Office',
-    author: { id: null, username: 'someone', displayName: 'someone', avatarUrl: null },
+    author: { discordId: null, username: 'someone', displayName: 'someone', avatarUrl: null },
     description: 'A cosy office.',
     tags: [],
     cols: 25,
     rows: 22,
+    visibleCols: 25,
+    visibleRows: 22,
     furniture: 59,
     areas: 4,
     pets: 2,
     carpets: 0,
+    seats: 3,
     layoutRevision: 1,
     pixelAgentsVersion: '1.4.0',
     bytes: 10,
@@ -43,7 +47,7 @@ function stubHomeFetch(handleLayouts: (url: string) => Response, tags: { name: s
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/api/v1/tags')) return Response.json({ schemaVersion: 1, tags });
       return handleLayouts(url);
     }),
@@ -51,6 +55,32 @@ function stubHomeFetch(handleLayouts: (url: string) => Response, tags: { name: s
 }
 
 describe('Home', () => {
+  it('fetches the list once per filter change, not once per render', async () => {
+    // The effect depends on a `useMemo`'d `filters`, which is only sound if
+    // react-router's `searchParams` is stable across re-renders. It used to
+    // depend on `searchParams.toString()` and suppress exhaustive-deps to say
+    // so. If that memo ever stops holding, this is the shape of the failure:
+    // a request per render, in a loop, rather than anything visible on screen.
+    let calls = 0;
+    stubHomeFetch((url) => {
+      if (url.includes('/api/v1/layouts')) calls += 1;
+      return Response.json({ schemaVersion: 1, total: 1, layouts: [summary()], nextCursor: null });
+    });
+
+    const view = renderHome();
+    await screen.findByText('Blue Office');
+    const afterFirstLoad = calls;
+
+    // A re-render with the same URL must not re-fetch.
+    view.rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <Home />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByText('Blue Office')).toBeInTheDocument());
+    expect(calls).toBe(afterFirstLoad);
+  });
+
   it('shows a loading state, then the layout list with its facts row', async () => {
     stubHomeFetch(() =>
       Response.json({ schemaVersion: 1, total: 1, layouts: [summary()], nextCursor: null }),
@@ -59,11 +89,12 @@ describe('Home', () => {
     expect(screen.getByText('Loading layouts…')).toBeInTheDocument();
     expect(await screen.findByText('Blue Office')).toBeInTheDocument();
     expect(screen.getByText('by someone')).toBeInTheDocument();
-    // The facts row carried over from tools/build-site.mjs: dims, furniture, areas, pets.
+    // The facts row carried over from tools/build-site.mjs: dims, furniture, areas, pets, seats.
     expect(screen.getByText('25×22')).toBeInTheDocument();
     expect(screen.getByText('59 furniture')).toBeInTheDocument();
     expect(screen.getByText('4 areas')).toBeInTheDocument();
     expect(screen.getByText('2 pets')).toBeInTheDocument();
+    expect(screen.getByText('3 seats')).toBeInTheDocument();
   });
 
   it('omits zero-valued facts (no "0 areas" clutter)', async () => {
@@ -71,7 +102,7 @@ describe('Home', () => {
       Response.json({
         schemaVersion: 1,
         total: 1,
-        layouts: [summary({ areas: 0, pets: 0 })],
+        layouts: [summary({ areas: 0, pets: 0, seats: 0 })],
         nextCursor: null,
       }),
     );
@@ -82,6 +113,7 @@ describe('Home', () => {
     // that would render for a nonzero fact instead.
     expect(screen.queryByText(/\d areas/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\d pets/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d seats/)).not.toBeInTheDocument();
   });
 
   it('shows an empty state when there are no layouts and no filters are active', async () => {
@@ -92,12 +124,12 @@ describe('Home', () => {
 
   it('shows a filter-aware empty state when filters exclude everything', async () => {
     stubHomeFetch(() => Response.json({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null }));
-    renderHome(['/?q=nonexistent&size=large']);
+    renderHome(['/?q=nonexistent&minSize=1000']);
     expect(await screen.findByText(/No layouts match the current filters/)).toBeInTheDocument();
     // The same "active filters" summary also renders in the FilterBar
     // itself — both are legitimate, assert at least one exists.
     expect(screen.getAllByText(/text "nonexistent"/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/size: large/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/size: 1000–∞ tiles/).length).toBeGreaterThan(0);
   });
 
   it('shows a message, not a blank page, when the API is unreachable', async () => {
@@ -132,13 +164,41 @@ describe('Home', () => {
     expect(await screen.findByText('Second Office')).toBeInTheDocument();
     expect(screen.getByText('Blue Office')).toBeInTheDocument(); // appended, not replaced
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument(); // no more pages
+
+    // The masonry layout positions cards visually via CSS, not by moving them
+    // between per-column DOM parents — so an appended card lands after the
+    // existing ones in the DOM (and therefore tab/reading order) exactly as
+    // it does in the data, regardless of which column it's placed in.
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(['Blue Office', 'Second Office']);
+  });
+
+  it('keeps cards in source (data) order in the DOM, for tab/reading order, regardless of masonry column', async () => {
+    stubHomeFetch(() =>
+      Response.json({
+        schemaVersion: 1,
+        total: 4,
+        layouts: [
+          summary({ slug: 'a', title: 'Office A' }),
+          summary({ slug: 'b', title: 'Office B' }),
+          summary({ slug: 'c', title: 'Office C' }),
+          summary({ slug: 'd', title: 'Office D' }),
+        ],
+        nextCursor: null,
+      }),
+    );
+    renderHome();
+    await screen.findByText('Office A');
+
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(['Office A', 'Office B', 'Office C', 'Office D']);
   });
 
   it('re-fetches from scratch (not appends) when a filter changes', async () => {
     let lastUrl = '';
     stubHomeFetch((url) => {
       lastUrl = url;
-      const wantsLarge = url.includes('minCols=31');
+      const wantsLarge = url.includes('minSize=1000');
       return Response.json({
         schemaVersion: 1,
         total: 1,
@@ -149,11 +209,13 @@ describe('Home', () => {
     renderHome();
     await screen.findByText('Blue Office');
 
-    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'large' } });
+    fireEvent.change(screen.getByLabelText('Minimum size in tiles (occupied footprint)'), {
+      target: { value: '1000' },
+    });
 
     expect(await screen.findByText('Big Office')).toBeInTheDocument();
     expect(screen.queryByText('Blue Office')).not.toBeInTheDocument(); // replaced, not appended
-    expect(lastUrl).toContain('minCols=31');
+    expect(lastUrl).toContain('minSize=1000');
   });
 
   it('renders a placeholder, not a broken image, when a preview fails to load', async () => {

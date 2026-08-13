@@ -48,7 +48,12 @@ export interface PinRun {
  * tell" must never render the same way.
  */
 export class HarnessInfraError extends Error {
-  constructor(message: string, readonly cause?: unknown) {
+  // `cause` is Error's own optional property, so this shadows it deliberately
+  // (noImplicitOverride is what makes that explicit rather than accidental).
+  constructor(
+    message: string,
+    override readonly cause?: unknown,
+  ) {
     super(message);
     this.name = 'HarnessInfraError';
   }

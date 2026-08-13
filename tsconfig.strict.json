@@ -1,0 +1,50 @@
+// The type-safety contract every workspace signs. Nothing else lives here —
+// module resolution, libs, JSX and emit are each workspace's own business, and
+// mixing them in is how a base config turns into something nobody dares touch.
+//
+// One shared file rather than four copies because the four copies had already
+// drifted: `strict` was on everywhere, but noUncheckedIndexedAccess was missing
+// in apps/web, noUnusedLocals/noUnusedParameters were missing in the three Node
+// workspaces, and exactOptionalPropertyTypes was off across the board. See #44.
+//
+// Because every workspace `extends` this, `tsc` cannot run anywhere it is
+// absent — and the three Dockerfiles copy named paths rather than the whole
+// tree, so each of them has to copy it explicitly. If you add another shared
+// config at the repo root, add it to services/api/Dockerfile,
+// services/renderer/Dockerfile and apps/web/Dockerfile too.
+{
+  "compilerOptions": {
+    "strict": true,
+
+    // arr[i] is T | undefined. The highest-value flag here: every layout tile,
+    // every furniture lookup and every cursor page is indexed access over data
+    // that arrived from a request or from disk.
+    "noUncheckedIndexedAccess": true,
+
+    // `{ x?: string }` stops accepting an explicit `x: undefined`. This matters
+    // for the API's optional query params and partial updates, where "absent"
+    // and "present but undefined" reach the database differently. layout-core
+    // opted out of this explicitly when it was extracted (6ffa449); the opt-out
+    // is gone and the call sites it was hiding are fixed.
+    "exactOptionalPropertyTypes": true,
+
+    // A dead local is usually the residue of a half-finished edit. This is the
+    // flag that surfaced the unused `first` in the renderer harness.
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    // A subclass member that shadows a base member must say `override`, so
+    // renaming the base method breaks loudly instead of leaving an orphan.
+    "noImplicitOverride": true,
+
+    // Every branch of a value-returning function returns a value, rather than
+    // one branch silently yielding undefined.
+    "noImplicitReturns": true,
+
+    "noFallthroughCasesInSwitch": true,
+    "allowUnreachableCode": false,
+
+    // A bare `import './thing.css'` that resolves to nothing is a typo.
+    "noUncheckedSideEffectImports": true
+  }
+}

@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider } from '../auth/AuthContext';
+import { AuthProvider } from '../auth/AuthProvider';
+import { requestJson, requestUrl } from '../test/fetchStub';
 import { MyLayoutsPage } from './MyLayoutsPage';
 
 beforeEach(() => {
@@ -27,15 +28,18 @@ function ownerView(overrides: Record<string, unknown> = {}) {
   return {
     slug: 'my-office',
     title: 'My Office',
-    author: { id: 'owner-1', username: 'someone', displayName: 'someone', avatarUrl: null },
+    author: { discordId: 'owner-1', username: 'someone', displayName: 'someone', avatarUrl: null },
     description: '',
     tags: [],
     cols: 4,
     rows: 4,
+    visibleCols: 4,
+    visibleRows: 4,
     furniture: 0,
     areas: 0,
     pets: 0,
     carpets: 0,
+    seats: 3,
     layoutRevision: 1,
     pixelAgentsVersion: '1.4.0',
     bytes: 10,
@@ -58,7 +62,7 @@ function stubFetch(
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/auth/token')) return Response.json(authResponse);
       return handleOther(url, init);
     }),
@@ -138,7 +142,7 @@ describe('MyLayoutsPage', () => {
   it('edits title/description/tags via the inline form', async () => {
     stubFetch((_url, init) => {
       if (init?.method === 'PATCH') {
-        const body = JSON.parse(String(init.body));
+        const body = requestJson<{ title?: string }>(init);
         return Response.json(ownerView({ title: body.title }));
       }
       return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });

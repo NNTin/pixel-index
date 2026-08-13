@@ -1,9 +1,6 @@
 {
   "extends": "../tsconfig.json",
-  "compilerOptions": {
-    "rootDir": "..",
-    "declaration": false,
-    "sourceMap": false
-  },
+  // run.ts lives outside src/ and drives the real containers, so it needs the
+  // API's own types without being part of the API's build.
   "include": ["./run.ts", "../src/**/*"]
 }

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/NNTin/pixel-index/packages/layout-core/schema/meta.schema.json",
+  "$id": "https://github.com/pixel-agents-hq/pixel-index/packages/layout-core/schema/meta.schema.json",
   "title": "Pixel Index layout metadata",
   "description": "Describes one community layout. Kept out of layout.json so that file stays byte-for-byte what Pixel Agents imports. Layouts are not licensed individually — the repository is MIT licensed as a whole.",
   "type": "object",

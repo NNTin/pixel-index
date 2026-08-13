@@ -1,4 +1,14 @@
 {
   "extends": "./tsconfig.json",
+  // The runtime image. tsconfig.json is the check-everything config, so the
+  // emit settings live here — dist must contain src/ and nothing else.
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*"],
   "exclude": ["dist", "src/**/*.test.ts", "src/**/test-support/**"]
 }

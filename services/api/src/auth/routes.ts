@@ -23,11 +23,13 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 import type { FastifyInstance } from 'fastify';
 
+import { allowsWebOrigin, type ApiConfig, webHomeUrl } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
-import { allowsWebOrigin, type ApiConfig } from '../config.js';
 import { ApiError } from '../errors.js';
-import { requireAuth } from './context.js';
+import type { RequestSchemas } from '../http.js';
+import { writeRateLimitConfig } from '../rateLimit.js';
 import { resolveCapability, type ResolvedCapability } from './capability.js';
+import { requireAuth } from './context.js';
 import {
   buildAuthorizeUrl,
   DiscordApiError,
@@ -36,18 +38,40 @@ import {
   generatePkcePair,
 } from './discord.js';
 import { saveDiscordGrant } from './discordGrant.js';
-import { writeRateLimitConfig } from '../rateLimit.js';
 import {
   consumeLoginCode,
   createLoginCode,
   createSession,
   revokeSession,
   rotateRefreshToken,
+  type TokenPair,
 } from './sessions.js';
 import { getUserById, upsertDiscordUser } from './users.js';
 
 const OAUTH_COOKIE = 'pixelindex_oauth';
 const OAUTH_COOKIE_MAX_AGE_SECONDS = 600;
+
+const loginQuerySchema = {
+  type: 'object',
+  properties: { returnTo: { type: 'string' } },
+} as const;
+
+const callbackQuerySchema = {
+  type: 'object',
+  properties: {
+    code: { type: 'string' },
+    state: { type: 'string' },
+    error: { type: 'string' },
+  },
+} as const;
+
+/** The optional bodies of the three token endpoints. See the note in registerAuthRoutes. */
+interface LoginCodeBody {
+  code?: string;
+}
+interface RefreshTokenBody {
+  refreshToken?: string;
+}
 
 export interface AuthRoutesDeps {
   config: ApiConfig;
@@ -63,7 +87,7 @@ export interface AuthRoutesDeps {
  * successfully and then fails on the first credentialed API call.
  */
 function resolveReturnTo(candidate: string | undefined, config: ApiConfig): string {
-  const fallback = `${config.webOrigins[0]}/`;
+  const fallback = webHomeUrl(config);
   if (!candidate) return fallback;
   try {
     const url = new URL(candidate);
@@ -126,11 +150,21 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
   };
   const secureCookies = config.publicApiOrigin.startsWith('https:');
 
-  app.get(
+  // Query types come from the schemas below rather than from a cast. Bodies
+  // deliberately do not: these three POST routes accept an empty body — Fastify
+  // delivers `undefined` for one — and a `schema.body` makes Fastify reject the
+  // request before the handler runs. Measured: adding one to /auth/logout turns
+  // its 204 into a 400. So the body shape is declared as a route generic, which
+  // states the contract without changing what the route accepts, and the
+  // hand-written checks below stay the thing that answers.
+  const typed = app.withTypeProvider<RequestSchemas>();
+
+
+  typed.get(
     '/api/v1/auth/discord/login',
-    writeRateLimitConfig(config),
+    { ...writeRateLimitConfig(config), schema: { querystring: loginQuerySchema } },
     async (request, reply) => {
-      const query = request.query as { returnTo?: string };
+      const query = request.query;
       const returnTo = resolveReturnTo(query.returnTo, config);
       const state = randomBytes(24).toString('base64url');
       const { verifier, challenge } = generatePkcePair();
@@ -149,14 +183,14 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
     },
   );
 
-  app.get('/callback', async (request, reply) => {
-    const query = request.query as { code?: string; state?: string; error?: string };
+  typed.get('/callback', { schema: { querystring: callbackQuerySchema } }, async (request, reply) => {
+    const query = request.query;
     const cookieValue = request.cookies[OAUTH_COOKIE];
     // Clear it either way — this cookie is single-use regardless of outcome.
     reply.clearCookie(OAUTH_COOKIE, { path: '/callback' });
 
     const parsedCookie = cookieValue ? unpackCookie(cookieValue) : null;
-    const returnTo = parsedCookie?.returnTo ?? `${config.webOrigins[0]}/`;
+    const returnTo = parsedCookie?.returnTo ?? webHomeUrl(config);
     const fail = (reason: string) => reply.redirect(`${returnTo}${returnTo.includes('?') ? '&' : '?'}authError=${reason}`);
 
     if (query.error) return fail(query.error);
@@ -203,8 +237,10 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
     return reply.redirect(target.toString());
   });
 
-  app.post('/api/v1/auth/token', writeRateLimitConfig(config), async (request, reply) => {
-    const body = request.body as { code?: string };
+  app.post<{ Body: LoginCodeBody | undefined }>('/api/v1/auth/token', writeRateLimitConfig(config), async (request, reply) => {
+    // `| undefined`, not just the object: an empty POST body really does arrive
+    // as undefined, which is why the optional chain below is not decoration.
+    const body = request.body;
     if (!body?.code) throw ApiError.badRequest('code is required.');
 
     const user = await consumeLoginCode(db, body.code);
@@ -215,8 +251,8 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
     return reply.send({ ...tokens, user: publicUser(resolved, config) });
   });
 
-  app.post('/api/v1/auth/refresh', writeRateLimitConfig(config), async (request, reply) => {
-    const body = request.body as { refreshToken?: string };
+  app.post<{ Body: RefreshTokenBody | undefined }>('/api/v1/auth/refresh', writeRateLimitConfig(config), async (request, reply) => {
+    const body = request.body;
     if (!body?.refreshToken) throw ApiError.badRequest('refreshToken is required.');
 
     const outcome = await rotateRefreshToken(db, body.refreshToken, sessionConfig);
@@ -229,8 +265,8 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
     return reply.send(outcome.tokens);
   });
 
-  app.post('/api/v1/auth/logout', async (request, reply) => {
-    const body = request.body as { refreshToken?: string };
+  app.post<{ Body: RefreshTokenBody | undefined }>('/api/v1/auth/logout', async (request, reply) => {
+    const body = request.body;
     if (body?.refreshToken) await revokeSession(db, body.refreshToken);
     return reply.code(204).send();
   });
@@ -242,6 +278,17 @@ export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRou
     const resolved = await resolveCapability(db, config, user);
     return reply.send(publicUser(resolved, config));
   });
+}
+
+/**
+ * `GET /api/v1/auth/me`, and the `user` half of a login response. Derived from
+ * publicUser rather than written out twice, so it cannot drift from it.
+ */
+export type PublicUserBody = ReturnType<typeof publicUser>;
+
+/** `POST /api/v1/auth/token` — a token pair plus who it belongs to. */
+export interface SessionBody extends TokenPair {
+  user: PublicUserBody;
 }
 
 function publicUser(resolved: ResolvedCapability, config: ApiConfig) {

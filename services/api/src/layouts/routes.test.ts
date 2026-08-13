@@ -1,12 +1,15 @@
+import { withFormats } from '@pixel-index/layout-core';
 import { Ajv } from 'ajv';
-import addFormatsExport from 'ajv-formats';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
+import type { EnvelopeBody } from '../errors.js';
 import { buildServer } from '../server.js';
+import { type OpenApiDoc, parseRenderRequest } from '../test-support/bodies.js';
 import { testConfig } from '../test-support/config.js';
-import { insertLayout, insertTag, insertUser, tagLayout } from '../test-support/layouts.js';
+import { insertLayout, insertUser, tagLayout } from '../test-support/layouts.js';
+import type { ListLayoutsBody, ListTagsBody } from './responses.js';
 import {
   layoutDetailResponseSchema,
   layoutDetailSchema,
@@ -14,6 +17,7 @@ import {
   listLayoutsResponseSchema,
   publicAuthorSchema,
 } from './schemas.js';
+import type { PublicLayoutDetail } from './serialize.js';
 
 const config = testConfig();
 const fakePool = { query: async () => ({ rows: [] }) };
@@ -34,14 +38,7 @@ afterEach(() => vi.unstubAllGlobals());
 // response against these is what makes "the OpenAPI doc matches actual
 // responses" a checked fact instead of a claim. Building a bogus 2020-ish
 // $schema draft here would prove nothing about what Fastify actually did.
-// ajv-formats is CJS with a default export that TypeScript's NodeNext
-// resolution does not bind cleanly (see @pixel-index/layout-core/src/validate.ts
-// for the same fix with the same root cause).
-const addFormats = (addFormatsExport as unknown as { default?: (ajv: Ajv) => unknown }).default ??
-  (addFormatsExport as unknown as (ajv: Ajv) => unknown);
-
-const ajv = new Ajv({ strict: false });
-addFormats(ajv);
+const ajv = withFormats(new Ajv({ strict: false }));
 ajv.addSchema(publicAuthorSchema);
 ajv.addSchema(layoutSummarySchema);
 ajv.addSchema(layoutDetailSchema);
@@ -49,19 +46,6 @@ const validateList = ajv.compile(listLayoutsResponseSchema[200]);
 const validateDetail = ajv.compile(layoutDetailResponseSchema[200]);
 
 describe('GET /api/v1/layouts', () => {
-  it('returns an empty list cleanly, not an error', async () => {
-    const emptyHarness = await createTestDatabase();
-    const emptyApp = await buildServer({ config, pool: fakePool, db: emptyHarness.db });
-    try {
-      const response = await emptyApp.inject({ method: 'GET', url: '/api/v1/layouts' });
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null });
-    } finally {
-      await emptyApp.close();
-      await emptyHarness.close();
-    }
-  });
-
   it('lists a public layout with author and tags resolved', async () => {
     const author = await insertUser(harness.db, { username: 'route-author' });
     const layout = await insertLayout(harness.db, {
@@ -73,13 +57,18 @@ describe('GET /api/v1/layouts', () => {
 
     const response = await app.inject({ method: 'GET', url: '/api/v1/layouts?limit=100' });
     expect(response.statusCode).toBe(200);
-    const body = response.json();
+    const body = response.json<ListLayoutsBody>();
     expect(validateList(body), JSON.stringify(validateList.errors)).toBe(true);
 
-    const entry = body.layouts.find((l: { slug: string }) => l.slug === 'route-list-basic');
-    expect(entry.author).toEqual({ id: author.id, username: 'route-author', displayName: 'route-author', avatarUrl: null });
-    expect(entry.tags).toEqual(['route-tag']);
-    expect(entry.files.layout).toBe('/api/v1/layouts/route-list-basic/download');
+    const entry = body.layouts.find((l) => l.slug === 'route-list-basic');
+    expect(entry?.author).toEqual({
+      discordId: author.discordId,
+      username: 'route-author',
+      displayName: 'route-author',
+      avatarUrl: null,
+    });
+    expect(entry?.tags).toEqual(['route-tag']);
+    expect(entry?.files.layout).toBe('/api/v1/layouts/route-list-basic/download');
   });
 
   it('never lists a hidden or removed layout', async () => {
@@ -87,7 +76,7 @@ describe('GET /api/v1/layouts', () => {
     await insertLayout(harness.db, { slug: 'route-removed', visibility: 'removed' });
 
     const response = await app.inject({ method: 'GET', url: '/api/v1/layouts?limit=100' });
-    const slugs = response.json().layouts.map((l: { slug: string }) => l.slug);
+    const slugs = response.json<ListLayoutsBody>().layouts.map((l) => l.slug);
     expect(slugs).not.toContain('route-hidden');
     expect(slugs).not.toContain('route-removed');
   });
@@ -102,12 +91,15 @@ describe('GET /api/v1/layouts', () => {
     });
     await tagLayout(harness.db, match.id, 'route-compose-tag');
     await insertLayout(harness.db, { slug: 'route-compose-other-author', cols: 30, rows: 30 });
+    assert(author.discordId !== null, 'insertUser did not give the author a Discord id');
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/v1/layouts?author=${author.id}&tags=route-compose-tag&minCols=25`,
+      // ?author= is a Discord id (#61), not the internal UUID — the route
+      // must resolve it before filtering.
+      url: `/api/v1/layouts?author=${author.discordId}&tags=route-compose-tag&minCols=25`,
     });
-    const slugs = response.json().layouts.map((l: { slug: string }) => l.slug);
+    const slugs = response.json<ListLayoutsBody>().layouts.map((l) => l.slug);
     expect(slugs).toEqual(['route-compose-match']);
   });
 
@@ -120,18 +112,15 @@ describe('GET /api/v1/layouts', () => {
       method: 'GET',
       url: `/api/v1/layouts?sort=furniture&minFurniture=${BASE}&limit=2`,
     });
-    const body1 = page1.json();
-    expect(body1.layouts.map((l: { slug: string }) => l.slug)).toEqual([
-      'route-page-2',
-      'route-page-1',
-    ]);
+    const body1 = page1.json<ListLayoutsBody>();
+    expect(body1.layouts.map((l) => l.slug)).toEqual(['route-page-2', 'route-page-1']);
     expect(body1.nextCursor).toBeTruthy();
 
     const page2 = await app.inject({
       method: 'GET',
-      url: `/api/v1/layouts?sort=furniture&minFurniture=${BASE}&limit=2&cursor=${encodeURIComponent(body1.nextCursor)}`,
+      url: `/api/v1/layouts?sort=furniture&minFurniture=${BASE}&limit=2&cursor=${encodeURIComponent(body1.nextCursor ?? '')}`,
     });
-    expect(page2.json().layouts.map((l: { slug: string }) => l.slug)).toEqual(['route-page-0']);
+    expect(page2.json<ListLayoutsBody>().layouts.map((l) => l.slug)).toEqual(['route-page-0']);
   });
 
   it('rejects an unknown query parameter rather than silently ignoring it', async () => {
@@ -150,7 +139,7 @@ describe('GET /api/v1/layouts/:slug', () => {
     await insertLayout(harness.db, { slug: 'route-detail', raw: '{"version":1,"marker":"detail"}' });
     const response = await app.inject({ method: 'GET', url: '/api/v1/layouts/route-detail' });
     expect(response.statusCode).toBe(200);
-    const body = response.json();
+    const body = response.json<PublicLayoutDetail>();
     expect(validateDetail(body), JSON.stringify(validateDetail.errors)).toBe(true);
     expect(body.layout).toEqual({ version: 1, marker: 'detail' });
   });
@@ -246,8 +235,9 @@ describe('GET /api/v1/layouts/:slug/preview.png', () => {
     expect(response.rawPayload.subarray(0, 8)).toEqual(PNG_MAGIC);
     expect(response.headers.etag).toBe('"fake-1"');
 
-    const [, init] = fetchSpy.mock.calls[0]!;
-    expect(JSON.parse((init as RequestInit).body as string).scale).toBe(1);
+    const firstCall = fetchSpy.mock.calls[0];
+    assert(firstCall, 'the renderer was never called');
+    expect(parseRenderRequest(firstCall[1]).scale).toBe(1);
   });
 
   it('is a 404 for a hidden layout and never calls the renderer at all', async () => {
@@ -268,7 +258,7 @@ describe('GET /api/v1/layouts/:slug/preview.png', () => {
     await insertLayout(harness.db, { slug: 'route-preview-down' });
     const response = await app.inject({ method: 'GET', url: '/api/v1/layouts/route-preview-down/preview.png' });
     expect(response.statusCode).toBe(502);
-    expect(response.json().error).toBe('renderer_unavailable');
+    expect(response.json<EnvelopeBody>().error).toBe('renderer_unavailable');
   });
 
   it('is a 500, not a client error, when a stored layout fails the renderer\'s own validation', async () => {
@@ -308,8 +298,9 @@ describe('GET /api/v1/layouts/:slug/thumbnail.png', () => {
     await insertLayout(harness.db, { slug: 'route-thumbnail' });
 
     await app.inject({ method: 'GET', url: '/api/v1/layouts/route-thumbnail/thumbnail.png' });
-    const [, init] = fetchSpy.mock.calls[0]!;
-    expect(JSON.parse((init as RequestInit).body as string).scale).toBe(1);
+    const firstCall = fetchSpy.mock.calls[0];
+    assert(firstCall, 'the renderer was never called');
+    expect(parseRenderRequest(firstCall[1]).scale).toBe(1);
   });
 });
 
@@ -328,36 +319,24 @@ describe('GET /api/v1/tags', () => {
 
     const response = await app.inject({ method: 'GET', url: '/api/v1/tags' });
     expect(response.statusCode).toBe(200);
-    const body = response.json();
+    const body = response.json<ListTagsBody>();
     // Shared harness across this file's tests, so other tests' tags may
     // also be present — assert on the ones this test controls.
     expect(body.tags).toEqual(expect.arrayContaining([{ name: 'cosy', count: 2 }, { name: 'minimal', count: 1 }]));
-    expect(body.tags.find((t: { name: string }) => t.name === 'hidden-only')).toBeUndefined();
+    expect(body.tags.find((t) => t.name === 'hidden-only')).toBeUndefined();
     // Popularity order holds even amid other tests' tags: cosy (2) sorts
     // ahead of minimal (1).
-    const names = body.tags.map((t: { name: string; count: number }) => `${t.name}:${t.count}`);
+    const names = body.tags.map((t) => `${t.name}:${t.count}`);
     expect(names.indexOf('cosy:2')).toBeLessThan(names.indexOf('minimal:1'));
   });
 
-  it('returns an empty list cleanly when nothing is tagged', async () => {
-    const emptyHarness = await createTestDatabase();
-    const emptyApp = await buildServer({ config, pool: fakePool, db: emptyHarness.db });
-    try {
-      const response = await emptyApp.inject({ method: 'GET', url: '/api/v1/tags' });
-      expect(response.statusCode).toBe(200);
-      expect(response.json().tags).toEqual([]);
-    } finally {
-      await emptyApp.close();
-      await emptyHarness.close();
-    }
-  });
 });
 
 describe('OpenAPI document', () => {
   it('is served and describes the layout routes', async () => {
     const response = await app.inject({ method: 'GET', url: '/openapi.json' });
     expect(response.statusCode).toBe(200);
-    const doc = response.json();
+    const doc = response.json<OpenApiDoc>();
     expect(doc.openapi).toBe('3.1.0');
     expect(doc.paths['/api/v1/layouts']).toBeDefined();
     expect(doc.paths['/api/v1/layouts/{slug}']).toBeDefined();

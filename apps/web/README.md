@@ -4,30 +4,20 @@ The gallery. Vite + React + Tailwind, matching `vendor/pixel-agents/webview-ui` 
 so design tokens can be lifted from upstream rather than re-derived by eye.
 
 Built as a **static SPA**: GitHub Pages serves production from `main`, Vercel builds the
-same output for per-pull-request previews.
-
-## Status
-
-The shell (#12), gallery/detail (#13), search/filter (#14), the authenticated flows
-(#15), visual design (#16), and live layout detail (#27) all exist: login with Discord, submit with a real
+same output for per-pull-request previews. Login with Discord, submit with a real
 pre-publish preview, manage your own layouts, a moderation console, an admin console —
 styled with tokens lifted from the office webview and the docs site, not invented.
 
-| Issue | Scope | State |
-|---|---|---|
-| [#12](https://github.com/NNTin/pixel-index/issues/12) | SPA shell, API client, Pages deploy, Vercel PR previews | done |
-| [#13](https://github.com/NNTin/pixel-index/issues/13) | gallery, layout detail, preview, download | done |
-| [#14](https://github.com/NNTin/pixel-index/issues/14) | search and filter | done |
-| [#15](https://github.com/NNTin/pixel-index/issues/15) | login, submit, my layouts, moderation console, admin | done |
-| [#16](https://github.com/NNTin/pixel-index/issues/16) | visual alignment with the office and docs site | done |
-| [#27](https://github.com/NNTin/pixel-index/issues/27) | live office, mock agents, formatted/copyable layout.json | done |
+## Source map
 
-```
+```text
 src/main.tsx                     mounts <App>, wrapped in BrowserRouter + ThemeProvider +
                                   AuthProvider
 src/App.tsx                      routes, public /authors/:id and authenticated dashboard pages
-src/index.css                    design tokens (#16) — see below
-src/theme/ThemeContext.tsx       light/dark toggle, persisted to localStorage
+src/index.css                    design tokens — see below
+src/theme/ThemeProvider.tsx      light/dark toggle, persisted to localStorage
+src/theme/themeState.ts          the theme context and useTheme(), apart from the provider
+                                  so the provider module hot-reloads in place
 src/components/Layout.tsx        header, role-aware nav (login/logout, submit, my layouts,
                                   moderation, admin — a convenience, never the real gate)
 src/components/RequireAuth.tsx   client-side route gate: "log in" / "moderators only" —
@@ -39,8 +29,9 @@ src/components/LiveOfficePreview.tsx
                                   persisted live/thumbnail toggle + mock-agent controls
 src/components/LayoutJsonPanel.tsx
                                   auto-formatted download source, copy + download
-src/components/FactsRow.tsx      "25×22 · 59 furniture · 4 areas · 2 pets" — zero-valued
-                                  facts omitted, carried over from v1
+src/components/FactsRow.tsx      renders "25×22 · 59 furniture · 4 areas · 2 pets"
+src/components/facts.ts          factsFor(): builds those strings, zero-valued facts
+                                  omitted, carried over from v1
 src/components/AuthorLink.tsx    linked authors open their public profile and layouts
 src/components/FilterBar.tsx     search, sort, size/pets/furniture filters, the tag
                                   multi-select (populated from GET /api/v1/tags),
@@ -49,19 +40,21 @@ src/api/client.ts                apiRequest() — the one fetch wrapper every ot
                                   client builds on; VITE_API_BASE_URL, never a hardcoded
                                   hostname; apiUrl() resolves API-relative asset paths
 src/api/authClient.ts            the OAuth code exchange, refresh, logout, /me
-src/api/manageClient.ts          submit, preview-check, my-layouts CRUD (#9/#15)
+src/api/manageClient.ts          submit, preview-check, my-layouts CRUD
 src/api/moderationClient.ts      moderation browse + read-only admin user directory
 src/api/types.ts                 hand-written against services/api/src/layouts/schemas.ts
 src/api/useApi.ts                loading/error/ready as data, for every screen that calls
                                   the API
-src/auth/AuthContext.tsx         the session state machine — see below
+src/auth/AuthProvider.tsx        the session state machine — see below
+src/auth/authState.ts            the auth context and useAuth(), split out for the same
+                                  reason as themeState.ts
 src/auth/storage.ts              only the refresh token is persisted; see docs/ARCHITECTURE.md
-src/routes/filters.ts            the URL <-> Filters <-> #6 API params translation — the
-                                  URL is the shareable, human-readable form; #6's own
+src/routes/filters.ts            the URL <-> Filters <-> API params translation — the
+                                  URL is the shareable, human-readable form; the API's own
                                   min/max params are what's actually sent
 src/routes/Home.tsx              the gallery: FilterBar wired to useSearchParams, keyset
-                                  pagination via #6's cursor, "Load more", a filter-aware
-                                  empty state
+                                  pagination via the API's cursor, "Load more", a
+                                  filter-aware empty state
 src/routes/LayoutDetailPage.tsx  live/static office, formatted layout.json, full metadata,
                                   revision warning, clickable tags/author
 src/routes/AuthorPage.tsx        public author identity and all of their public layouts
@@ -73,13 +66,19 @@ src/routes/SubmitPage.tsx        paste/upload layout.json, "Check preview" befor
 src/routes/MyLayoutsPage.tsx     list/edit/replace/delete what you own, visibility + reason
 src/routes/ModerationPage.tsx    every layout, any visibility; hide/remove/restore with a reason
 src/routes/AdminPage.tsx         read-only users/capabilities/layout-count directory
+src/routes/DeveloperPage.tsx     public, unauthenticated: GET /'s version/commit/repo
+                                  link, plus a reference generated by reading GET
+                                  /openapi.json directly — not an embed of the API's own
+                                  Swagger UI, which stays linked as "Interactive docs"
+src/api/openapi.ts               loose OpenAPI-document types + describeSchema()/
+                                  bodyFields() the DeveloperPage reference renders from
 vite.config.ts                   base path, multi-page live-office build + Pages fallback
 index.html                       the matching restore-path script (see the two together)
 ```
 
 ### The session: the bearer-token design, implemented
 
-`auth/AuthContext.tsx` is the state machine the bearer-token design (see
+`auth/AuthProvider.tsx` is the state machine the bearer-token design (see
 [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#how-they-talk-to-each-other) for why
 it's a bearer token and not a cookie) turns into — worth reading alongside that doc, not
 instead of it. On mount: if the URL has a `#pixelIndexLoginCode=...` fragment (the redirect back
@@ -98,54 +97,51 @@ gates makes the exact same API calls a logged-out `curl` could make, and gets th
 same 401/403 back. Hiding a "Moderation" link from a normal user makes the product
 legible; it does nothing for security, which is the API's job alone.
 
-### A real preflight bug this found
+### CORS needs an explicit methods list
 
-Adding `PATCH`/`PUT`/`DELETE` calls from the browser (edit, replace, delete, moderate,
-layout moderation) surfaced a live CORS bug in `services/api`: without an explicit `methods`
-list, `@fastify/cors` derived a preflight's `Access-Control-Allow-Methods` header from
-route introspection that only ever produced `GET, HEAD, POST` — every one of #15's write
-calls was silently blocked by the browser before it reached the server. Fixed in
-`services/api/src/server.ts` with an explicit, path-independent methods list; see that
-file's own comment and `server.test.ts`'s regression test for the full story. Caught by
-the live Playwright pass against the real Docker stack (see below), not by the unit
-suite — a route existing in Fastify and a route being *reachable from a browser* are
-different claims, and only the second one is what a real user experiences.
+Without an explicit `methods` list, `@fastify/cors` derives a preflight's
+`Access-Control-Allow-Methods` header from route introspection, which only ever
+produces `GET, HEAD, POST` — every `PATCH`/`PUT`/`DELETE` call (edit, replace, delete,
+moderate) is silently blocked by the browser before it reaches the server.
+`services/api/src/server.ts` sets an explicit, path-independent methods list instead. A
+route existing in Fastify and a route being *reachable from a browser* are different
+claims, and only a real browser preflight — not the unit suite — proves the second one.
 
 ### Filters live in the URL, not component state
 
 `routes/filters.ts` is the one place that translates between three shapes: the URL's
-query string (`?size=large&tags=cosy,small` — readable, shareable, what a pasted link
-looks like), the `Filters` object components work with, and #6's own query parameters
-(`minCols`/`maxCols`/`minRows`/`maxRows`, `minPets`/`maxPets`, …). `Home.tsx` derives
-`filters` from `useSearchParams()` on every render rather than holding its own copy in
-`useState` — the URL *is* the state, so the browser back button, a bookmark, and a
-pasted link all just work, with no separate synchronization code to keep them aligned.
+query string (`?minSize=100&tags=cosy,small` — readable, shareable, what a pasted link
+looks like), the `Filters` object components work with, and the API's own query
+parameters (`minCols`/`maxCols`/`minRows`/`maxRows`, `minSize`/`maxSize`,
+`minPets`/`maxPets`, …). `Home.tsx` derives `filters` from `useSearchParams()` on every
+render rather than holding its own copy in `useState` — the URL *is* the state, so the
+browser back button, a bookmark, and a pasted link all just work, with no separate
+synchronization code to keep them aligned.
 
-The size bucket (small/up to 15×15, medium/16–30, large/31+) is a client-side
-approximation, not a real backend concept — #6 only offers independent min/max on `cols`
-and `rows`, not on `cols × rows`, so a bucket applies the same range to both axes, ANDed.
-A long, thin layout (say 8×40) falls outside every bucket. Documented as a known
-imprecision in `filters.ts` rather than worked around, since a real fix is a computed
-tile-count column, not a client heuristic.
+**Size is filtered by tile count, not by cols/rows independently.** `minSize`/`maxSize`
+filter on the product, computed server-side in `query.ts`.
+
+That product is `visibleCols * visibleRows` — the *occupied footprint* — not
+`cols * rows`, the declared canvas. `cols`/`rows` is a fixed allocation shared
+across many layouts (furniture placement needs a stable canvas to be absolute against),
+so three seed layouts can — and did — declare the identical 21×22 canvas while looking
+nothing alike. `visibleCols`/`visibleRows` is the bounding box of every non-VOID tile,
+computed once in `@pixel-index/layout-core`'s `layoutStats()` and denormalised onto the
+row exactly like `seats` is; it is what `facts.ts` displays, what `largest` sorts by,
+and what `minSize`/`maxSize` filters on.
 
 ### The tag picker never offers a filter guaranteed to return nothing
 
-`GET /api/v1/tags` (added alongside this issue, `services/api/src/layouts/query.ts`)
-returns only tags actually used by a **public** layout, with a count, most-used first.
-`FilterBar` hides the tag picker entirely when that list is empty — on a fresh install
-with no tags yet, rather than rendering a picker with nothing in it, which the issue's
-own notes flagged as a real risk ("tags is currently empty on all four seed layouts").
+`GET /api/v1/tags` (`services/api/src/layouts/query.ts`) returns only tags actually used
+by a **public** layout, with a count, most-used first. `FilterBar` hides the tag picker
+entirely when that list is empty, rather than rendering a picker with nothing in it — a
+real risk on a fresh install with no tags yet.
 
 ### No "report" control
 
-#15's original scope included a report button on every layout. #10 (moderation) had
-already dropped report intake entirely before it was built — no `POST /report`, no
-queue, see [its comment thread](https://github.com/NNTin/pixel-index/issues/10) — so
-there is nothing for a report button to call. `CONTENT_POLICY.md` (#11) documents the
-actual path: contact a moderator directly. See the
-[#15 comment thread](https://github.com/NNTin/pixel-index/issues/15) for the two backend
-additions this did need (`GET /moderation/layouts`, `GET /users?q=`) that #10/#9
-deliberately deferred rather than built speculatively.
+There is no in-app report button — this index has no report-intake queue (no
+`POST /report`), so there is nothing for a report button to call. `docs/CONTENT_POLICY.md`
+documents the actual path: contact a moderator directly.
 
 ## Constraints that come with static hosting
 
@@ -156,7 +152,7 @@ deliberately deferred rather than built speculatively.
   so self-hosters never inherit an owner's own deployment.
 - **Deep links need help.** Pages has no rewrite rules. Chosen: the `404.html` fallback
   (`vite.config.ts`'s `ghPagesSpaFallback` plugin + `index.html`'s restore script,
-  https://github.com/rafgraph/spa-github-pages), not hash routing — clean URLs
+  <https://github.com/rafgraph/spa-github-pages>), not hash routing — clean URLs
   (`/layouts/some-office`, not `/#/layouts/some-office`) matter more here than avoiding
   one redirect hop on an already-rare hard-refresh-on-a-deep-link case. Vercel needs
   none of this: it has real rewrite rules (`vercel.json`), so the plugin is a no-op there.
@@ -185,22 +181,15 @@ deliberately deferred rather than built speculatively.
   `VITE_API_BASE_URL` at a non-production API via a Vercel Environment Variable if/when
   one exists.
 
-## Worth keeping from v1
-
-`image-rendering: pixelated`, so the renderer's pixel art stays crisp instead of
-browser-smoothed. (v1's checkered "this is transparency" backdrop behind previews was
-kept through #16's first pass, then dropped in a follow-up: the office itself never
-shows that convention — its game canvas is always an opaque solid colour — and it read
-as a bug rather than a decorative choice against the office-matched palette. Previews
-now sit on a plain `bg-canvas` fill instead.)
-
-## Design tokens (#16): lifted, not invented
+## Design tokens: lifted, not invented
 
 `src/index.css` defines every colour and the display font as CSS custom properties
 (`--pi-*`), fed into Tailwind v4 via `@theme inline` so they're ordinary utility classes
 (`bg-surface`, `text-accent`, `border-danger`, `font-display`, …) everywhere else in the
 tree — no component hand-mixes a colour.
 
+- **Preview backdrop**: a plain `bg-canvas` fill with `image-rendering: pixelated`, so
+  the renderer's pixel art stays crisp instead of browser-smoothed.
 - **Accent (`#6030ff` family)** and the **light/dark split** come from the Pixel Agents
   docs site's own `src/css/custom.css` (`pixel-agents-hq/docs`) — its
   `--ifm-color-primary*` scale and its `html[data-theme='dark']` emphasis scale.
@@ -213,12 +202,10 @@ tree — no component hand-mixes a colour.
   (4.5:1) with the office/docs hexes as fixed points; two of the docs' own tones
   (`muted`, `subtle` in light mode) needed darkening a step to clear it — see the
   comments beside those tokens in `index.css` for the exact ratios.
-- **Theme toggle**: `theme/ThemeContext.tsx`, defaulting to the OS preference,
+- **Theme toggle**: `theme/ThemeProvider.tsx`, defaulting to the OS preference,
   persisted to `localStorage` (`pixelindex_theme`) — `index.html` applies it in an
   inline script before the app bundle loads, so there's no flash of the wrong theme.
 - **Favicon / social preview**: `public/favicon.svg` (hand-written) and
   `public/og-image.png` (rendered with Playwright from a small HTML page using the same
   tokens) — both an accent-grid mark on the office's own solid dark surface, so the
   brand is consistent from a browser tab to a Discord embed to a preview card.
-
-<!-- trigger a real Vercel preview build for #12 -->

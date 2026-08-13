@@ -1,12 +1,7 @@
-import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
+import { createContext, useContext } from 'react';
 
-import { apiUrl, getMeta } from './client';
-import {
-  buildPreviewSource,
-  fetchPreviewManifest,
-  INACTIVE,
-  type PreviewSource,
-} from './previewSource';
+import { apiUrl } from './client';
+import { INACTIVE, type PreviewSource } from './previewSource';
 
 /**
  * Resolved once for the whole app, not once per card.
@@ -19,36 +14,11 @@ import {
  * returns `INACTIVE`, which is both the correct production default (no
  * manifest, no override) and what lets a component test render a card without
  * wiring up machinery that has nothing to do with what it is testing.
+ *
+ * Separate from `PreviewSourceProvider.tsx` because react-refresh only replaces
+ * a module in place when every export is a component.
  */
-const PreviewSourceContext = createContext<PreviewSource>(INACTIVE);
-
-export function PreviewSourceProvider({ children }: { children: ReactNode }) {
-  const [source, setSource] = useState<PreviewSource>(INACTIVE);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      // On every deployment except a vendor-update preview this 404s, and that
-      // is the end of it — `/meta` is only asked for once a manifest actually
-      // exists, so production pays one small failed request per page load and
-      // nothing else.
-      const manifest = await fetchPreviewManifest();
-      if (manifest === null || cancelled) return;
-
-      const meta = await getMeta().catch(() => null);
-      if (cancelled) return;
-
-      setSource(buildPreviewSource(manifest, meta?.pixelAgents ?? null));
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return <PreviewSourceContext value={source}>{children}</PreviewSourceContext>;
-}
+export const PreviewSourceContext = createContext<PreviewSource>(INACTIVE);
 
 export function usePreviewSource(): PreviewSource {
   return useContext(PreviewSourceContext);
@@ -56,7 +26,7 @@ export function usePreviewSource(): PreviewSource {
 
 export interface PreviewImageProps {
   src: string;
-  unavailable?: string;
+  unavailable?: string | undefined;
 }
 
 /**

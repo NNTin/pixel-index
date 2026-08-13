@@ -10,7 +10,7 @@ import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
-import { decodeCursor, encodeCursor, type Cursor, type SortKey } from './cursor.js';
+import { type Cursor, decodeCursor, encodeCursor, type SortKey } from './cursor.js';
 
 export interface NumericRange {
   min?: number;
@@ -18,17 +18,38 @@ export interface NumericRange {
 }
 
 export interface ListLayoutsFilters {
-  /** users.id — the author to restrict to. */
+  /**
+   * users.id — the author to restrict to. Internal use only (moderation
+   * search, owner queries) — this is the Pixel Index UUID, not what the
+   * public API accepts. See `authorDiscordId` for the public equivalent.
+   */
   author?: string;
+  /**
+   * users.discordId — the public author-facing filter (#61): a Discord user
+   * id, resolved to the internal `author` id before the query runs. Not a
+   * UUID, so it can't just be compared against `layouts.authorUserId`
+   * directly — an unmatched id (or one that doesn't resolve to any user)
+   * yields zero results rather than a Postgres type error.
+   */
+  authorDiscordId?: string;
   /** Tag names. A layout must have every one of these (AND, not OR). */
   tags?: string[];
   /** Free text over title and description, via the generated search_vector. */
   q?: string;
+  /** The declared canvas allocation — not the occupied footprint. See `size` below for that. */
   cols?: NumericRange;
   rows?: NumericRange;
+  /**
+   * Occupied-footprint tile count (visibleCols × visibleRows), #24's "size is
+   * filtered by square unit" — not cols/rows independently, and not the
+   * declared canvas either (#55): a layout's canvas can be much bigger than
+   * what it actually occupies.
+   */
+  size?: NumericRange;
   furniture?: NumericRange;
   areas?: NumericRange;
   pets?: NumericRange;
+  seats?: NumericRange;
   /** Moderator-scope only: narrow to one visibility, e.g. "show me what's hidden". */
   visibility?: schema.Layout['visibility'];
 }
@@ -71,10 +92,11 @@ function sortExpr(sort: SortKey) {
     case 'furniture':
       return schema.layouts.furnitureCount;
     case 'largest':
-      // No dedicated index for this one yet — see schema.ts. Fine at current
-      // scale; #14 explicitly reserves the right to ask for more indexing
-      // "once the UI is real".
-      return sql`(${schema.layouts.cols} * ${schema.layouts.rows})`;
+      // The occupied footprint, not the declared canvas (#55) — see
+      // schema.ts's visibleCols/visibleRows. No dedicated index for this one
+      // yet; fine at current scale, and #14 explicitly reserves the right to
+      // ask for more indexing "once the UI is real".
+      return sql`(${schema.layouts.visibleCols} * ${schema.layouts.visibleRows})`;
     case 'title':
       return schema.layouts.title;
   }
@@ -129,9 +151,24 @@ function buildFilterConditions(filters: ListLayoutsFilters, scope: ListLayoutsSc
     [filters.furniture, schema.layouts.furnitureCount],
     [filters.areas, schema.layouts.areaCount],
     [filters.pets, schema.layouts.petCount],
+    [filters.seats, schema.layouts.seatCount],
   ] as const) {
     if (range?.min !== undefined) conditions.push(gte(column, range.min));
     if (range?.max !== undefined) conditions.push(lte(column, range.max));
+  }
+
+  // Not a stored column, so it can't join the generic loop above — same
+  // `(visibleCols * visibleRows)` expression `sortExpr('largest')` orders
+  // by, filtered instead of sorted.
+  if (filters.size?.min !== undefined) {
+    conditions.push(
+      sql`(${schema.layouts.visibleCols} * ${schema.layouts.visibleRows}) >= ${filters.size.min}`,
+    );
+  }
+  if (filters.size?.max !== undefined) {
+    conditions.push(
+      sql`(${schema.layouts.visibleCols} * ${schema.layouts.visibleRows}) <= ${filters.size.max}`,
+    );
   }
 
   return conditions;
@@ -148,7 +185,19 @@ export async function listLayouts(
   db: AnyDatabase,
   { filters, sort, limit, cursor: cursorParam, scope = { type: 'public' } }: ListLayoutsOptions,
 ): Promise<ListLayoutsResult> {
-  const conditions = buildFilterConditions(filters, scope);
+  let resolvedFilters = filters;
+  if (filters.authorDiscordId) {
+    const [authorRow] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.discordId, filters.authorDiscordId));
+    // No user with that Discord id — same "not found is empty" shape as
+    // every other filter, not a type error from comparing a snowflake
+    // against the uuid-typed `authorUserId` column.
+    if (!authorRow) return { rows: [], total: 0, nextCursor: null };
+    resolvedFilters = { ...filters, author: authorRow.id };
+  }
+  const conditions = buildFilterConditions(resolvedFilters, scope);
 
   const [totalRow] = await db
     .select({ total: sql<number>`count(*)::int` })
@@ -194,7 +243,7 @@ function cursorValueOf(sort: SortKey, row: schema.Layout): string | number {
     case 'furniture':
       return row.furnitureCount;
     case 'largest':
-      return row.cols * row.rows;
+      return row.visibleCols * row.visibleRows;
     case 'title':
       return row.title;
   }
@@ -248,8 +297,9 @@ export async function* streamPublicLayouts(
       };
     }
 
-    if (batch.length < batchSize) return;
-    after = batch[batch.length - 1]!.id;
+    const lastRow = batch[batch.length - 1];
+    if (!lastRow || batch.length < batchSize) return;
+    after = lastRow.id;
   }
 }
 

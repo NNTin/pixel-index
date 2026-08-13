@@ -23,7 +23,13 @@ export function PreviewImage({
    * API's image would load perfectly well, and showing it would be the exact
    * lie the candidate-preview mechanism exists to prevent.
    */
-  unavailable?: string;
+  /**
+   * `| undefined` spelled out because exactOptionalPropertyTypes otherwise
+   * rejects `unavailable={maybeUndefined}` at the call site, and for a React
+   * prop "absent" and "explicitly undefined" are the same thing — the
+   * component only ever reads the value.
+   */
+  unavailable?: string | undefined;
 }) {
   const [failed, setFailed] = useState(false);
 

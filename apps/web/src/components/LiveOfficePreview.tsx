@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { PreviewImageProps } from '../api/previewSourceState';
 import type { LayoutDetail } from '../api/types';
 import {
   isViewerMessage,
@@ -10,7 +11,8 @@ import {
 import { PreviewImage } from './PreviewImage';
 
 const STORAGE_KEY = 'pixelindex_layout_render_mode';
-const MAX_AGENTS = 8;
+/** How many mock agents to seed a fresh preview with, before clamping to the layout's seat count. */
+const DEFAULT_AGENTS = 3;
 
 const ACTIVITIES = [
   { activity: 'Exploring the codebase', tool: 'Read' },
@@ -34,8 +36,16 @@ function storedRenderMode(): RenderMode {
 }
 
 function mockAgent(id: number): MockAgent {
-  const activity = ACTIVITIES[(id - 1) % ACTIVITIES.length];
-  return { id, ...activity };
+  // `%` keeps the sign of its left operand in JavaScript, so an id below 1
+  // would index off the front of the table and leave the agent with no
+  // activity or tool at all. Wrapping it into range first is what makes the
+  // lookup total — the ids are 1-based today, but nothing in the type said so.
+  const index = (((id - 1) % ACTIVITIES.length) + ACTIVITIES.length) % ACTIVITIES.length;
+  // `?? ACTIVITIES[0]` cannot be reached with the index wrapped above, but a
+  // computed index into a tuple is `T | undefined` under
+  // noUncheckedIndexedAccess and this is what makes the lookup total without a
+  // non-null assertion. ACTIVITIES[0] is a literal tuple index, so it is not.
+  return { id, ...(ACTIVITIES[index] ?? ACTIVITIES[0]) };
 }
 
 export function LiveOfficePreview({
@@ -43,13 +53,18 @@ export function LiveOfficePreview({
   staticPreview,
 }: {
   layout: LayoutDetail;
-  staticPreview: { src: string; unavailable?: string };
+  /** The still image to fall back to — `previewImageProps` builds this. */
+  staticPreview: PreviewImageProps;
 }) {
+  const maxAgents = layout.seats;
   const [mode, setMode] = useState<RenderMode>(storedRenderMode);
   const [viewerStatus, setViewerStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [viewerError, setViewerError] = useState('');
-  const [agents, setAgents] = useState<MockAgent[]>(() => [mockAgent(1), mockAgent(2), mockAgent(3)]);
-  const nextAgentId = useRef(4);
+  const [agents, setAgents] = useState<MockAgent[]>(() => {
+    const count = Math.min(DEFAULT_AGENTS, maxAgents);
+    return Array.from({ length: count }, (_, index) => mockAgent(index + 1));
+  });
+  const nextAgentId = useRef(agents.length + 1);
   const iframe = useRef<HTMLIFrameElement>(null);
 
   function selectMode(next: RenderMode): void {
@@ -70,14 +85,19 @@ export function LiveOfficePreview({
       if (event.source !== iframe.current?.contentWindow || event.origin !== window.location.origin) {
         return;
       }
-      if (!isViewerMessage(event.data)) return;
-      if (event.data.type === 'ready') {
+      // Bound to a local first: `event.data` is `any`, and narrowing on a
+      // property access is discarded again inside the setAgents callback below,
+      // which is what made `event.data.id` an unchecked read.
+      const message: unknown = event.data;
+      if (!isViewerMessage(message)) return;
+      if (message.type === 'ready') {
         setViewerStatus('ready');
-      } else if (event.data.type === 'error') {
-        setViewerError(event.data.message);
+      } else if (message.type === 'error') {
+        setViewerError(message.message);
         setViewerStatus('error');
       } else {
-        setAgents((current) => current.filter((agent) => agent.id !== event.data.id));
+        const removedId = message.id;
+        setAgents((current) => current.filter((agent) => agent.id !== removedId));
       }
     };
     window.addEventListener('message', receive);
@@ -95,14 +115,33 @@ export function LiveOfficePreview({
     iframe.current?.contentWindow?.postMessage(message, window.location.origin);
   }, [agents, layout.layout, viewerStatus]);
 
+  /**
+   * The single place agent count changes — the slider and the +/- buttons
+   * both call this, so they can never disagree about how many agents there
+   * are or about the seat cap.
+   */
+  function setAgentCount(count: number): void {
+    const clamped = Math.max(0, Math.min(maxAgents, count));
+    setAgents((current) => {
+      if (clamped === current.length) return current;
+      if (clamped < current.length) return current.slice(0, clamped);
+      const added: MockAgent[] = [];
+      let id = nextAgentId.current;
+      for (let i = current.length; i < clamped; i += 1) {
+        added.push(mockAgent(id));
+        id += 1;
+      }
+      nextAgentId.current = id;
+      return [...current, ...added];
+    });
+  }
+
   function addAgent(): void {
-    if (agents.length >= MAX_AGENTS) return;
-    const id = nextAgentId.current++;
-    setAgents((current) => [...current, mockAgent(id)]);
+    setAgentCount(agents.length + 1);
   }
 
   function removeAgent(): void {
-    setAgents((current) => current.slice(0, -1));
+    setAgentCount(agents.length - 1);
   }
 
   return (
@@ -167,6 +206,16 @@ export function LiveOfficePreview({
             <span>
               {agents.length} mock agent{agents.length === 1 ? '' : 's'}
             </span>
+            <input
+              type="range"
+              aria-label="Mock agent count"
+              min={0}
+              max={maxAgents}
+              value={agents.length}
+              onChange={(event) => setAgentCount(Number(event.target.value))}
+              disabled={maxAgents === 0}
+              className="h-2 w-32 accent-accent disabled:cursor-not-allowed disabled:opacity-40"
+            />
             <button
               type="button"
               aria-label="Remove mock agent"
@@ -180,14 +229,18 @@ export function LiveOfficePreview({
               type="button"
               aria-label="Add mock agent"
               onClick={addAgent}
-              disabled={agents.length >= MAX_AGENTS}
+              disabled={agents.length >= maxAgents}
               className="h-8 w-8 border-2 border-border text-lg text-ink hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
               +
             </button>
-            <span className="text-xs text-subtle">
-              Scroll to pan, or Ctrl+scroll to zoom inside the office.
-            </span>
+            {maxAgents === 0 ? (
+              <span className="text-xs text-subtle">This layout has no seats for mock agents.</span>
+            ) : (
+              <span className="text-xs text-subtle">
+                Scroll to pan, or Ctrl+scroll to zoom inside the office.
+              </span>
+            )}
           </div>
         </>
       ) : (

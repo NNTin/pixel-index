@@ -56,7 +56,13 @@ export class ApiError extends Error {
   }
 }
 
-interface EnvelopeBody {
+/**
+ * The body of every error response this API produces. Exported so a test can
+ * read `response.json<EnvelopeBody>().error` and be told at compile time when
+ * it misspells the field, rather than comparing `undefined` to a string and
+ * passing.
+ */
+export interface EnvelopeBody {
   error: string;
   message: string;
   issues?: ValidationIssue[];

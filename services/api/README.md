@@ -1,30 +1,14 @@
 # @pixel-index/api
 
 Fastify 5 over Postgres. Holds everything the static frontend cannot: the Discord client
-secret, the database connection, and every authorization decision.
-
-## Status
-
-The **database layer** (#3), the **service skeleton** (#5), **Discord auth** (#7), the
-**public layout API** (#6), **submission** (#8), **owner self-service** (#9) and
-**moderation** (#10) exist. Publishing, editing and moderating a layout no longer
-requires a pull request.
-
-| Issue | Scope | State |
-|---|---|---|
-| [#3](https://github.com/NNTin/pixel-index/issues/3) | schema, migrations, migration entrypoint | done |
-| [#5](https://github.com/NNTin/pixel-index/issues/5) | service skeleton: config, CORS, health, error envelope, rate limits | done |
-| [#6](https://github.com/NNTin/pixel-index/issues/6) | public layout API v1 + OpenAPI — the third-party contract | done |
-| [#7](https://github.com/NNTin/pixel-index/issues/7) | Discord OAuth, sessions, roles | done |
-| [#8](https://github.com/NNTin/pixel-index/issues/8) | submission: validate, dedupe, render, publish | done |
-| [#9](https://github.com/NNTin/pixel-index/issues/9) | owner self-service: edit, replace, delete | done |
-| [#10](https://github.com/NNTin/pixel-index/issues/10) | layout moderation and audit log | done |
-| [#21](https://github.com/NNTin/pixel-index/issues/21) | Discord membership and role capabilities | done |
-| [#23](https://github.com/NNTin/pixel-index/issues/23) | Discord authors and public author pages | done |
+secret, the database connection, and every authorization decision. The database layer,
+service skeleton, Discord auth, public layout API, submission, owner self-service, and
+moderation all exist — publishing, editing and moderating a layout no longer requires a
+pull request.
 
 ## The HTTP surface today
 
-```
+```text
 src/config.ts          env-only config, validated at boot, all problems reported at once
 src/errors.ts           ApiError + the one error envelope every response uses
 src/rateLimit.ts        writeRateLimitConfig() — the tighter per-route bucket
@@ -46,15 +30,16 @@ src/layouts/cursor.ts    opaque keyset pagination cursors — encode/decode/vali
 src/layouts/serialize.ts DB row -> public JSON shape, one place, for list and detail alike
 src/layouts/schemas.ts   the JSON Schemas that validate requests AND generate the OpenAPI doc
 src/layouts/routes.ts    GET /layouts, /layouts/:slug{,/download,/preview.png,/thumbnail.png}
-src/renderer/client.ts   thin client for the renderer service (#4), used by preview routes
+src/renderer/client.ts   thin client for the renderer service, used by preview routes
 
 src/layouts/submit.ts    POST /layouts — the whole submission pipeline
-src/layouts/slug.ts      title -> collision-safe, stable-once-assigned slug
+src/layouts/slug.ts      random, collision-safe submission slug — not title-derived
 src/layouts/metadata.ts  tag validation, length limits, shared by submit.ts and manage.ts
 src/layouts/upstreamValidator.ts  the layout-core validator, built once, shared by submit.ts and manage.ts
-src/layouts/manage.ts    PATCH/PUT/DELETE /layouts/:slug, GET /me/layouts — #9's edits, #10's moderation, same routes
+src/layouts/manage.ts    PATCH/PUT/DELETE /layouts/:slug, GET /me/layouts — owner edits and
+                         moderator actions share these routes
 src/moderation/audit.ts  recordModerationAction() — the one insert path into the append-only audit log
-src/moderation/routes.ts GET /moderation/layouts — #15's moderation console browse endpoint
+src/moderation/routes.ts GET /moderation/layouts — the moderation console's browse endpoint
 
 src/users/routes.ts      GET /admin/users — read-only interacted-user directory
 src/authors/routes.ts    GET /authors/:id — public author identity/count
@@ -80,7 +65,7 @@ is ever compiled in; see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#wha
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `DATABASE_URL` | yes | — | `postgres://` or `postgresql://` |
-| `RENDERER_URL` | yes | — | The renderer (#4), proxied by `/layouts/:slug/{preview,thumbnail}.png` |
+| `RENDERER_URL` | yes | — | The renderer, proxied by `/layouts/:slug/{preview,thumbnail}.png` |
 | `PUBLIC_WEB_ORIGIN` | yes | — | Comma-separated **exact origins** allowed to call the API with credentials |
 | `PUBLIC_WEB_ORIGIN_PATTERNS` | | — | Opt-in, narrowly scoped wildcards for frontends whose hostname is minted per deploy (Vercel PR previews) — see below |
 | `DISCORD_CLIENT_ID` | yes | — | From the Discord Developer Portal |
@@ -102,9 +87,9 @@ is ever compiled in; see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#wha
 | `API_BODY_LIMIT_BYTES` | | `5000000` | Refused at the socket, before parsing |
 | `LOG_LEVEL` | | `info` | Pino level |
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | | `300` / `60000` | General bucket |
-| `RATE_LIMIT_WRITE_MAX` / `RATE_LIMIT_WRITE_WINDOW_MS` | | `20` / `60000` | Tighter bucket for #8's submission, render-triggering paths, and the auth endpoints |
+| `RATE_LIMIT_WRITE_MAX` / `RATE_LIMIT_WRITE_WINDOW_MS` | | `20` / `60000` | Tighter bucket for submission, render-triggering paths, and the auth endpoints |
 | `PIXEL_AGENTS_DIR` | | auto-discovered | Where `vendor/pixel-agents` lives, for `GET /api/v1/meta` and submission validation |
-| `MAX_LAYOUT_BYTES` | | `2000000` | Submission size cap (#8), refused before `JSON.parse` even runs — matches the renderer's own default so a layout accepted here is never subsequently rejected there |
+| `MAX_LAYOUT_BYTES` | | `2000000` | Submission size cap, refused before `JSON.parse` even runs — matches the renderer's own default so a layout accepted here is never subsequently rejected there |
 | `MAX_SUBMISSIONS_PER_USER_PER_DAY` | | `20` | Post-moderation means a flood is a real, cheap attack — a real 24h count, not a token bucket |
 
 `PUBLIC_WEB_ORIGIN` entries must be an **origin only** — `https://pixel-index.example`,
@@ -126,7 +111,7 @@ CORS request and is unaffected either way.
 
 A Vercel PR preview is served from a hostname minted for that build
 (`https://<project>-<build-hash>-<team>.vercel.app`), so there is nothing to put in
-`PUBLIC_WEB_ORIGIN` and every credentialed call from a preview fails CORS (#28).
+`PUBLIC_WEB_ORIGIN` and every credentialed call from a preview fails CORS.
 `PUBLIC_WEB_ORIGIN_PATTERNS` is the opt-in escape hatch, and it is validated at boot to
 stay narrow: **https only**, **exactly one `*` per pattern**, the `*` **never crosses a
 dot** (so it substitutes for part of a single hostname label), and a **whole-label
@@ -150,7 +135,7 @@ unhandled — comes out the same shape:
 
 `issues` is only present on a 422, and is exactly
 `@pixel-index/layout-core`'s `ValidationResult.issues` — `ApiError.validation(result.issues)`
-is the whole translation layer #8 needs. `ApiError` has `.notFound()`, `.forbidden()`,
+is the whole translation layer needed. `ApiError` has `.notFound()`, `.forbidden()`,
 `.unauthorized()`, `.conflict()` and `.badRequest()` statics; anything unexpected is
 logged in full server-side and rendered to the client as a bare `internal_error`, never
 leaking internals.
@@ -167,13 +152,11 @@ app.post('/api/v1/layouts', writeRateLimitConfig(config), handler);
 
 which overrides just that route — the general bucket for everything else is untouched.
 
-> **A subtlety that cost a debugging session:** `@fastify/rate-limit`'s
-> `errorResponseBuilder` does not `reply.send()` — it *returns a value that gets thrown*
-> into Fastify's normal error pipeline. Returning a plain object with no `.statusCode`
-> means the central error handler has nothing to key on and falls back to 500. The
-> builder in `server.ts` mirrors the plugin's own default shape (`new Error(...)` with
-> `.statusCode` set) for exactly this reason — the actual envelope is still rendered by
-> `errors.ts`, this only has to get the shape right.
+> `@fastify/rate-limit`'s `errorResponseBuilder` does not `reply.send()` — it *returns a
+> value that gets thrown* into Fastify's normal error pipeline, so a plain object with no
+> `.statusCode` falls back to a 500. The builder in `server.ts` mirrors the plugin's own
+> default shape (`new Error(...)` with `.statusCode` set) so the central error handler has
+> something to key on; the actual envelope is still rendered by `errors.ts`.
 
 ## The auth seam
 
@@ -192,7 +175,7 @@ that first if something here seems arbitrary. This section is the practical surf
 
 ### The flow
 
-```
+```text
 Browser                    API                              Discord
   │  GET /api/v1/auth/discord/login?returnTo=...
   ├──────────────────────────▶│  sets state+PKCE cookie (Path=/callback)
@@ -246,7 +229,7 @@ and normal self-hosted functionality stays available.
 
 ### Setting up the Discord application
 
-1. https://discord.com/developers/applications → **New Application**.
+1. <https://discord.com/developers/applications> → **New Application**.
 2. **OAuth2** tab → note the **Client ID** and **Client Secret** → `DISCORD_CLIENT_ID` /
    `DISCORD_CLIENT_SECRET`.
 3. **OAuth2 → Redirects** → add exactly `${PUBLIC_API_ORIGIN}/callback` — e.g.
@@ -254,7 +237,7 @@ and normal self-hosted functionality stays available.
    what the API constructs from `PUBLIC_API_ORIGIN`, or Discord rejects the exchange with
    `invalid_client` for a reason that has nothing to do with whether your client secret
    is correct — a mismatch here and a wrong secret produce the *same* error from
-   Discord, which is exactly the "fails late and confusingly" the issue warned about.
+   Discord, which fails late and confusingly.
 4. With guild integration, Discord consent includes `guilds.members.read`; the API calls
    `/users/@me/guilds/{guild.id}/member` for role IDs and nickname. No bot, Pico, bot
    token, `guilds`, or email scope is used. See
@@ -285,35 +268,35 @@ would confirm something is there to hide.
 
 | Route | Purpose |
 |---|---|
-| `GET /api/v1/meta` | The pinned Pixel Agents (version, commit, `layoutRevision`) and the public layout count — the live equivalent of v1's `dist/index.json` header |
-| `GET /api/v1/tags` | Every tag in use on a public layout, with its count, most-used first — what #14's tag filter is populated from |
+| `GET /` | Developer landing page (JSON): what this API is, its own running commit (`API_COMMIT`, see the root `docs/deployment.md`), and pointers to `/docs` and `/openapi.json` for third-party integrators |
+| `GET /api/v1/meta` | This API's own commit (`apiCommit`), the pinned Pixel Agents (version, commit, `layoutRevision`), and the public layout count |
+| `GET /api/v1/tags` | Every tag in use on a public layout, with its count, most-used first — what the tag filter is populated from |
 | `GET /api/v1/layouts` | List: filtered, sorted, keyset-paginated |
 | `GET /api/v1/layouts/:slug` | Full record, including the parsed layout |
 | `GET /api/v1/layouts/:slug/download` | The raw bytes, verbatim — `Content-Disposition: attachment` |
-| `GET /api/v1/layouts/:slug/preview.png` | Proxied from the renderer (#4), scale 1 |
+| `GET /api/v1/layouts/:slug/preview.png` | Proxied from the renderer, scale 1 |
 | `GET /api/v1/layouts/:slug/thumbnail.png` | Proxied from the renderer, scale **1** — same bytes as `preview.png`, see below |
 | `GET /openapi.json` | The OpenAPI 3.1 document, generated from the same schemas below |
 | `GET /docs` | Swagger UI over the same document |
 
 ### List: filters, sorting, pagination
 
-```
+```text
 GET /api/v1/layouts?author=<uuid>&tags=cosy,small&q=office&minCols=15&maxFurniture=80&sort=furniture&limit=24&cursor=…
 ```
 
 | Param | Notes |
 |---|---|
-| `author` | A `users.id`. Click-an-author-name filtering (#14) uses the `author.id` a list/detail response already returns |
+| `author` | A `users.id`. Click-an-author-name filtering uses the `author.id` a list/detail response already returns |
 | `tags` | Comma-separated tag names. **ALL**, not any — each one narrows further, the same way the numeric ranges compose |
-| `q` | Free text over title and description (the generated `search_vector` column, #3) |
-| `min*` / `max*` | `Cols`, `Rows`, `Furniture`, `Areas`, `Pets` — each inclusive at both ends |
-| `sort` | `newest` (default), `furniture`, `largest` (`cols × rows`), `title` |
+| `q` | Free text over title and description (the generated `search_vector` column) |
+| `min*` / `max*` | `Cols`, `Rows` (the declared canvas), `Size` (occupied-footprint tile count, `visibleCols × visibleRows`, not `Cols`/`Rows` independently, and not the canvas either), `Furniture`, `Areas`, `Pets`, `Seats` — each inclusive at both ends |
+| `sort` | `newest` (default), `furniture`, `largest` (`visibleCols × visibleRows`), `title` |
 | `limit` | 1–100, default 24 |
 | `cursor` | Opaque, from a previous page's `nextCursor` |
 
 Every filter composes with every other — `author` + `tags` + a size range in one request
-is exactly what #14's UI needs and is tested directly
-(`src/layouts/query.test.ts`, "filters compose").
+is tested directly (`src/layouts/query.test.ts`, "filters compose").
 
 **Pagination is keyset (cursor-based), not `OFFSET`.** A layout published while someone
 is on page 2 would silently shift an `OFFSET` page's contents — skip a row, repeat one.
@@ -329,7 +312,7 @@ An unrecognised query parameter is a **400**, not a silently-ignored no-op — s
 ### Caching
 
 `/layouts/:slug`, `/download`, `/preview.png` and `/thumbnail.png` are **slug**-addressed,
-and a slug's content can change under it once #9 (owner replace) exists — so none of them
+and a slug's content can change under it once an owner replace exists — so none of them
 is `immutable`. Each sets `Cache-Control: public, max-age=60, must-revalidate` plus an
 `ETag` (the layout's `sha256`, or the renderer's own content-addressed etag for the image
 routes), and answers a matching `If-None-Match` with a bare `304`. This is different from,
@@ -339,17 +322,10 @@ only ever render one way.
 
 ### Why `thumbnail.png` asks the renderer for scale `1`, same as `preview.png`
 
-It used to ask for `0.25` — smaller on the wire, and `services/renderer/README.md` has
-the byte numbers for anyone weighing that trade-off again. It was reverted because
-`apps/web`'s gallery card stretches whatever PNG it's given to a responsive, non-integer
-container width with CSS `image-rendering: pixelated`. A `0.25` render is downscaled
-*twice* before anyone sees it — once here, to a fixed small grid, and again by the
-browser to the card's actual width — and the second step can only draw from the ~1-in-16
-pixels the first step kept. Two lossless nearest-neighbour resizes chained like that are
-not equivalent to one: measured on a seed layout at a representative card width, 12% of
-pixels differed from scaling the full render straight to the card in a single step. This
-route now makes the opposite choice on the caller's behalf: send the full render, let the
-browser do the one resize that has the actual target size available.
+A pre-shrunk render downscaled again by the browser to its actual card width is not
+equivalent to one resize at that width — see `services/renderer/README.md`'s `scale`
+section for the measurement. This route sends the full render and lets the browser do
+the one resize that has the actual target size available.
 
 ### The OpenAPI document is generated, not maintained by hand
 
@@ -370,7 +346,7 @@ alongside it, never in place of it. When `/v2` exists, `/v1` starts sending
 third parties (and our own frontend, which is intentionally just another consumer of
 this same API) real notice rather than a surprise.
 
-### Two subtleties that cost real debugging time
+### Two query-handling subtleties
 
 **Fastify silently *strips* unrecognised properties by default, even with
 `additionalProperties: false`.** Ajv's `removeAdditional: true` (Fastify's out-of-the-box
@@ -381,7 +357,7 @@ and the caller would get a silently-unfiltered result instead of an error tellin
 what they got wrong. `server.ts` sets `ajv: { customOptions: { removeAdditional: false } }`
 so `additionalProperties: false` means what it says.
 
-**`sql\`= ANY(${array})\`` is not the same as `IN (…)` when the array comes from a plain
+**`` `sql`= ANY(${array})` `` is not the same as `IN (…)` when the array comes from a plain
 JS value via drizzle's `sql` template.** Drizzle expands a JS array into parenthesised
 scalars (`($1, $2)`), and Postgres's `ANY()` operator requires an actual bound array on
 its right-hand side — the combination throws `op ANY/ALL (array) requires array on right
@@ -390,7 +366,7 @@ side` **at query time**, not at compile time. The tags ALL-match filter
 
 ## Submitting a layout
 
-```
+```text
 POST /api/v1/layouts?title=<1-60 chars>&description=<0-300 chars>&tags=<comma,separated>
 Authorization: Bearer <access token>
 Content-Type: application/json
@@ -403,7 +379,7 @@ description and tags travel as query parameters instead. That is not how a JSON 
 would normally shape "upload a resource plus its metadata", and it is deliberate: nested
 JSON gets re-serialised the moment it is parsed out of the envelope — different
 whitespace, different number formatting — which would silently reintroduce the exact
-byte-fidelity problem `layouts.raw` (#6) exists to solve, for the one field where it
+byte-fidelity problem `layouts.raw` exists to solve, for the one field where it
 matters most. `title`/`description`/`tags` genuinely are just metadata; the layout is the
 resource, so it gets the whole body.
 
@@ -445,29 +421,45 @@ resubmitting the same content under a new title.
 
 ### Render failure never blocks publication
 
-The issue asked this to be a documented decision, not a default: after the transaction
-commits, this route asks the renderer for a preview and includes `previewReady` in the
-response, but a renderer failure — down, timed out, or (should it ever happen) rejecting
-a layout layout-core already accepted — is logged and does **not** roll back or block the
-publication already committed. Coupling "can I submit" to "is the renderer currently up"
-would let a secondary feature take down the core one, and there is nothing to
-compensate for later regardless: #6's preview routes are a live proxy with no stored
-state, so the very next viewer's request tries the renderer fresh no matter what
-happened here. The one thing this call buys, beyond the immediate `previewReady` signal,
-is a warm renderer cache by the time anyone looks.
+After the transaction commits, this route asks the renderer for a preview and includes
+`previewReady` in the response, but a renderer failure — down, timed out, or (should it
+ever happen) rejecting a layout layout-core already accepted — is logged and does
+**not** roll back or block the publication already committed. Coupling "can I submit" to
+"is the renderer currently up" would let a secondary feature take down the core one, and
+there is nothing to compensate for later regardless: the preview routes are a live proxy
+with no stored state, so the very next viewer's request tries the renderer fresh no
+matter what happened here. The one thing this call buys, beyond the immediate
+`previewReady` signal, is a warm renderer cache by the time anyone looks.
 
-### Slugs are generated once, and stay
+### Slugs are random, not vanity — and freed the instant a layout stops holding them
 
-Derived from the title (`slug.ts`): lowercased, accents stripped rather than dropped
-(`"Café"` → `cafe`), non-alphanumeric runs collapsed to one hyphen, truncated to 60
-characters. A collision appends `-2`, `-3`, … — checked against **every** existing slug
-regardless of visibility, because the unique index has no visibility filter (schema.ts):
-a moderator-removed layout still reserves its slug forever, the same reason dedupe checks
-every visibility too. The slug is never regenerated from a later title edit (#9) — it is
-a permanent, linkable, downloadable URL, and silently moving it under a link someone
-already shared would be a worse surprise than a slug that no longer matches a since-renamed
-title. A true race between two concurrent submissions computing the same slug before
-either commits is retried (up to 3 attempts) rather than surfaced as the caller's problem.
+Every submission gets a random, unpredictable slug (`slug.ts`): 10 lowercase hex
+characters from a CSPRNG, regardless of the submitter's role. **Not** derived from the
+title — a title-derived slug is a first-come-first-served vanity name, free for the
+taking by anyone fast enough to submit it, which this design removes as an avenue of
+abuse. A candidate is checked against `layouts.slug` regardless of visibility — a
+`removed`/`deleted` row still literally holds its slug value at rest, since the unique
+index (schema.ts) is not visibility-aware — and retried on the (astronomically rare)
+collision rather than stealing that row's slug; a manual vanity pick, unlike random
+generation, is willing to do that (see below). A true race between two concurrent
+submissions generating the same slug before either commits is retried (up to 3
+attempts) rather than surfaced as the caller's problem.
+
+A moderator can grant a vanity slug afterwards — `PATCH /api/v1/layouts/:slug` with
+`{ "slug": "…", "reason": "…" }` (manage.ts), moderator-only even for the layout's own
+owner, format-checked against layout-core's shared `SLUG_RE`. A slug currently held by a
+`public` or `hidden` layout is a hard `409` — no silent `-2` suffix like an
+auto-generated slug gets, since a moderator typing a specific string expects that string
+or a clear rejection. A slug held by a `removed`/`deleted` layout is **not** blocking:
+that row is evicted to a fresh random slug in the same transaction as the claim, and the
+requested string is handed to the new layout — the "reuse the same URL" case, where a
+newer version of a design takes over the vanity slug a now-dead earlier version held.
+Renaming away from a slug (vanity or not) frees it immediately for anyone, including the
+same layout renaming back to it later, once nothing else has claimed it meanwhile. The
+slug is never regenerated from a later title edit — it is a permanent, linkable,
+downloadable URL, and silently moving it under a link someone already shared would be a
+worse surprise than a slug that no longer matches a since-renamed title. There is no
+redirect from an evicted/renamed-away slug to wherever it ends up next; the old URL 404s.
 
 ### A boot-time tension this route shares with `/meta`, and resolves the same way
 
@@ -482,10 +474,10 @@ stack trace.
 
 ### Checking a layout before publishing: `POST /api/v1/layouts/preview-check`
 
-Added for #15's submit UI, which needs to show an author their layout rendered *before*
-they publish — "an author who can see their own layout rendered is far less likely to
-submit something broken" is the issue's own reasoning, and it is what makes
-post-moderation (no review queue) tolerable at all. This is not a new pipeline: same raw
+The submit UI shows an author their layout rendered *before* they publish — an author
+who can see their own layout rendered is far less likely to submit something broken,
+which is what makes post-moderation (no review queue) tolerable at all. This is not a
+new pipeline: same raw
 byte-body handling, same `upstream.validator` (so the same actionable, field/furniture-id
 -naming errors as the real `POST /api/v1/layouts`), then a direct proxy to the renderer —
 just with nothing persisted. The renderer isn't itself reachable from a browser (no CORS
@@ -496,25 +488,24 @@ anyway" when nothing was going to be saved either way.
 
 ### Verified against a real renderer, not just a stub
 
-Beyond the unit and route-level suite (stubbed renderer, matching #6/#7's own pattern),
-#8 was checked against the **actual, built renderer image** rendering a submission
-end-to-end: a real login-free JWT signed with the container's own `SESSION_SECRET`,
-`POST`ed to the live API, produced a `201` with `previewReady: true`, a subsequent
-`GET .../preview.png` returned a genuine 736×768 rendered PNG (not a stub), `/download`
-was confirmed byte-identical to the exact bytes sent, a resubmission of the same content
-correctly `409`'d, and `/api/v1/meta`'s count incremented by one.
+Beyond the unit and route-level suite (stubbed renderer), submission is also verified
+against the **actual, built renderer image** end-to-end: a real login-free JWT signed
+with the container's own `SESSION_SECRET`, `POST`ed to the live API, produces a `201`
+with `previewReady: true`, a subsequent `GET .../preview.png` returns a genuine 736×768
+rendered PNG (not a stub), `/download` is byte-identical to the exact bytes sent, a
+resubmission of the same content correctly `409`s, and `/api/v1/meta`'s count
+increments by one.
 
 The route tests cover dedupe (both public and non-public cases), Discord submission
 capability, and the daily cap.
 
-That #8 check, and the #9/#10 one below, started as one-off manual sessions run by
-hand. `services/api/e2e/` turns the same check into something CI runs on every push —
-see "Automated end-to-end suite" further down.
+`services/api/e2e/` runs this same check in CI on every push — see "Automated
+end-to-end suite" further down.
 
 ## Editing, replacing, deleting and moderating a layout
 
-```
-PATCH  /api/v1/layouts/:slug            edit title/description/tags, or (moderator) visibility
+```text
+PATCH  /api/v1/layouts/:slug            edit title/description/tags, or (moderator) visibility/slug
 PUT    /api/v1/layouts/:slug/layout     replace the layout.json content — owner-only
 DELETE /api/v1/layouts/:slug            withdraw — owner-only, idempotent
 GET    /api/v1/me/layouts               the caller's own layouts, every visibility
@@ -522,22 +513,21 @@ GET    /api/v1/me/layouts               the caller's own layouts, every visibili
 
 ### One `PATCH`, not a separate moderator endpoint
 
-#10 originally scoped a report-intake and moderation API of its own — `POST
-.../report`, a queue of open reports, dedicated hide/remove/restore routes. Before
-building that, the plan was adjusted (see the comment thread on
-[#10](https://github.com/NNTin/pixel-index/issues/10)): there is no report queue, and a
-moderator hides, removes or restores a layout through the **same** `PATCH
+Moderation was originally scoped as a separate report-intake API — `POST .../report`, a
+queue of open reports, dedicated hide/remove/restore routes. Instead: there is no report
+queue, and a moderator hides, removes or restores a layout through the **same** `PATCH
 /api/v1/layouts/:slug` an owner uses to fix a typo, not a parallel `/moderate` surface.
 The difference between an owner's edit and a moderator's action is which fields the
 request is allowed to touch, checked once per request:
 
 - `visibility` is moderator-only, full stop — an owner can never set it (they get `DELETE`
   instead, a one-way trip to `deleted`).
+- `slug` is moderator-only too, full stop — an owner can never set even their own
+  layout's slug. See "Vanity slugs" below.
 - A `reason` is required whenever the change is **not** the owner editing their own
   metadata — a visibility change, or anyone editing someone else's layout. Nobody has to
   justify a change to their own title to themselves; every other write is moderation and
-  "no silent moderation" (#10's own acceptance criterion) means it is always attributed
-  and always explained.
+  "no silent moderation" means it is always attributed and always explained.
 - Every visibility transition maps onto one of `layout.hide` / `unhide` / `remove` /
   `restore` in the audit log (`visibilityAuditAction()`, `manage.ts`) purely from
   `(from, to)`, so the log reads as an actual moderation history, not four undifferentiated
@@ -548,28 +538,57 @@ request is allowed to touch, checked once per request:
 schema.ts's visibility-state table for why hidden/removed and deleted are different
 things with different owners.
 
+### Vanity slugs are moderator-granted, not self-service
+
+Every submission is issued a random slug (see "Slugs are random, not vanity" above) —
+no one, regardless of role, can pick their own at submission time. A moderator can grant
+a memorable vanity slug afterwards through the same `PATCH` route: `{ "slug":
+"severance-office", "reason": "…" }`. Format-checked against layout-core's shared
+`SLUG_RE`. Whether the string is available depends on who currently holds it
+(`manage.ts`, inside the same transaction as the rename):
+
+- Held by a `public` or `hidden` layout: a hard `409`. No silent `-2` suffix, since a
+  moderator typing a specific string expects that string or a clear rejection, not a
+  surprise variant.
+- Held by a `removed`/`deleted` layout: **not** blocking. That row is evicted to a fresh
+  random slug (`generateUniqueSlug`) in the same transaction, and a `layout.rename_slug`
+  audit entry is recorded against it, attributed to the acting moderator — before the
+  requested string is handed to the layout being patched. This is the "reuse the same
+  URL" workflow: a newer submission of a design takes over the vanity slug a superseded,
+  no-longer-public earlier version held, rather than getting a different URL for what a
+  visitor experiences as the same layout.
+- Held by nothing (including the same layout's own former slug, if it renamed away and
+  nothing has claimed the string since): the claim just succeeds.
+
+There is no redirect from wherever a slug used to point to wherever it ends up next —
+the old URL simply 404s once its layout stops holding it, whether via a rename or an
+eviction. Two rows can never literally share a slug value, not even briefly: the unique
+index (`layouts_slug_key`, schema.ts) is not visibility-aware, which is also why a
+`removed`/`deleted` row's OWN slug column has to change, not just its visibility, for
+another layout to use that string.
+
 ### `PUT .../layout` stays owner-only, even for a moderator
 
-Replacing the *content* of a layout is never something #10 does on someone else's
-behalf — a moderator who objects to the design hides or removes it; they do not rewrite
-someone else's submission. It shares the raw-body content-type parser trick and the
-`layoutStats`/dedupe/render pipeline with `POST /layouts` (#8), via the same
-`upstreamValidator.ts` instance built once at boot. The dedupe check carries #9's own fix
-forward: replacing with content that byte-matches one of the *same owner's* previously
-`deleted` layouts is allowed — only a match against someone else's layout, or a
-`removed` one, is a `409`.
+Replacing the *content* of a layout is never something moderation does on someone
+else's behalf — a moderator who objects to the design hides or removes it; they do not
+rewrite someone else's submission. It shares the raw-body content-type parser trick and
+the `layoutStats`/dedupe/render pipeline with `POST /layouts`, via the same
+`upstreamValidator.ts` instance built once at boot. The same dedupe rule applies:
+replacing with content that byte-matches one of the *same owner's* previously `deleted`
+layouts is allowed — only a match against someone else's layout, or a `removed` one, is
+a `409`.
 
 ### `DELETE` is owner-only and idempotent
 
 A moderator never `DELETE`s — that would conflate "the owner withdrew this" with "a
-moderator acted on this" in the audit trail, which is exactly the distinction #10 keeps.
-Re-deleting an already-`deleted` layout is a silent `204`, matching `/auth/logout`'s
-existing idempotent-DELETE precedent (#7) rather than a `404` for a state the caller
-already achieved.
+moderator acted on this" in the audit trail, which is exactly the distinction the audit
+trail exists to keep. Re-deleting an already-`deleted` layout is a silent `204`,
+matching `/auth/logout`'s existing idempotent-DELETE precedent rather than a `404` for a
+state the caller already achieved.
 
 ### `GET /me/layouts`
 
-The owner's own list, reusing #6's exact sort/cursor pagination machinery
+The owner's own list, reusing the public list's exact sort/cursor pagination machinery
 (`ListLayoutsScope`, `query.ts`) with a different base filter — `authorUserId = caller`,
 no visibility filter — instead of a second, parallel pagination implementation. Returns
 `OwnerLayoutView`: the public shape plus `visibility`, `visibilityReason` and
@@ -584,7 +603,7 @@ member stops new submissions, edits, replacements, and privileged actions after 
 short cache expires. Existing public layouts stay public; layout visibility remains a
 separate moderation decision.
 
-```
+```text
 GET /api/v1/admin/users?q=<text>&capability=user|moderator|admin
 ```
 
@@ -595,31 +614,21 @@ across all visibilities. Raw Discord IDs, role IDs, and membership are not retur
 
 The implementation and frontend rights table live in
 [`docs/discord-integration.md`](../../docs/discord-integration.md); moderation judgment
-lives in [MODERATORS.md](../../MODERATORS.md).
+lives in [MODERATORS.md](../../docs/MODERATORS.md).
 
-### What #10 dropped, and why
+### No report-intake queue
 
-The original plan had a `POST /layouts/:slug/report` intake, a moderator queue of open
-reports, and (tentatively) an outbound webhook on new reports. All of it was cut before
-implementation, in favor of moderators acting directly through `PATCH` above:
-
-- **No report intake, no queue, no `reports` table writer.** The `reports` schema and
-  `report.create`/`resolve`/`dismiss` audit actions (#3) stay in the schema, unused —
-  cheap to keep, and not worth a migration to remove for a table nothing writes to yet.
-- **The webhook idea had no trigger left without report intake**, so it was dropped for
-  this pass rather than built against a queue that does not exist.
-
-See the [#10 comment thread](https://github.com/NNTin/pixel-index/issues/10) for the full
-before/after and the four decisions that replaced the original scope.
+There is no report intake, no queue, and no `reports` table writer — moderators act
+directly through `PATCH` above. The `reports` schema and its audit actions stay in the
+schema, unused — cheap to keep, and not worth a migration to remove for a table nothing
+writes to yet.
 
 ### Finding something to moderate: `GET /api/v1/moderation/layouts`
 
-`PATCH /api/v1/layouts/:slug` (above) is how a moderator **acts** on a layout, but #10
-never built a way to **find** one — a moderator could only act on a slug they already
-knew, which was fine when #10 shipped (no UI existed yet to browse from) but not once
-#15's moderation console needed something to list. `GET /api/v1/moderation/layouts`
-(moderator-minimum) is #6's public list with the one constraint that defines "public"
-removed: every author, every visibility, optionally narrowed to exactly one
+`PATCH /api/v1/layouts/:slug` (above) is how a moderator **acts** on a layout;
+`GET /api/v1/moderation/layouts` (moderator-minimum) is how they **find** one to act
+on. It is the public list with the one constraint that defines "public" removed: every
+author, every visibility, optionally narrowed to exactly one
 (`?visibility=hidden` to see what's already been actioned, `?visibility=public` with a
 `q=` to go looking for something that shouldn't be). Same filters, same keyset
 pagination, same sort keys as the public list — a moderator's browse experience is not a
@@ -638,7 +647,7 @@ unconditionally, so a stranger with a copy of the exact bytes of *anyone's* with
 layout could republish it as their own. Only "the SAME owner republishing their own
 withdrawn content" is what schema.ts documents. Caught during the live end-to-end pass
 below — not by the unit suite, which had only ever exercised the same-owner case — the
-fix now checks `duplicate.authorUserId === ` the submitting user, and a cross-owner
+fix now checks `duplicate.authorUserId ===` the submitting user, and a cross-owner
 regression test (`submit.test.ts`, "still rejects a STRANGER…") was added and
 mutation-tested alongside it.
 
@@ -657,27 +666,26 @@ after a schema-bumping deploy just work.
 `drizzle-kit` and the rest of the dev toolchain are pruned from the runtime image
 (`npm prune --omit=dev`) — they never run in production.
 
-Since #6, the image also carries `vendor/pixel-agents/package.json` and its
+The image also carries `vendor/pixel-agents/package.json` and its
 `webview-ui/public/assets` — nothing else, no `node_modules`, no webview source — so
 `GET /api/v1/meta` can report a real pinned version via `@pixel-index/layout-core`. This
 is a much smaller slice of upstream than the renderer needs, because the API only reads
 metadata; it never boots upstream's dev server the way the renderer does.
 
-Verified end-to-end against a real containerised Postgres 17: migrations apply on first
-boot, `/ready` succeeds, `/ready` fails within milliseconds when Postgres is stopped
-(fails fast — this does not wait for the 2s timeout, because `pg` rejects a refused
-connection immediately), a restart re-runs migrations idempotently, the image reports
-`healthy`, and `SIGTERM` stops the container with exit `0` in under 0.3s. #6 re-verified
-the layout routes the same way, with a layout inserted directly by SQL (#8 did not exist
-yet): `/api/v1/meta` reports the real build-arg commit, list/detail/download all
-round-trip correctly, `/download` is **byte-identical** to the source file on disk, a 404
-renderer (`RENDERER_URL` pointed at nothing) produces a real `502` rather than a hang or
-a crash, and `/openapi.json` names its schemas `LayoutSummary`/`LayoutDetail` rather than
-the default `def-0`/`def-1` — see "two subtleties" above.
+Against a real containerised Postgres 17: migrations apply on first boot, `/ready`
+succeeds, `/ready` fails within milliseconds when Postgres is stopped (fails fast — this
+does not wait for the 2s timeout, because `pg` rejects a refused connection immediately),
+a restart re-runs migrations idempotently, the image reports `healthy`, and `SIGTERM`
+stops the container with exit `0` in under 0.3s. The layout routes hold up the same way:
+`/api/v1/meta` reports the real build-arg commit, list/detail/download all round-trip
+correctly, `/download` is **byte-identical** to the source file on disk, a 404 renderer
+(`RENDERER_URL` pointed at nothing) produces a real `502` rather than a hang or a crash,
+and `/openapi.json` names its schemas `LayoutSummary`/`LayoutDetail` rather than the
+default `def-0`/`def-1` — see "two subtleties" above.
 
 ### Automated end-to-end suite
 
-```
+```text
 services/api/e2e/docker-compose.yml   Postgres + the real renderer + API images
 services/api/e2e/run.ts               the assertions — one full owner+admin session
 services/api/e2e/e2e.sh               build, bring the stack up, run run.ts, always tear down
@@ -688,13 +696,10 @@ npm run test:e2e --workspace @pixel-index/api        # needs Docker
 npm run typecheck:e2e --workspace @pixel-index/api    # e2e/run.ts on its own tsconfig
 ```
 
-Everything above this point — #6 through #10's checks against real containers — started
-as one-off manual sessions: build the images, wire up a throwaway network by hand, sign
-a JWT via `docker exec`, curl through the flow, tear it down. `services/api/e2e/`
-repeats exactly that shape (the real, built Docker images; a real Postgres; no stubbed
-renderer) as something that runs unattended, on every push and PR (`api-e2e` job,
-`.github/workflows/ci.yml`), instead of only when someone remembers to run it. `run.ts`
-inserts test users directly via `pg` (no Discord OAuth needed — access tokens are just
+`services/api/e2e/` automates the same verification shape — the real, built Docker
+images, a real Postgres, no stubbed renderer — as something that runs unattended, on
+every push and PR (`api-e2e` job, `.github/workflows/ci.yml`). `run.ts` inserts test
+users directly via `pg` (no Discord OAuth needed — access tokens are just
 HS256 JWTs, signed with the same `signAccessToken` the API itself uses) and drives the
 full flow over real HTTP: submit, edit, moderate, replace, delete, the cross-owner
 dedupe fix, the read-only Admin directory, and removal of stale account-action routes. It is deliberately
@@ -706,7 +711,7 @@ PGlite-and-a-stub coverage can.
 
 ## The database
 
-```
+```text
 src/db/schema.ts      the tables, and why they are shaped that way
 src/db/client.ts      pool + Drizzle handle from DATABASE_URL
 src/db/migrate.ts     container entrypoint: apply pending migrations, exit
@@ -729,7 +734,7 @@ safe and is the intended usage — that is what makes a self-hoster's first
 `docker compose up` provision a working database with no manual step. There is no
 `down`; rolling back a schema change means writing the next migration.
 
-### Seeding (#18)
+### Seeding
 
 `docker-entrypoint.sh` runs `seed.ts` immediately after migrations, on every boot, not
 just the first. It is a no-op the moment **any** layout exists — seeded or not — so a
@@ -764,18 +769,36 @@ may republish what they withdrew, but re-uploading moderator-removed content mus
 launder it back onto the front page. The row always survives, because slug reuse by a
 different author is a quiet impersonation vector.
 
-**Seed layouts have a real owner.** [#18](https://github.com/NNTin/pixel-index/issues/18)
-loads git-versioned layouts with no Discord account behind them. Rather than a nullable
+**Seed layouts have a real owner.** Git-versioned seed layouts have no Discord account
+behind them. Rather than a nullable
 owner — which would force every permission check and join to handle null — they belong
 to a synthetic system user created by migration 0002 at a fixed id
 (`SYSTEM_USER_ID`). A check constraint guarantees nothing can authenticate as it, and
 `layouts.author_display` carries the human credit.
 
 **Stats are denormalised from `@pixel-index/layout-core`.** `layoutStats()` is the single
-source of truth for `cols`, `rows`, `furniture_count`, `area_count`, `pet_count`,
-`carpet_count` and `layout_revision`, and must be applied on every write. A test asserts
-the stored columns equal what `layoutStats()` returns for a real layout, so the two
-cannot drift.
+source of truth for `cols`, `rows`, `visible_cols`, `visible_rows`, `furniture_count`,
+`area_count`, `pet_count`, `carpet_count`, `seat_count` and `layout_revision`, and must
+be applied on every write. A test asserts the stored columns equal what `layoutStats()`
+returns for a real layout, so the two cannot drift.
+
+`seat_count` (how many mock agents the live preview's slider allows) is the one
+denormalised stat that needs the furniture catalog, not just the layout's own
+JSON — a seat is a footprint tile of a chair-category item (`layoutStats()`'s `seats`
+mirrors upstream's own `layoutToSeats()`, so a multi-tile item like a SOFA counts as more
+than one seat). That is also why a schema migration alone cannot backfill it for rows
+written before the column existed: `db/backfill-seats.ts` recomputes it from each row's
+stored `layout` column and corrects any that disagree, run once per boot from
+`docker-entrypoint.sh` alongside `migrate.ts` and `seed.ts`, idempotently.
+
+`visible_cols`/`visible_rows` is the bounding box of every non-`VOID` tile — the
+occupied footprint, as opposed to `cols`/`rows`, the declared canvas allocation; the
+gallery, `largest` sort and `size` filter all read it, not `cols`/`rows`, since two
+layouts can share an identical declared canvas while looking nothing alike.
+`layoutStats()` computes both — the same bounding-box algorithm the live-office preview
+already uses to frame its camera (`apps/web/src/live-office/PreviewApp.tsx`), shared
+rather than reimplemented, via `occupiedBounds()`. Backfilled the same way as
+`seat_count`, by `db/backfill-visible-bounds.ts`, also wired into `docker-entrypoint.sh`.
 
 **`search_vector` is a generated column**, not something the application maintains, so it
 can never disagree with the title and description it indexes.
@@ -804,31 +827,28 @@ ORDER BY created_at;
 
 ## Indexes
 
-Every public read path filters on visibility first, so the indexes for
-[#6](https://github.com/NNTin/pixel-index/issues/6) and
-[#14](https://github.com/NNTin/pixel-index/issues/14) are **partial**
-(`WHERE visibility = 'public'`). They stay small as removed and deleted rows accumulate.
-Verified against Postgres 17 with 20k rows across 60 authors: listing uses
-`layouts_public_created_idx`, author filtering uses `layouts_public_author_idx`, dedupe
-uses `layouts_sha256_idx`, and full-text search uses the partial GIN
-`layouts_public_search_idx`. `layouts_author_idx` is deliberately *not* partial, because
-owner dashboards ([#9](https://github.com/NNTin/pixel-index/issues/9)) list hidden rows
-too.
+Every public read path filters on visibility first, so the layout-listing and tag-filter
+indexes are **partial** (`WHERE visibility = 'public'`). They stay small as removed and
+deleted rows accumulate. Verified against Postgres 17 with 20k rows across 60 authors:
+listing uses `layouts_public_created_idx`, author filtering uses
+`layouts_public_author_idx`, dedupe uses `layouts_sha256_idx`, and full-text search uses
+the partial GIN `layouts_public_search_idx`. `layouts_author_idx` is deliberately *not*
+partial, because owner dashboards list hidden rows too.
 
-**#6 added `layouts_public_furniture_idx` and `layouts_public_title_idx`**, each ending
-in `id` as a tiebreaker, for the same reason `layouts_public_created_idx` already did —
-they make keyset pagination on those sort orders a fully covered index scan rather than
-a sort-then-filter. The `largest` sort (`cols × rows`) has no dedicated index yet; #14
-explicitly reserves the right to ask for one "once the UI is real", and at the dataset
-sizes this index is targeting, a plain `ORDER BY` is not a concern.
+**`layouts_public_furniture_idx` and `layouts_public_title_idx`**, each ending in `id` as
+a tiebreaker, exist for the same reason `layouts_public_created_idx` does — they make
+keyset pagination on those sort orders a fully covered index scan rather than a
+sort-then-filter. The `largest` sort (`visibleCols × visibleRows`) has no dedicated
+index yet — at the dataset sizes this index is targeting, a plain `ORDER BY` is not a
+concern.
 
-**#6 also added `layouts.raw`.** Postgres's `jsonb` type does not round-trip
+**`layouts.raw` exists for byte fidelity.** Postgres's `jsonb` type does not round-trip
 byte-identically — it collapses whitespace and normalises number literals on write — so
 `JSON.stringify()` of the parsed `layout` column is not guaranteed to reproduce what a
 contributor's own `sha256sum layout.json` was computed over. `raw` holds the exact bytes
 as uploaded or seeded; `GET /layouts/:slug/download` serves `raw` verbatim, and `sha256`
 is computed over `raw`, not over a re-serialised `layout`. This is what makes "byte-for-byte
-what Pixel Agents exported" and "`sha256` is public so a third party can dedupe" (#6) true
+what Pixel Agents exported" and "`sha256` is public so a third party can dedupe" true
 rather than aspirational — see `schema.test.ts`, "`raw` round-trips byte-for-byte".
 
 ## Tests
@@ -839,11 +859,11 @@ in production, and no Docker or CI service container is needed. A mocked databas
 prove none of it, and every acceptance criterion for this schema is about behaviour the
 engine provides.
 
-The migration entrypoint itself was additionally verified end-to-end against a real
+The migration entrypoint itself is additionally verified end-to-end against a real
 Postgres 17 container, since the tests exercise the PGlite driver rather than
-`node-postgres`. The same real-Postgres check was re-run after #7's migration
-(`auth_refresh_tokens`, `auth_login_codes`): tables land, check constraints apply, and a
-second run is a no-op.
+`node-postgres`. The same real-Postgres check covers the auth migration
+(`auth_refresh_tokens`, `auth_login_codes`) too: tables land, check constraints apply,
+and a second run is a no-op.
 
 `auth/routes.test.ts` runs the **entire OAuth flow through real HTTP route handlers**
 (`app.inject`) against a migrated PGlite database, stubbing only the outbound call to
@@ -851,14 +871,14 @@ Discord's API — login → callback → code exchange → `/me` → refresh →
 own confidential-client details (Basic-auth header shape, token endpoint contract) are
 exercised separately in `auth/discord.test.ts`.
 
-The three properties that most matter for #7's acceptance criteria are
-**mutation-tested**, not just covered — the guard was deleted and the relevant test
-confirmed to fail before being restored: refresh-token reuse detection, OAuth `state`
-comparison, and the `returnTo` origin allowlist. A green test suite proves the code
-runs; deleting the check and watching the right test go red is what proves the test is
-actually anchored to the security property it claims to guard, not merely exercising
-the code path around it. #6 applies the same discipline to its own three
-easiest-to-silently-break properties: the tags ALL-match filter, the visibility filter
+Three properties central to session security are **mutation-tested**, not just covered
+— the guard was deleted and the relevant test confirmed to fail before being restored:
+refresh-token reuse detection, OAuth `state` comparison, and the `returnTo` origin
+allowlist. A green test suite proves the code runs; deleting the check and watching the
+right test go red is what proves the test is actually anchored to the security property
+it claims to guard, not merely exercising the code path around it. The public layout API
+applies the same discipline to its own three easiest-to-silently-break properties: the
+tags ALL-match filter, the visibility filter
 (never returning a hidden/removed layout), and the cursor's sort-mismatch rejection.
 
 `layouts/routes.test.ts` runs the **whole public layout API through real HTTP route
@@ -869,14 +889,13 @@ all four sort orders, and keyset pagination directly at the SQL layer — includ
 that inserts a new highest-ranked row *between* two page requests and asserts page 2 is
 unaffected, which is the specific failure `OFFSET` pagination cannot avoid.
 
-#6 was additionally verified against a real containerised Postgres 17 with a real seed
-layout inserted by hand (#8 did not exist yet): `/api/v1/meta` reports the real
-build-arg-supplied commit, `/download` is **byte-identical** to the source file on disk,
-and a `RENDERER_URL` pointed at nothing produces a real `502` from the live container,
-not a hang.
+The public layout API is also verified against a real containerised Postgres 17 with a
+real seed layout: `/api/v1/meta` reports the real build-arg-supplied commit, `/download`
+is **byte-identical** to the source file on disk, and a `RENDERER_URL` pointed at
+nothing produces a real `502` from the live container, not a hang.
 
-`layouts/submit.test.ts` and `layouts/slug.test.ts` cover #8 the same way #6 and #7 were
-covered — real HTTP handlers, PGlite, a stubbed renderer — and #8 goes one step further:
+`layouts/submit.test.ts` and `layouts/slug.test.ts` cover submission the same way — real
+HTTP handlers, PGlite, a stubbed renderer — and go one step further:
 the **actual, built renderer image** rendered a real submission end-to-end (a genuine
 736×768 PNG, not a stub) against the live API and a real Postgres container — see
 "Submitting a layout" above for what that checked. Dedupe (both the public and the
@@ -889,12 +908,10 @@ and stale-cache behavior.
 
 ## A note on `drizzle-kit`
 
-`drizzle-kit` is a **devDependency** that turns `schema.ts` into SQL. It never runs in
-production — the container applies the generated SQL with drizzle-orm's migrator — so it
-is not installed in the runtime image. It currently pulls a deprecated
-`@esbuild-kit/*` chain with a moderate advisory against esbuild's dev server. That
-advisory needs an esbuild dev server running to matter, which `drizzle-kit generate` does
-not start, and the latest drizzle-kit still carries it. `npm audit --omit=dev` — the tree
-that actually ships — reports zero vulnerabilities. The same is true of `services/api`'s
-own image: it is pruned to production dependencies before the runtime stage, so
-`drizzle-kit` and its dev-only chain never ship at all.
+`drizzle-kit` is a **devDependency** that turns `schema.ts` into SQL and never runs in
+production — the container applies the generated SQL with drizzle-orm's migrator, so it
+is not installed in the runtime image. It pulls a deprecated `@esbuild-kit/*` chain with
+a moderate advisory against esbuild's dev server, which `drizzle-kit generate` does not
+start; `npm audit --omit=dev` — the tree that actually ships — reports zero
+vulnerabilities, and `services/api`'s own image is pruned to production dependencies
+before the runtime stage, so `drizzle-kit` and its dev-only chain never ship at all.

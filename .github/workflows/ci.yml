@@ -33,19 +33,15 @@ jobs:
       - name: Validate the seed layouts against the pinned Pixel Agents
         run: npm run validate
 
-  mermaid:
-    name: Mermaid diagrams
+  markdown:
+    name: Markdown
     runs-on: ubuntu-latest
-    # GitHub renders the diagrams in our markdown, and a diagram with a syntax
-    # error renders as a red error box in the docs rather than failing anywhere
-    # a human would notice first. This parses every one of them.
-    #
-    # Its own job rather than a step on `test`: it needs neither the submodule
-    # nor layout-core's dist, so it starts and finishes while the heavier jobs
-    # are still installing, and a broken diagram reads as "docs" in the checks
-    # list instead of as a failing unit test. Deliberately not folded into the
-    # `renderer` job either — that one installs Chromium, and the whole point
-    # of tools/check-mermaid.mjs is that this check does not need a browser.
+    # Every docs-only check lives in this one job: none of them need the
+    # submodule or layout-core's dist, so it starts and finishes while the
+    # heavier jobs are still installing, and a broken doc reads as "Markdown"
+    # in the checks list instead of as a failing unit test. Deliberately not
+    # folded into the `renderer` job either — that one installs Chromium, and
+    # the whole point of these checks is that none of them need a browser.
     steps:
       - uses: actions/checkout@v4
         # No `submodules: recursive`: `git ls-files` does not descend into the
@@ -60,8 +56,51 @@ jobs:
       - name: Install index tooling
         run: npm ci
 
+      # Style lint (heading structure, fenced-code languages, bare URLs, …).
+      # See .markdownlint.json for the two house-style exceptions.
+      - name: Lint markdown style
+        run: npm run lint:md
+
+      # Confirms every relative link between markdown files still resolves —
+      # see tools/check-links.mjs for why http(s) links are not checked here.
+      - name: Every relative markdown link resolves
+        run: npm run check:links
+
+      # GitHub renders the diagrams in our markdown, and a diagram with a syntax
+      # error renders as a red error box in the docs rather than failing anywhere
+      # a human would notice first. This parses every one of them.
       - name: Every mermaid diagram in tracked markdown parses
         run: npm run check:mermaid
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    # One eslint run over every workspace plus tools/, from the single flat
+    # config at the repo root (eslint.config.js). It is type-aware — the rules
+    # that matter here are the no-unsafe-* family, which need real types to say
+    # anything — so it is closer in cost to a typecheck than to a formatter, and
+    # it gets its own job rather than a step on `test` so "the types are wrong"
+    # and "a rule was broken" arrive as two separate answers.
+    #
+    # Needs the submodule: apps/web/src/live-office imports vendor/pixel-agents'
+    # own sources, so the project service cannot resolve types without it.
+    # Needs layout-core's dist for the same reason `typecheck` does — the root
+    # `prelint` script builds it.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install index tooling
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
 
   test:
     name: Unit tests

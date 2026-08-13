@@ -3,9 +3,7 @@
 A quick-reference for the shape of the running system — what each of the four
 deployables is, how they talk to each other, and the two design facts (a real
 cross-origin split, and a browser that draws every preview) that shape almost
-everything else here. For *why* these choices were made over the alternatives, see the
-commit history and issue tracker; this doc describes the system as it stands, not the
-decisions that got it here.
+everything else here.
 
 ## The four services, in one line each
 
@@ -47,21 +45,18 @@ flowchart TB
 Two things about this diagram are load-bearing, not incidental:
 
 **The browser talks to `web` and `api` as two separate origins.** `web` is static files
-with no server-side logic at all — it cannot hold a secret or open a database
-connection, so it was never a candidate for doing anything but serving the built SPA.
-Every dynamic thing (auth, submitting a layout, moderation) is a `fetch()` from the
-page's origin to `api`'s origin, which is a genuinely cross-site request from the
-browser's point of view no matter how the two are hosted. That single fact is why the
-session is a **bearer access token held in memory by the SPA, refreshed via a rotating
-bearer refresh token — never a cookie**: a cookie-based session degrades under
-third-party cookie restrictions (Safari's ITP and the general direction of browser
-policy) in exactly the deployment shape this project requires (a static frontend, a
-separately-hosted API, for every self-hoster, not just the official index). The
+with no server-side logic — it cannot hold a secret or open a database connection. Every
+dynamic thing (auth, submitting a layout, moderation) is a `fetch()` from the page's
+origin to `api`'s origin, a cross-site request no matter how the two are hosted. The
+session is therefore a **bearer access token held in memory by the SPA, refreshed via a
+rotating bearer refresh token — never a cookie**: a cookie-based session degrades under
+third-party cookie restrictions, in a deployment shape (a static frontend, a
+separately-hosted API) true for every self-hoster, not just the official index. The
 short-lived access token, the single-use login code delivered via a URL fragment (never
 a query string, so it never lands in server logs or browser history), and the
-rotate-on-every-refresh-or-revoke-the-family refresh token are the direct consequences
-of that choice. See `apps/web/src/auth/AuthContext.tsx` (the SPA's half) and
-`services/api/src/auth/` (the API's half) for the implementation.
+rotate-on-every-refresh-or-revoke-the-family refresh token are the direct consequences.
+See `apps/web/src/auth/AuthProvider.tsx` (the SPA's half) and `services/api/src/auth/`
+(the API's half) for the implementation.
 
 **`renderer` is reachable from `api` only — never from a browser.** It has no `ports:`
 entry in `docker-compose.yml` and no CORS configured on it at all, deliberately: it is
@@ -69,18 +64,14 @@ an internal service, not a public one. Every preview a user ever sees — the pr
 preview-check, a layout's `preview.png`/`thumbnail.png` — is `api` proxying to
 `renderer` and relaying the result, not the browser talking to `renderer` directly.
 
-**Why a browser draws every preview, rather than a pure-code renderer:** Pixel Agents
-does wall autotiling, carpet marching-squares, per-tile colorize and z-sorting in its
-own webview, and getting that exactly right in a reimplementation is a permanent
-maintenance burden against a moving upstream. `renderer` instead runs the *actual*
-`vendor/pixel-agents/webview-ui` — spawned as a real Vite dev server
+**A browser draws every preview, not a pure-code renderer.** `renderer` runs the
+*actual* `vendor/pixel-agents/webview-ui` — spawned as a real Vite dev server
 (`services/renderer/src/devServer.ts`), driven by Playwright with the target layout
 substituted for the bundled default via the webview's own dev-mode browser mock — so a
 preview can never drift from what a user's own Pixel Agents install would actually draw.
-This is also why `renderer` needs a full Chromium at all, unlike the other three
-services. Both `renderer` and the `web` build consume the pinned
-`vendor/pixel-agents` submodule; only the renderer boots upstream's Vite server and a
-headless browser at runtime.
+This is why `renderer` needs a full Chromium, unlike the other three services. Both
+`renderer` and the `web` build consume the pinned `vendor/pixel-agents` submodule; only
+the renderer boots upstream's Vite server and a headless browser at runtime.
 
 The layout detail page also offers a **live browser rendering**. That remains entirely
 static: the `web` build compiles a focused iframe entry around the pinned upstream's

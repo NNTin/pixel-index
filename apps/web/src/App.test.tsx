@@ -3,8 +3,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
-import { AuthProvider } from './auth/AuthContext';
-import { ThemeProvider } from './theme/ThemeContext';
+import { AuthProvider } from './auth/AuthProvider';
+import { requestUrl } from './test/fetchStub';
+import { ThemeProvider } from './theme/ThemeProvider';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -20,7 +21,7 @@ describe('App routing', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url = requestUrl(input);
         if (url.includes('/meta')) {
           return Response.json({
             schemaVersion: 1,
@@ -32,15 +33,18 @@ describe('App routing', () => {
         return Response.json({
           slug: 'blue-office',
           title: 'Blue Office',
-          author: { id: null, username: 'someone', displayName: 'someone', avatarUrl: null },
+          author: { discordId: null, username: 'someone', displayName: 'someone', avatarUrl: null },
           description: '',
           tags: [],
           cols: 4,
           rows: 4,
+          visibleCols: 4,
+          visibleRows: 4,
           furniture: 0,
           areas: 0,
           pets: 0,
           carpets: 0,
+          seats: 3,
           layoutRevision: 1,
           pixelAgentsVersion: '1.4.0',
           bytes: 10,

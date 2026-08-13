@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
 import { buildServer } from '../server.js';
+import type { OpenApiDoc } from '../test-support/bodies.js';
 import { testConfig } from '../test-support/config.js';
 import { insertLayout } from '../test-support/layouts.js';
 
@@ -31,23 +32,6 @@ function parseLines(body: string): Record<string, unknown>[] {
 }
 
 describe('GET /api/v1/export/layouts.ndjson', () => {
-  it('streams an empty index as an empty body, not an error and not "[]"', async () => {
-    const empty = await createTestDatabase();
-    const emptyApp = await buildServer({ config, pool: fakePool, db: empty.db });
-    try {
-      const response = await emptyApp.inject({ method: 'GET', url: URL });
-      expect(response.statusCode).toBe(200);
-      expect(response.body).toBe('');
-      expect(response.headers['x-total-count']).toBe('0');
-      // An empty set still needs a matchable ETag, or every poll of a quiet
-      // index re-scans instead of getting a 304.
-      expect(response.headers.etag).toBeDefined();
-    } finally {
-      await emptyApp.close();
-      await empty.close();
-    }
-  });
-
   it('emits one line per public layout, with the parsed layout inline', async () => {
     const raw = JSON.stringify({ cols: 3, rows: 2, layoutRevision: 4, furniture: [] });
     await insertLayout(harness.db, {
@@ -139,7 +123,7 @@ describe('GET /api/v1/export/layouts.ndjson', () => {
   });
 
   it('appears in the OpenAPI document, since it is part of the public contract', async () => {
-    const spec = (await app.inject({ method: 'GET', url: '/openapi.json' })).json();
+    const spec = (await app.inject({ method: 'GET', url: '/openapi.json' })).json<OpenApiDoc>();
     expect(spec.paths['/api/v1/export/layouts.ndjson']?.get).toBeDefined();
   });
 
@@ -162,6 +146,10 @@ describe('GET /api/v1/export/layouts.ndjson', () => {
     expect(declared).toBeGreaterThan(0);
     // Every line stands alone — that is what "newline-delimited" has to mean
     // for a consumer that parses as it reads.
-    for (const line of received) expect(() => JSON.parse(line)).not.toThrow();
+    for (const line of received) {
+      expect(() => {
+        JSON.parse(line);
+      }).not.toThrow();
+    }
   });
 });

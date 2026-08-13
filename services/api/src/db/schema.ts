@@ -100,6 +100,8 @@ export const auditAction = pgEnum('audit_action', [
   'layout.remove',
   'layout.restore',
   'layout.moderate_edit',
+  /** Moderator-only (#29): a vanity slug assigned or changed via manage.ts's PATCH. */
+  'layout.rename_slug',
   'report.create',
   'report.resolve',
   'report.dismiss',
@@ -191,10 +193,20 @@ export const layouts = pgTable(
     // ── Denormalised from layoutStats(). See the file header. ──
     cols: integer('cols').notNull(),
     rows: integer('rows').notNull(),
+    /**
+     * The occupied-footprint width/height — see `LayoutStats.visibleCols`.
+     * `cols`/`rows` above is the declared canvas allocation and stays that;
+     * these are what "size" means to a viewer, and what display, the
+     * `largest` sort and the `size` filter actually use (#55).
+     */
+    visibleCols: integer('visible_cols').notNull().default(0),
+    visibleRows: integer('visible_rows').notNull().default(0),
     furnitureCount: integer('furniture_count').notNull().default(0),
     areaCount: integer('area_count').notNull().default(0),
     petCount: integer('pet_count').notNull().default(0),
     carpetCount: integer('carpet_count').notNull().default(0),
+    /** How many agents this layout can seat — see LayoutStats.seats. */
+    seatCount: integer('seat_count').notNull().default(0),
     layoutRevision: integer('layout_revision').notNull().default(0),
 
     /** Which upstream it validated against, so #6 can warn a stale consumer. */

@@ -11,6 +11,10 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+# Every workspace's tsconfig extends this, so `tsc` cannot run without it.
+# Beside the manifests rather than with the source below: it changes about as
+# often as they do, and the layer caching should reflect that.
+COPY tsconfig.strict.json ./
 COPY apps/web/package.json ./apps/web/
 RUN npm ci --workspace @pixel-index/web --include-workspace-root
 

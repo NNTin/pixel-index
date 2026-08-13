@@ -24,7 +24,7 @@ export function isRenderOfficeMessage(value: unknown): value is RenderOfficeMess
   return (
     message.channel === LIVE_OFFICE_CHANNEL &&
     message.type === 'render' &&
-    !!message.layout &&
+    Boolean(message.layout) &&
     Array.isArray(message.agents)
   );
 }

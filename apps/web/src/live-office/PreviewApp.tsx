@@ -4,7 +4,6 @@ import { OfficeCanvas } from '../../../../vendor/pixel-agents/webview-ui/src/off
 import { ToolOverlay } from '../../../../vendor/pixel-agents/webview-ui/src/office/components/ToolOverlay.js';
 import { EditorState } from '../../../../vendor/pixel-agents/webview-ui/src/office/editor/editorState.js';
 import { OfficeState } from '../../../../vendor/pixel-agents/webview-ui/src/office/engine/officeState.js';
-import { migrateLayoutColors } from '../../../../vendor/pixel-agents/webview-ui/src/office/layout/layoutSerializer.js';
 import type {
   OfficeLayout,
   ToolActivity,
@@ -14,6 +13,7 @@ import {
   TileType,
 } from '../../../../vendor/pixel-agents/webview-ui/src/office/types.js';
 import { loadLiveOfficeAssets } from './assets';
+import { parseInboundLayout } from './inboundLayout';
 import {
   isRenderOfficeMessage,
   LIVE_OFFICE_CHANNEL,
@@ -21,7 +21,13 @@ import {
   type ViewerMessage,
 } from './protocol';
 
-const noop = () => {};
+/**
+ * Every editing callback upstream's canvas requires. The preview is read-only,
+ * so all of them have to exist and all of them have to do nothing.
+ */
+const noop = () => {
+  // Intentionally inert: see above.
+};
 
 function sendToParent(message: ViewerMessage): void {
   window.parent.postMessage(message, window.location.origin);
@@ -56,6 +62,21 @@ function toolRows(agents: MockAgent[]): Record<number, ToolActivity[]> {
   );
 }
 
+/**
+ * The bounding box of every non-VOID tile — the frame the camera fits to.
+ *
+ * Deliberately a private copy of `occupiedBounds()` in
+ * `@pixel-index/layout-core` (same algorithm, same fallback for an
+ * entirely-VOID layout), not an import of it: that package's barrel also
+ * re-exports `schemas.ts`/`upstream.ts`, which read the filesystem and shell
+ * out to git at module scope for the CLI/server use cases. Without a
+ * `"sideEffects": false` in its package.json, a bundler cannot prove those
+ * are safe to drop, so importing anything from the package pulls `node:fs`,
+ * `node:child_process` and `node:url` into this browser bundle — Vite
+ * externalizes them, and the first real call (`fileURLToPath`) throws at
+ * runtime and blanks the live preview. If `#55` needs to be revisited, keep
+ * this in sync with `occupiedBounds()` by hand rather than importing it.
+ */
 function visibleTileBounds(layout: OfficeLayout): {
   minCol: number;
   maxCol: number;
@@ -69,8 +90,10 @@ function visibleTileBounds(layout: OfficeLayout): {
 
   for (let row = 0; row < layout.rows; row += 1) {
     for (let col = 0; col < layout.cols; col += 1) {
+      // No `tile === undefined` check: parseInboundLayout has already pinned
+      // tiles.length to cols * rows, so every index this loop visits exists.
       const tile = layout.tiles[row * layout.cols + col];
-      if (tile === undefined || tile === TileType.VOID) continue;
+      if (tile === TileType.VOID) continue;
       minCol = Math.min(minCol, col);
       maxCol = Math.max(maxCol, col);
       minRow = Math.min(minRow, row);
@@ -95,20 +118,24 @@ export function PreviewApp() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    // A controller for the honest `boolean`, not for cancellation: this page
+    // mounts once, outside StrictMode (live-office/main.tsx), and never
+    // unmounts, so threading a signal into loadLiveOfficeAssets' seven fetches
+    // would buy nothing real.
+    const controller = new AbortController();
     loadLiveOfficeAssets()
       .then(() => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setAssetsReady(true);
       })
       .catch((reason: unknown) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         const message = reason instanceof Error ? reason.message : 'Could not load the live office.';
         setError(message);
         sendToParent({ channel: LIVE_OFFICE_CHANNEL, type: 'error', message });
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, []);
 
@@ -118,8 +145,10 @@ export function PreviewApp() {
       if (event.source !== window.parent || event.origin !== window.location.origin) return;
       if (!isRenderOfficeMessage(event.data)) return;
       try {
-        const raw = event.data.layout as OfficeLayout;
-        const layout = raw.version === 1 ? migrateLayoutColors(raw) : raw;
+        // Checked rather than asserted — see inboundLayout.ts. A layout that
+        // fails throws, and the catch below reports it to the parent frame on
+        // the path that already exists for a render failure.
+        const layout = parseInboundLayout(event.data.layout);
         office.rebuildFromLayout(layout);
         const bounds = containerRef.current?.getBoundingClientRect();
         if (bounds) {

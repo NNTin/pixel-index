@@ -15,6 +15,7 @@ import { createServer } from 'node:http';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { layoutStats } from '@pixel-index/layout-core';
 import { chromium } from 'playwright';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +71,11 @@ function detailResponse(layout, source) {
     areas: layout.areas?.length ?? 0,
     pets: layout.pets?.length ?? 0,
     carpets: layout.carpetTiles?.filter(Boolean).length ?? 0,
+    // The real API derives this from the furniture catalog (#48) — computed
+    // here too, rather than hardcoded, so a vendor bump that changes the
+    // pinned default layout's seating can't silently desync this fixture
+    // from what LiveOfficePreview actually renders against.
+    seats: layoutStats(layout).seats,
     layoutRevision: layout.layoutRevision ?? 0,
     pixelAgentsVersion: null,
     bytes: Buffer.byteLength(source),

@@ -1,4 +1,15 @@
 {
   "extends": "./tsconfig.json",
+  // The published artifact. tsconfig.json is the check-everything config, so
+  // the emit settings live here rather than there — that is what lets the
+  // check-everything config also cover files that are not part of dist.
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
   "exclude": ["src/**/*.test.ts", "src/test-support/**"]
 }

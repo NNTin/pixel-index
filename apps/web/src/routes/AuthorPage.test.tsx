@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { requestUrl } from '../test/fetchStub';
 import { AuthorPage } from './AuthorPage';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -9,11 +10,11 @@ afterEach(() => vi.unstubAllGlobals());
 describe('AuthorPage', () => {
   it('shows the public Discord display identity and only the API-provided public layouts', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/api/v1/authors/author-1')) {
         return Response.json({
           schemaVersion: 1,
-          author: { id: 'author-1', username: 'discord-handle', displayName: 'Guild Nick', avatarUrl: null },
+          author: { discordId: 'author-1', username: 'discord-handle', displayName: 'Guild Nick', avatarUrl: null },
           publicLayoutCount: 1,
         });
       }
@@ -26,15 +27,18 @@ describe('AuthorPage', () => {
           layouts: [{
             slug: 'public-office',
             title: 'Public Office',
-            author: { id: 'author-1', username: 'discord-handle', displayName: 'Guild Nick', avatarUrl: null },
+            author: { discordId: 'author-1', username: 'discord-handle', displayName: 'Guild Nick', avatarUrl: null },
             description: '',
             tags: [],
             cols: 4,
             rows: 4,
+            visibleCols: 4,
+            visibleRows: 4,
             furniture: 0,
             areas: 0,
             pets: 0,
             carpets: 0,
+            seats: 3,
             layoutRevision: 1,
             pixelAgentsVersion: null,
             bytes: 10,

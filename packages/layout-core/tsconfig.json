@@ -1,4 +1,5 @@
 {
+  "extends": "../../tsconfig.strict.json",
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023"],
@@ -8,14 +9,8 @@
     // ajv is CJS. The named Ajv2020 export resolves cleanly, but ajv-formats
     // only has a default export, which needs interop to be callable.
     "esModuleInterop": true,
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": false,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "dist",
-    "rootDir": "src",
+    // Type-checking only; tsconfig.build.json owns the emit.
+    "noEmit": true,
     "skipLibCheck": true,
     "types": ["node"]
   },

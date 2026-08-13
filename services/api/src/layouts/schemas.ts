@@ -10,12 +10,13 @@ export const publicAuthorSchema = {
   $id: 'PublicAuthor',
   type: 'object',
   properties: {
-    id: { type: ['string', 'null'], format: 'uuid' },
+    // The Discord user id (snowflake), not the internal Pixel Index UUID (#61).
+    discordId: { type: ['string', 'null'] },
     username: { type: 'string' },
     displayName: { type: 'string' },
     avatarUrl: { type: ['string', 'null'] },
   },
-  required: ['id', 'username', 'displayName', 'avatarUrl'],
+  required: ['discordId', 'username', 'displayName', 'avatarUrl'],
 } as const;
 
 const filesSchema = {
@@ -39,10 +40,13 @@ export const layoutSummarySchema = {
     tags: { type: 'array', items: { type: 'string' } },
     cols: { type: 'integer' },
     rows: { type: 'integer' },
+    visibleCols: { type: 'integer' },
+    visibleRows: { type: 'integer' },
     furniture: { type: 'integer' },
     areas: { type: 'integer' },
     pets: { type: 'integer' },
     carpets: { type: 'integer' },
+    seats: { type: 'integer' },
     layoutRevision: { type: 'integer' },
     pixelAgentsVersion: { type: ['string', 'null'] },
     bytes: { type: 'integer' },
@@ -52,9 +56,9 @@ export const layoutSummarySchema = {
     files: filesSchema,
   },
   required: [
-    'slug', 'title', 'author', 'description', 'tags', 'cols', 'rows', 'furniture',
-    'areas', 'pets', 'carpets', 'layoutRevision', 'pixelAgentsVersion', 'bytes',
-    'sha256', 'createdAt', 'updatedAt', 'files',
+    'slug', 'title', 'author', 'description', 'tags', 'cols', 'rows', 'visibleCols',
+    'visibleRows', 'furniture', 'areas', 'pets', 'carpets', 'seats', 'layoutRevision',
+    'pixelAgentsVersion', 'bytes', 'sha256', 'createdAt', 'updatedAt', 'files',
   ],
 } as const;
 
@@ -83,19 +87,35 @@ export const listLayoutsQuerySchema = {
     limit: { type: 'integer', minimum: 1, maximum: 100, default: 24 },
     cursor: { type: 'string' },
     sort: { type: 'string', enum: ['newest', 'furniture', 'largest', 'title'], default: 'newest' },
-    author: { type: 'string', format: 'uuid' },
+    // A Discord user id (snowflake), not the internal Pixel Index UUID (#61).
+    author: { type: 'string' },
     tags: { type: 'string', description: 'Comma-separated tag names; a layout must have all of them.' },
     q: { type: 'string', maxLength: 200 },
+    // The declared canvas allocation, not the occupied footprint — see
+    // minSize/maxSize below for the latter. Kept as its own filter because
+    // furniture placement is absolute against the full canvas.
     minCols: { type: 'integer', minimum: 0 },
     maxCols: { type: 'integer', minimum: 0 },
     minRows: { type: 'integer', minimum: 0 },
     maxRows: { type: 'integer', minimum: 0 },
+    minSize: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Occupied-footprint tile count (visibleCols × visibleRows), inclusive.',
+    },
+    maxSize: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Occupied-footprint tile count (visibleCols × visibleRows), inclusive.',
+    },
     minFurniture: { type: 'integer', minimum: 0 },
     maxFurniture: { type: 'integer', minimum: 0 },
     minAreas: { type: 'integer', minimum: 0 },
     maxAreas: { type: 'integer', minimum: 0 },
     minPets: { type: 'integer', minimum: 0 },
     maxPets: { type: 'integer', minimum: 0 },
+    minSeats: { type: 'integer', minimum: 0 },
+    maxSeats: { type: 'integer', minimum: 0 },
   },
 } as const;
 
@@ -128,6 +148,9 @@ export const metaResponseSchema = {
     properties: {
       schemaVersion: { type: 'integer' },
       generatedAt: { type: 'string', format: 'date-time' },
+      // This checkout's own commit — distinct from pixelAgents.commit below,
+      // which is the pinned Pixel Agents upstream's commit.
+      apiCommit: { type: ['string', 'null'] },
       pixelAgents: {
         type: 'object',
         properties: {
@@ -140,7 +163,23 @@ export const metaResponseSchema = {
       count: { type: 'integer' },
       discordInviteUrl: { type: ['string', 'null'] },
     },
-    required: ['schemaVersion', 'generatedAt', 'pixelAgents', 'count', 'discordInviteUrl'],
+    required: ['schemaVersion', 'generatedAt', 'apiCommit', 'pixelAgents', 'count', 'discordInviteUrl'],
+  },
+} as const;
+
+export const rootResponseSchema = {
+  200: {
+    type: 'object',
+    properties: {
+      name: { type: 'string' },
+      description: { type: 'string' },
+      version: { type: 'string' },
+      commit: { type: ['string', 'null'] },
+      documentation: { type: 'string' },
+      openapi: { type: 'string' },
+      repository: { type: 'string' },
+    },
+    required: ['name', 'description', 'version', 'commit', 'documentation', 'openapi', 'repository'],
   },
 } as const;
 

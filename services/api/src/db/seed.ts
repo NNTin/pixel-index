@@ -15,14 +15,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createValidator, layoutStats, sha256, upstreamPin, type Layout } from '@pixel-index/layout-core';
+import { createValidator, type Layout, layoutStats, sha256, upstreamPin } from '@pixel-index/layout-core';
 import { eq, sql } from 'drizzle-orm';
 
 import { validateTagNames } from '../layouts/metadata.js';
 import { attachTags } from '../layouts/query.js';
 import { recordModerationAction } from '../moderation/audit.js';
-import { createDatabase, type AnyDatabase } from './client.js';
+import { type AnyDatabase, createDatabase } from './client.js';
 import { SYSTEM_USER_ID } from './constants.js';
+import { one } from './rows.js';
 import * as schema from './schema.js';
 
 /** Resolves identically from `src/` under tsx and from `dist/` after a build — same trick as migrate.ts's MIGRATIONS_FOLDER. */
@@ -74,12 +75,12 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
     const validation = validator.validateLayout(parsedLayout);
     if (!validation.valid) {
       throw new Error(
-        `Seed layout "${slug}" fails validation against pixel-agents ${pin.version}: ` +
+        `Seed layout "${slug}" fails validation against pixel-agents ${pin.version ?? 'unknown'}: ` +
           JSON.stringify(validation.issues),
       );
     }
 
-    const stats = layoutStats(parsedLayout as Layout);
+    const stats = layoutStats(parsedLayout as Layout, { catalog: validator.catalog });
     const tags = validateTagNames(meta.tags ?? []);
 
     await db.transaction(async (tx: AnyDatabase) => {
@@ -93,16 +94,19 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
         if (known) {
           authorUserId = known.id;
         } else {
-          const [created] = await tx
-            .insert(schema.users)
-            .values({ discordId: meta.authorDiscordId, username: meta.author })
-            .returning({ id: schema.users.id });
-          authorUserId = created!.id;
+          const created = one(
+            await tx
+              .insert(schema.users)
+              .values({ discordId: meta.authorDiscordId, username: meta.author })
+              .returning({ id: schema.users.id }),
+          );
+          authorUserId = created.id;
         }
         authorDisplay = null;
       }
 
-      const [row] = await tx
+      const row = one(
+        await tx
         .insert(schema.layouts)
         .values({
           slug,
@@ -115,21 +119,25 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
           sha256: sha256(raw),
           cols: stats.cols,
           rows: stats.rows,
+          visibleCols: stats.visibleCols,
+          visibleRows: stats.visibleRows,
           furnitureCount: stats.furniture,
           areaCount: stats.areas,
           petCount: stats.pets,
           carpetCount: stats.carpets,
+          seatCount: stats.seats,
           layoutRevision: stats.layoutRevision,
           pixelAgentsVersion: pin.version,
         })
-        .returning();
-      await attachTags(tx, row!.id, tags);
+        .returning(),
+      );
+      await attachTags(tx, row.id, tags);
       await recordModerationAction(tx, {
         actorUserId: SYSTEM_USER_ID,
         actorLabel: 'seed',
         action: 'layout.create',
         targetType: 'layout',
-        targetId: row!.id,
+        targetId: row.id,
         after: { slug, title: meta.title, visibility: 'public' },
       });
     });

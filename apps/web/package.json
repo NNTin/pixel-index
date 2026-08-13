@@ -21,7 +21,7 @@
     "react-router-dom": "^7.9.5"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@pixel-index/layout-core": "*",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
@@ -29,17 +29,10 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
-    "eslint": "^10.8.0",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
-    "eslint-plugin-simple-import-sort": "^14.0.0",
-    "globals": "^17.8.0",
     "jsdom": "^25.0.1",
     "pngjs": "^7.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.58.2",
     "vite": "^8.0.8",
     "vitest": "^4.1.10"
   }

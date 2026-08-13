@@ -1,0 +1,41 @@
+name: PR title
+
+# Separate workflow, not a job in ci.yml: this has to fire on `edited` too, so
+# that retitling a PR in the GitHub UI is checked without pushing a new commit
+# — ci.yml's `pull_request` trigger only ever fires on
+# opened/synchronize/reopened, and widening that would rerun every other job
+# on a title-only edit. The commit-msg hook (.husky/commit-msg) covers commit
+# messages; this covers the PR title, which becomes the squash commit message
+# and can be changed in the UI without ever running that hook.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  lint:
+    name: Conventional Commit title
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      # Established action rather than hand-rolled regex parsing of PR titles.
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Kept in sync with commitlint.config.js's type-enum: the standard
+          # Conventional Commits set plus `debug`, already used in this
+          # repo's history (e.g. f0e742b).
+          types: |
+            build
+            chore
+            ci
+            debug
+            docs
+            feat
+            fix
+            perf
+            refactor
+            revert
+            style
+            test

@@ -8,8 +8,8 @@ import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import {
   DiscordApiError,
-  refreshDiscordToken,
   type DiscordTokenResponse,
+  refreshDiscordToken,
 } from './discord.js';
 
 const ALGORITHM = 'aes-256-gcm';

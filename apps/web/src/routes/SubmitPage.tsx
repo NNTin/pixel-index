@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { ApiError, getMeta } from '../api/client';
+import { ApiError, getApiInfo, getMeta, repoFileUrl } from '../api/client';
 import { previewCheck, submitLayout } from '../api/manageClient';
 import { useApi } from '../api/useApi';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth } from '../auth/authState';
 
 /**
  * "Submitting shows a rendered preview before publishing" (#15). The
@@ -16,10 +16,13 @@ import { useAuth } from '../auth/AuthContext';
 export function SubmitPage() {
   const { status, accessToken, user, login } = useAuth();
   const navigate = useNavigate();
-  const metaState = useApi(() => getMeta(), []);
+  const metaState = useApi((signal) => getMeta(signal), []);
   // Public, not gated behind login — someone deciding whether to join the
   // community must not need to sign in first just to see the invite.
   const inviteUrl = metaState.status === 'ready' ? metaState.data.discordInviteUrl : null;
+  const infoState = useApi((signal) => getApiInfo(signal), []);
+  const contentPolicyUrl =
+    infoState.status === 'ready' ? repoFileUrl(infoState.data, 'docs/CONTENT_POLICY.md') : undefined;
 
   const [raw, setRaw] = useState('');
   const [title, setTitle] = useState('');
@@ -43,7 +46,7 @@ export function SubmitPage() {
     return <p className="text-muted">Loading…</p>;
   }
 
-  if (!user || !user.submission.allowed) {
+  if (!user?.submission.allowed) {
     const loggedOut = !user;
     const reconnect = !loggedOut && user.submission.reason === 'discord_reauthorization_required';
     return (
@@ -109,7 +112,9 @@ export function SubmitPage() {
     setError(null);
     try {
       const result = await submitLayout(raw, { title, description, tags }, accessToken);
-      navigate(`/layouts/${result.slug}`);
+      // `void`: navigate() returns a promise in react-router 7, and there is
+      // nothing to do after it resolves — but it must not be left floating.
+      void navigate(`/layouts/${result.slug}`);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
     } finally {
@@ -129,7 +134,7 @@ export function SubmitPage() {
       <p className="mt-2 text-sm text-muted">
         This index is <strong>public on publish</strong>, not reviewed first — read the{' '}
         <a
-          href="https://github.com/NNTin/pixel-index/blob/main/CONTENT_POLICY.md"
+          href={contentPolicyUrl}
           className="text-accent underline"
           target="_blank"
           rel="noreferrer"
@@ -198,7 +203,7 @@ export function SubmitPage() {
         <div className="flex gap-3">
           <button
             type="button"
-            onClick={checkPreview}
+            onClick={() => void checkPreview()}
             disabled={!raw || checking}
             className="border-2 border-border px-4 py-2 text-sm text-ink hover:border-accent disabled:opacity-50"
           >
@@ -206,7 +211,7 @@ export function SubmitPage() {
           </button>
           <button
             type="button"
-            onClick={publish}
+            onClick={() => void publish()}
             disabled={!raw || !title || publishing}
             className="border-2 border-accent px-4 py-2 text-sm text-accent hover:bg-accent hover:text-accent-solid-ink disabled:opacity-50"
           >

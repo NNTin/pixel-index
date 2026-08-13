@@ -2,8 +2,9 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider } from '../auth/AuthContext';
-import { ThemeProvider } from '../theme/ThemeContext';
+import { AuthProvider } from '../auth/AuthProvider';
+import { requestUrl } from '../test/fetchStub';
+import { ThemeProvider } from '../theme/ThemeProvider';
 import { Layout } from './Layout';
 
 afterEach(() => {
@@ -15,7 +16,7 @@ function stubFetch(discordInviteUrl: string | null) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/meta')) {
         return Response.json({
           schemaVersion: 1,

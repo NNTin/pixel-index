@@ -1,5 +1,5 @@
-import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { signAccessToken } from '../auth/tokens.js';
@@ -8,6 +8,7 @@ import { createTestDatabase, type Harness } from '../db/test-support/harness.js'
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
 import { insertLayout, insertUser } from '../test-support/layouts.js';
+import type { ListAdminUsersBody } from './routes.js';
 
 const ADMIN_DISCORD_ID = '1528094749993599038';
 const config = testConfig({ discordAdminIds: [ADMIN_DISCORD_ID] });
@@ -96,8 +97,8 @@ describe('GET /api/v1/admin/users', () => {
       headers: { authorization: `Bearer ${accessToken}` },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json().users).toHaveLength(1);
-    expect(response.json().nextCursor).toBeTruthy();
+    expect(response.json<ListAdminUsersBody>().users).toHaveLength(1);
+    expect(response.json<ListAdminUsersBody>().nextCursor).toBeTruthy();
     expect(response.body).not.toContain('discordId');
     expect(response.body).not.toContain('roleIds');
   });

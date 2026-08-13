@@ -4,9 +4,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { signAccessToken } from '../auth/tokens.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
+import type { EnvelopeBody } from '../errors.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
 import { insertLayout, insertUser } from '../test-support/layouts.js';
+import type { ListOwnerLayoutsBody } from './responses.js';
 
 const config = testConfig({
   discordGuild: {
@@ -99,7 +101,7 @@ describe('confirmed guild departure', () => {
     });
     for (const response of [submission, preview, edit, replacement]) {
       expect(response.statusCode).toBe(403);
-      expect(response.json().error).toBe('discord_membership_required');
+      expect(response.json<EnvelopeBody>().error).toBe('discord_membership_required');
     }
     expect((await app.inject({ method: 'GET', url: `/api/v1/layouts/${slug}` })).statusCode).toBe(200);
   });
@@ -111,7 +113,9 @@ describe('confirmed guild departure', () => {
       headers: authorization(),
     });
     expect(mine.statusCode).toBe(200);
-    expect(mine.json().layouts.some((layout: { slug: string }) => layout.slug === slug)).toBe(true);
+    expect(mine.json<ListOwnerLayoutsBody>().layouts.some((layout) => layout.slug === slug)).toBe(
+      true,
+    );
     const deleted = await app.inject({
       method: 'DELETE',
       url: `/api/v1/layouts/${slug}`,

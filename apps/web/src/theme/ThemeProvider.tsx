@@ -1,6 +1,6 @@
-import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
-export type Theme = 'light' | 'dark';
+import { type Theme, ThemeContext } from './themeState';
 
 const STORAGE_KEY = 'pixelindex_theme';
 
@@ -13,8 +13,6 @@ function initialTheme(): Theme {
   // first-time look that's supposed to read as "the office."
   return stored === 'light' || stored === 'dark' ? stored : 'dark';
 }
-
-const ThemeContext = createContext<{ theme: Theme; toggleTheme: () => void } | null>(null);
 
 /** Persists across visits (localStorage); defaults to dark — see initialTheme's comment. */
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -30,10 +28,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }
 
   return <ThemeContext value={{ theme, toggleTheme }}>{children}</ThemeContext>;
-}
-
-export function useTheme() {
-  const context = useContext(ThemeContext);
-  if (!context) throw new Error('useTheme must be used within a ThemeProvider');
-  return context;
 }

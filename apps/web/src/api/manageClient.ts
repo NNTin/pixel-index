@@ -17,6 +17,14 @@ export interface SubmitResult extends LayoutDetail {
   previewReady: boolean;
 }
 
+/**
+ * None of the mutating calls below takes an `AbortSignal`, and that is the
+ * enforcement rather than an oversight: aborting a POST/PATCH/PUT/DELETE does
+ * not un-send it — the server may already have committed the write — so a
+ * "cancelled" mutation would be a lie about state. Under StrictMode an
+ * abort-on-cleanup would additionally fire-then-abort every write in
+ * development. Only read-only GETs are cancellable.
+ */
 export function submitLayout(
   raw: string,
   params: SubmitLayoutParams,
@@ -38,8 +46,9 @@ export function previewCheck(raw: string, accessToken: string): Promise<Blob> {
 export function getMyLayouts(
   params: { limit?: number; cursor?: string },
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<ListOwnerLayoutsResponse> {
-  return apiRequest(`/api/v1/me/layouts${toQueryString(params)}`, { accessToken });
+  return apiRequest(`/api/v1/me/layouts${toQueryString(params)}`, { accessToken, signal });
 }
 
 export function patchLayout(

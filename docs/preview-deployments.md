@@ -180,10 +180,9 @@ kept every render would grow the repository without bound.
 
 ---
 
-## Decision: publish only what changed, capped at 50
+## What gets published, capped at 50
 
-This is the rule that keeps the whole mechanism from becoming a problem as the index grows,
-so it is worth stating as a decision rather than leaving it to be inferred from the code.
+This is the rule that keeps the whole mechanism from becoming a problem as the index grows.
 
 ### What is published
 
@@ -204,10 +203,8 @@ candidate draws a layout exactly as the baseline did, the image the API is alrea
 **is** the candidate's render. Showing it is not a compromise or a fallback; it is the same
 bytes.
 
-Without this rule the workflow republished the entire index on every bump — at 1,000
-layouts, ~15 MB per run to convey, in the normal case, nothing. The last real bump rendered
-4 layouts, changed 0, and published 4 images that were byte-identical to what the API was
-already serving.
+Without this rule the workflow republishes the entire index on every bump — at 1,000
+layouts, ~15 MB per run to convey, in the normal case, nothing.
 
 ### Why there is a cap, and why it is 50
 
@@ -244,10 +241,7 @@ fine. The gate's report and check status count all 800 regardless — the cap go
 
 Nothing scales with the index, which is why hosting was left alone: at this size neither
 [GitHub's raw rate limits](https://github.blog/changelog/2025-05-08-updated-rate-limits-for-unauthenticated-requests/)
-nor [Vercel's deployment limits](https://vercel.com/docs/limits) are reachable. Bundling the
-PNGs into the web build was considered and rejected — `add-paths` would commit them, so they
-would merge into `main` and sit in history permanently, trading a fixable problem for an
-unfixable one.
+nor [Vercel's deployment limits](https://vercel.com/docs/limits) are reachable.
 
 ---
 
@@ -259,9 +253,13 @@ renders — most weeks, none are. There are three shapes:
 > Candidate Pixel Agents 0f823e2 draws every layout exactly as the API's 9794e07 does —
 > **nothing changed visually**, so every preview here is the API's own image.
 
+<!-- -->
+
 > **3 layouts** render differently under candidate Pixel Agents 0f823e2 and are shown here.
 > The API is still on 9794e07; every other preview is its image, which is byte-identical to
 > what the candidate draws.
+
+<!-- -->
 
 > **800 layouts** render differently under candidate Pixel Agents 0f823e2 — too many to
 > show. A sample of 50 is displayed here; the rest keep the API's current images.
@@ -272,8 +270,8 @@ Any of them gains a sentence when layouts fail outright:
 > with an old image.
 
 The first shape matters more than it looks. Without it, a reviewer seeing ordinary
-thumbnails cannot tell "the mechanism ran and found nothing" from "the mechanism is broken"
-— a confusion this project has already hit once for real.
+thumbnails cannot tell "the mechanism ran and found nothing" from "the mechanism is
+broken."
 
 It is not dismissible and not optional. Silently swapping in different pictures would only
 be lying in a new direction; the banner is what makes the swap honest.
@@ -337,13 +335,10 @@ runtime:
 Every failure — no variable, no pin file, a 404, an offline builder — is silent and means
 "no override". The safe direction.
 
-This replaces an earlier design that committed the manifest to
-`apps/web/public/vendor-preview/manifest.json`. It worked, and it had one bad consequence:
-the file merged to `main` with the pin, so production and Pages served it until the API was
-redeployed onto the new pin. Deciding from the *deployment* instead of from a file in the
-repository is what makes that impossible rather than merely brief. It also means visitors
-never fetch from `raw.githubusercontent.com` — the build downloads once, from Vercel's
-builder, and the site serves the copies off its own CDN.
+Deciding from the *deployment*, not from a file in the repository, means production and
+GitHub Pages can never serve the manifest. It also means visitors never fetch from
+`raw.githubusercontent.com` — the build downloads once, from Vercel's builder, and the
+site serves the copies off its own CDN.
 
 ### What a layout that fails on the candidate shows
 
@@ -373,16 +368,8 @@ nothing logged, no behaviour change.
 
 ## Production cannot show this, by construction
 
-Worth stating explicitly, because an earlier version of this mechanism *could*.
-
-When the manifest was committed to the PR branch, merging the vendor PR put it on `main`
-and therefore into the next production and Pages build. For the window between merging and
-redeploying the API, production satisfied both conditions — manifest present, API still on
-the old pin — and showed the banner and the candidate renders to ordinary visitors. Worse,
-`vendor-previews` is force-pushed on every run, so once the next run landed, a merged
-manifest pointed at a deleted path and those cards rendered as "no preview".
-
-Neither can happen now:
+Two structural gates make it impossible for production or GitHub Pages to show the banner
+or a candidate render:
 
 ```mermaid
 flowchart TD

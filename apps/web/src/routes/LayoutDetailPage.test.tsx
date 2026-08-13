@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { requestUrl } from '../test/fetchStub';
 import { LayoutDetailPage } from './LayoutDetailPage';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -10,15 +11,18 @@ function detail(overrides: Record<string, unknown> = {}) {
   return {
     slug: 'blue-office',
     title: 'Blue Office',
-    author: { id: null, username: 'someone', displayName: 'someone', avatarUrl: null },
+    author: { discordId: null, username: 'someone', displayName: 'someone', avatarUrl: null },
     description: 'A cosy office.',
     tags: ['cosy', 'small'],
     cols: 25,
     rows: 22,
+    visibleCols: 25,
+    visibleRows: 22,
     furniture: 59,
     areas: 4,
     pets: 2,
     carpets: 0,
+    seats: 3,
     layoutRevision: 1,
     pixelAgentsVersion: '1.4.0',
     bytes: 10,
@@ -44,7 +48,7 @@ function stubFetch(layoutBody: unknown, metaBody: unknown) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestUrl(input);
       if (url.includes('/meta')) return Response.json(metaBody);
       if (url.endsWith('/download')) {
         return new Response('{"version":1,"layoutRevision":1,"cols":2,"rows":2,"tiles":[0,0,0,0],"furniture":[]}');

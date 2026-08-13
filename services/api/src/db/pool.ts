@@ -8,5 +8,5 @@
  * actually used — this keeps the contract exactly as small as the real usage.
  */
 export interface Queryable {
-  query(text: string): Promise<unknown>;
+  query: (text: string) => Promise<unknown>;
 }

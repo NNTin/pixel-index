@@ -14,9 +14,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import type { ValidationIssue } from './types.js';
 import { readJsonOrNull, upstreamPin } from './upstream.js';
 import { createValidator } from './validate.js';
-import type { ValidationIssue } from './types.js';
 
 const dir = path.resolve(process.argv[2] ?? 'seed');
 
@@ -87,7 +87,7 @@ for (const slug of slugs) {
 }
 
 console.log(
-  `Validated ${slugs.length} layout(s) against pixel-agents ${pin.version}` +
+  `Validated ${slugs.length} layout(s) against pixel-agents ${pin.version ?? 'unknown'}` +
     `${pin.commit ? ` (${pin.commit.slice(0, 7)})` : ''}, ` +
     `bundled layoutRevision ${validator.requiredRevision}.`,
 );

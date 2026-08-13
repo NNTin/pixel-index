@@ -3,7 +3,9 @@ import { Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './components/RequireAuth';
 import { AdminPage } from './routes/AdminPage';
+import { AuditLogPage } from './routes/AuditLogPage';
 import { AuthorPage } from './routes/AuthorPage';
+import { DeveloperPage } from './routes/DeveloperPage';
 import { Home } from './routes/Home';
 import { LayoutDetailPage } from './routes/LayoutDetailPage';
 import { ModerationPage } from './routes/ModerationPage';
@@ -19,6 +21,7 @@ export function App() {
         <Route path="layouts/:slug" element={<LayoutDetailPage />} />
         <Route path="authors/:id" element={<AuthorPage />} />
         <Route path="submit" element={<SubmitPage />} />
+        <Route path="developer" element={<DeveloperPage />} />
         <Route
           path="me/layouts"
           element={
@@ -40,6 +43,14 @@ export function App() {
           element={
             <RequireAuth role="admin">
               <AdminPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="admin/history"
+          element={
+            <RequireAuth role="admin">
+              <AuditLogPage />
             </RequireAuth>
           }
         />

@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, assert, beforeAll, describe, expect, it } from 'vitest';
 
 import * as schema from '../db/schema.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
@@ -73,6 +73,37 @@ describe('listLayouts — owner scope', () => {
       scope: { type: 'owner', userId: owner.id },
     });
     expect(rows.map((r) => r.id).sort()).toEqual([mine1.id, mine2.id].sort());
+  });
+});
+
+describe('listLayouts — authorDiscordId (#61)', () => {
+  it('resolves a Discord id to the matching author, same result as filtering by the internal id', async () => {
+    const author = await insertUser(harness.db, { discordId: 'discord-resolve-1' });
+    const other = await insertUser(harness.db);
+    const mine = await insertLayout(harness.db, { authorUserId: author.id, visibility: 'public' });
+    await insertLayout(harness.db, { authorUserId: other.id, visibility: 'public' });
+    assert(author.discordId !== null, 'insertUser did not give the author a Discord id');
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { authorDiscordId: author.discordId },
+      sort: 'newest',
+      limit: 100,
+    });
+    expect(rows.map((r) => r.id)).toEqual([mine.id]);
+  });
+
+  it('returns zero results, not a database error, for a Discord id that matches no user', async () => {
+    // Regression guard: `layouts.authorUserId` is uuid-typed, so comparing it
+    // directly against an arbitrary Discord snowflake string used to risk an
+    // "invalid input syntax for type uuid" error rather than an empty page.
+    const { rows, total, nextCursor } = await listLayouts(harness.db, {
+      filters: { authorDiscordId: 'no-such-discord-id' },
+      sort: 'newest',
+      limit: 100,
+    });
+    expect(rows).toEqual([]);
+    expect(total).toBe(0);
+    expect(nextCursor).toBeNull();
   });
 });
 
@@ -177,6 +208,98 @@ describe('listLayouts — filters compose', () => {
     expect(rows.map((r) => r.slug)).not.toContain('furniture-below');
     expect(rows.map((r) => r.slug)).not.toContain('furniture-above');
   });
+
+  it('filters by tile count (visibleCols × visibleRows), not cols/rows independently', async () => {
+    // 21×22 = 462, same worked example as #24. A long thin layout (7×66 =
+    // 462) matches the same size filter despite failing any cols/rows bucket
+    // — the whole point of filtering on the product, not the two axes.
+    // visibleCols/visibleRows is set equal to cols/rows here (a fully-occupied
+    // canvas), so this exercises the same principle as before #55 on the
+    // field that now actually drives the filter.
+    const square = await insertLayout(harness.db, {
+      slug: 'size-square',
+      cols: 21,
+      rows: 22,
+      visibleCols: 21,
+      visibleRows: 22,
+    });
+    const thin = await insertLayout(harness.db, {
+      slug: 'size-thin',
+      cols: 7,
+      rows: 66,
+      visibleCols: 7,
+      visibleRows: 66,
+    });
+    await insertLayout(harness.db, {
+      slug: 'size-below',
+      cols: 21,
+      rows: 21,
+      visibleCols: 21,
+      visibleRows: 21,
+    }); // 441
+    await insertLayout(harness.db, {
+      slug: 'size-above',
+      cols: 22,
+      rows: 22,
+      visibleCols: 22,
+      visibleRows: 22,
+    }); // 484
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { size: { min: 462, max: 462 } },
+      sort: 'newest',
+      limit: 100,
+    });
+    const ids = rows.map((r) => r.id);
+    expect(ids).toContain(square.id);
+    expect(ids).toContain(thin.id);
+    expect(rows.map((r) => r.slug)).not.toContain('size-below');
+    expect(rows.map((r) => r.slug)).not.toContain('size-above');
+  });
+
+  it('filters by the occupied footprint, not the declared canvas (#55)', async () => {
+    // Same 21×22 canvas as every other size test's worked example, but a
+    // small occupied footprint — must NOT match a size filter for ~462 tiles
+    // even though cols*rows would.
+    const canvasOnly = await insertLayout(harness.db, {
+      slug: 'size-canvas-only',
+      cols: 21,
+      rows: 22,
+      visibleCols: 5,
+      visibleRows: 5,
+    });
+    const trulyBig = await insertLayout(harness.db, {
+      slug: 'size-truly-big',
+      cols: 21,
+      rows: 22,
+      visibleCols: 21,
+      visibleRows: 22,
+    });
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { size: { min: 462, max: 462 } },
+      sort: 'newest',
+      limit: 100,
+    });
+    const ids = rows.map((r) => r.id);
+    expect(ids).toContain(trulyBig.id);
+    expect(ids).not.toContain(canvasOnly.id);
+  });
+
+  it('filters by seat count range, inclusive at both ends', async () => {
+    const exact = await insertLayout(harness.db, { slug: 'seats-exact', seatCount: 20 });
+    await insertLayout(harness.db, { slug: 'seats-below', seatCount: 19 });
+    await insertLayout(harness.db, { slug: 'seats-above', seatCount: 21 });
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { seats: { min: 20, max: 20 } },
+      sort: 'newest',
+      limit: 100,
+    });
+    expect(rows.map((r) => r.id)).toContain(exact.id);
+    expect(rows.map((r) => r.slug)).not.toContain('seats-below');
+    expect(rows.map((r) => r.slug)).not.toContain('seats-above');
+  });
 });
 
 describe('listLayouts — sorting', () => {
@@ -197,11 +320,54 @@ describe('listLayouts — sorting', () => {
     expect(rows[0]?.slug).toBe('sort-furn-high');
   });
 
-  it('largest sorts by cols*rows descending', async () => {
-    await insertLayout(harness.db, { slug: 'sort-size-small', cols: 5, rows: 5 });
-    await insertLayout(harness.db, { slug: 'sort-size-big', cols: 40, rows: 40 });
+  it('largest sorts by visibleCols*visibleRows descending', async () => {
+    await insertLayout(harness.db, {
+      slug: 'sort-size-small',
+      cols: 5,
+      rows: 5,
+      visibleCols: 5,
+      visibleRows: 5,
+    });
+    await insertLayout(harness.db, {
+      slug: 'sort-size-big',
+      cols: 40,
+      rows: 40,
+      visibleCols: 40,
+      visibleRows: 40,
+    });
     const { rows } = await listLayouts(harness.db, { filters: {}, sort: 'largest', limit: 1 });
     expect(rows[0]?.slug).toBe('sort-size-big');
+  });
+
+  it('largest sorts by the occupied footprint, not the declared canvas (#55)', async () => {
+    // Regression for #55: two rows share an identical 21×22 canvas, but very
+    // different actual footprints — the one that is genuinely bigger must win.
+    // Scoped to a unique tag (rather than an unfiltered `limit: 1`, which
+    // would just find whichever row this whole suite happened to make
+    // biggest) so the assertion only depends on these two rows' relative order.
+    const canvasOnly = await insertLayout(harness.db, {
+      slug: 'sort-canvas-only',
+      cols: 21,
+      rows: 22,
+      visibleCols: 5,
+      visibleRows: 5,
+    });
+    await tagLayout(harness.db, canvasOnly.id, 'sort-canvas-regression');
+    const trulyBig = await insertLayout(harness.db, {
+      slug: 'sort-truly-big',
+      cols: 21,
+      rows: 22,
+      visibleCols: 20,
+      visibleRows: 21,
+    });
+    await tagLayout(harness.db, trulyBig.id, 'sort-canvas-regression');
+
+    const { rows } = await listLayouts(harness.db, {
+      filters: { tags: ['sort-canvas-regression'] },
+      sort: 'largest',
+      limit: 2,
+    });
+    expect(rows.map((r) => r.id)).toEqual([trulyBig.id, canvasOnly.id]);
   });
 
   it('title sorts alphabetically ascending', async () => {
@@ -257,7 +423,9 @@ describe('listLayouts — keyset pagination', () => {
       limit: 1,
     });
     expect(page1.rows[0]?.id).toBe(first.id);
-    expect(page1.nextCursor).toBeTruthy();
+    // assert, not expect(...).toBeTruthy(): only the former narrows, which is
+    // what the cursor below needs.
+    assert(page1.nextCursor !== null);
 
     // A brand new highest-furniture row lands "before" page 1 in sort order.
     await insertLayout(harness.db, { slug: 'stable-inserted-later', furnitureCount: BASE + 1000 });
@@ -266,7 +434,7 @@ describe('listLayouts — keyset pagination', () => {
       filters: { furniture: { min: BASE } },
       sort: 'furniture',
       limit: 1,
-      cursor: page1.nextCursor!,
+      cursor: page1.nextCursor,
     });
     expect(page2.rows[0]?.id).toBe(second.id);
   });

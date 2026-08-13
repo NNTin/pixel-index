@@ -8,7 +8,6 @@ import {
   type Filters,
   isDefault,
   type PetsFilter,
-  type SizeBucket,
   type SortKey,
 } from '../routes/filters';
 
@@ -19,28 +18,46 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'title', label: 'Title (A–Z)' },
 ];
 
-const SIZE_OPTIONS: { value: SizeBucket; label: string }[] = [
-  { value: 'small', label: 'Small (up to 15×15)' },
-  { value: 'medium', label: 'Medium (16–30)' },
-  { value: 'large', label: 'Large (31+)' },
-];
-
 export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (next: Filters) => void }) {
   const [text, setText] = useState(filters.q);
   const [tags, setTags] = useState<TagUsage[]>([]);
 
   // Keep the input in sync when filters change from elsewhere (e.g. "clear
   // filters", or the browser back button) without fighting the user's typing.
+  // The rule's preferred shape — deriving the input's value during render —
+  // would take the text box away from the user mid-keystroke, which is the
+  // thing the debounce below exists to avoid.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setText(filters.q), [filters.q]);
 
   useEffect(() => {
-    listTags()
-      .then((response) => setTags(response.tags))
-      .catch(() => setTags([])); // The tag picker is a convenience, not core to the page loading.
+    const controller = new AbortController();
+    listTags(controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        setTags(response.tags);
+      })
+      // The tag picker is a convenience, not core to the page loading — but an
+      // *aborted* fetch must not blank an already-populated picker.
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setTags([]);
+      });
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   // Debounced: a request per keystroke would defeat "stays responsive with
   // a few hundred layouts" the moment someone actually types.
+  //
+  // `filters` and `onChange` are omitted from the deps deliberately, and that
+  // omission is what makes the debounce work: the parent re-renders while a
+  // request is in flight, so including `filters` would restart the 300ms timer
+  // on every one of those renders and the timeout would never fire. Both are
+  // read inside the callback, so the timer that eventually fires uses the
+  // render's values — which is correct here, because a filter change from
+  // anywhere else re-syncs `text` through the effect above.
   useEffect(() => {
     if (text === filters.q) return;
     const timer = setTimeout(() => onChange({ ...filters, q: text }), 300);
@@ -85,21 +102,38 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
         </label>
 
         <label className="flex items-center gap-1.5 text-sm text-muted">
-          Size
-          <select
-            value={filters.size ?? ''}
+          Size (tiles)
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.minSize ?? ''}
             onChange={(event) =>
-              onChange({ ...filters, size: (event.target.value || null) as SizeBucket | null })
+              onChange({
+                ...filters,
+                minSize: event.target.value === '' ? null : Number(event.target.value),
+              })
             }
-            className={selectClass}
-          >
-            <option value="">Any</option>
-            {SIZE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            placeholder="min"
+            aria-label="Minimum size in tiles (occupied footprint)"
+            className={`w-16 ${inputClass}`}
+          />
+          –
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.maxSize ?? ''}
+            onChange={(event) =>
+              onChange({
+                ...filters,
+                maxSize: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+            placeholder="max"
+            aria-label="Maximum size in tiles (occupied footprint)"
+            className={`w-16 ${inputClass}`}
+          />
         </label>
 
         <label className="flex items-center gap-1.5 text-sm text-muted">
@@ -148,6 +182,41 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
             }
             placeholder="max"
             aria-label="Maximum furniture count"
+            className={`w-16 ${inputClass}`}
+          />
+        </label>
+
+        <label className="flex items-center gap-1.5 text-sm text-muted">
+          Seats
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.minSeats ?? ''}
+            onChange={(event) =>
+              onChange({
+                ...filters,
+                minSeats: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+            placeholder="min"
+            aria-label="Minimum seat count"
+            className={`w-16 ${inputClass}`}
+          />
+          –
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={filters.maxSeats ?? ''}
+            onChange={(event) =>
+              onChange({
+                ...filters,
+                maxSeats: event.target.value === '' ? null : Number(event.target.value),
+              })
+            }
+            placeholder="max"
+            aria-label="Maximum seat count"
             className={`w-16 ${inputClass}`}
           />
         </label>

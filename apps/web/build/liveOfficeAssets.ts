@@ -133,9 +133,15 @@ export function liveOfficeAssets(projectRoot: string): Plugin {
       const routePrefix = `${base}/${outputPrefix()}/`;
       server.middlewares.use((request, response, next) => {
         const pathname = request.url?.split('?', 1)[0] ?? '';
-        if (!pathname.startsWith(routePrefix)) return next();
+        if (!pathname.startsWith(routePrefix)) {
+          next();
+          return;
+        }
         const filename = pathname.slice(routePrefix.length) as AssetFilename;
-        if (!ASSET_FILENAMES.includes(filename)) return next();
+        if (!ASSET_FILENAMES.includes(filename)) {
+          next();
+          return;
+        }
 
         response.statusCode = 200;
         response.setHeader('content-type', 'application/json; charset=utf-8');

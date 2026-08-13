@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { layoutStats } from './stats.js';
+import type { Layout, LayoutMeta } from './types.js';
 import { createValidator } from './validate.js';
 
 /**
@@ -35,8 +36,13 @@ describe('published layouts', () => {
 
   it.each(slugs)('%s validates clean', (slug) => {
     const dir = path.join(SEED_DIR, slug);
-    const layout = JSON.parse(fs.readFileSync(path.join(dir, 'layout.json'), 'utf-8'));
-    const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf-8'));
+    // The `as` casts are the point of the suite, not a shortcut around it:
+    // these files are untrusted input as far as the validator is concerned, and
+    // what follows is the assertion that they really do have this shape.
+    const layout = JSON.parse(
+      fs.readFileSync(path.join(dir, 'layout.json'), 'utf-8'),
+    ) as Layout;
+    const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf-8')) as LayoutMeta;
 
     const layoutResult = validator.validateLayout(layout);
     const metaResult = validator.validateMeta(meta);
@@ -52,15 +58,42 @@ describe('published layouts', () => {
     // rows, the parity suite silently stops covering that fix.
     const layout = JSON.parse(
       fs.readFileSync(path.join(SEED_DIR, 'four-rooms/layout.json'), 'utf-8'),
-    );
-    const negative = layout.furniture.filter((item: { row: number }) => item.row < 0);
+    ) as Layout;
+    const negative = layout.furniture.filter((item) => item.row < 0);
     expect(negative.length).toBeGreaterThan(0);
   });
 
   it('produces the stats the index publishes', () => {
     const layout = JSON.parse(
       fs.readFileSync(path.join(SEED_DIR, 'blue-office/layout.json'), 'utf-8'),
-    );
-    expect(layoutStats(layout)).toMatchObject({ cols: 25, rows: 22, furniture: 59, areas: 4 });
+    ) as Layout;
+    expect(layoutStats(layout)).toMatchObject({
+      cols: 25,
+      rows: 22,
+      // The declared canvas (above) is not the occupied footprint (#55) —
+      // see stats.test.ts for this and the other seeds' numbers.
+      visibleCols: 25,
+      visibleRows: 12,
+      furniture: 59,
+      areas: 4,
+      seats: 20,
+    });
+  });
+
+  // Sanity-checked by hand against the pinned upstream's furniture catalog and
+  // layoutToSeats() (webview-ui/src/office/layout/layoutSerializer.ts) — each
+  // of these layouts places a SOFA (footprintW=2, two seats per placement),
+  // which is why `seats` is higher than a naive "one chair-category item, one
+  // seat" count would give.
+  it.each([
+    ['blue-office', 20],
+    ['default', 14],
+    ['four-rooms', 24],
+    ['severance-office', 4],
+  ])('%s seats %i mocked agents', (slug, seats) => {
+    const layout = JSON.parse(
+      fs.readFileSync(path.join(SEED_DIR, slug, 'layout.json'), 'utf-8'),
+    ) as Layout;
+    expect(layoutStats(layout).seats).toBe(seats);
   });
 });

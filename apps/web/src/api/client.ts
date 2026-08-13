@@ -6,7 +6,9 @@
  * never has to grep the source for a hardcoded domain and replace it with
  * their own.
  */
+import type { OpenApiDocument } from './openapi';
 import type {
+  ApiInfo,
   LayoutDetail,
   ListLayoutsParams,
   ListLayoutsResponse,
@@ -49,10 +51,34 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Set for endpoints that return bytes (preview-check) rather than JSON. */
   parseAs?: 'json' | 'blob' | 'text' | 'none';
+  /**
+   * Cancels the request when the caller stops wanting the answer — an
+   * unmounted screen, a superseded filter. Only the read-only wrappers below
+   * accept one; see the note above the mutating clients for why they do not.
+   *
+   * Spelled `| undefined` rather than a bare `signal?: AbortSignal`, and that
+   * is load-bearing under exactOptionalPropertyTypes: every wrapper forwards
+   * its own *optional* parameter straight through as `{ signal }`, and without
+   * the explicit undefined that assignment is an error at all ten call sites.
+   */
+  signal?: AbortSignal | undefined;
 }
 
+/**
+ * One request.
+ *
+ * The rejection contract, which every caller's `.catch` depends on: **if the
+ * caller's signal aborted, this rejects with the abort — never with an
+ * `ApiError`. Every other failure is an `ApiError`.**
+ */
 async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, accessToken, headers = {}, parseAs = 'json' } = options;
+  const { method = 'GET', body, accessToken, headers = {}, parseAs = 'json', signal } = options;
+
+  // An already-aborted signal must not become a request. Not a micro-
+  // optimisation: StrictMode mounts, cleans up and remounts every effect in
+  // development, so without this the first mount's request is sent purely to
+  // be cancelled a tick later.
+  signal?.throwIfAborted();
 
   let response: Response;
   try {
@@ -64,8 +90,24 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
         ...headers,
       },
       ...(body !== undefined ? { body: typeof body === 'string' ? body : JSON.stringify(body) } : {}),
+      // `?? null`, not `signal`. RequestInit declares `signal?: AbortSignal | null`
+      // with no `| undefined`, and exactOptionalPropertyTypes makes an explicit
+      // undefined an error; `null` is the spec's own spelling of "no signal".
+      signal: signal ?? null,
     });
-  } catch {
+  } catch (cause) {
+    // An abort is not a failure. It is this app deciding it no longer wants
+    // the answer, and normalizing it into the message below would put "Could
+    // not reach the API" in front of a user whose network is fine — raised by
+    // the very effect that cancelled the request.
+    //
+    // The test is our own signal, not the error's shape. `name === 'AbortError'`
+    // is the documented contract, but the *class* carrying it differs by
+    // runtime (undici builds its own DOMException, jsdom another), so
+    // `instanceof DOMException` is a cross-realm trap in exactly the
+    // environment this is tested in. `signal.aborted` is a boolean we own.
+    if (signal?.aborted) throw cause;
+
     // A network failure (API down, CORS misconfigured, offline) throws
     // TypeError, not something with a status — normalized here so every
     // caller has one error shape to render a message from, per #12's
@@ -85,7 +127,11 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
       const errorBody = (await response.json()) as { message?: string; issues?: ValidationIssue[] };
       if (errorBody.message) message = errorBody.message;
       if (errorBody.issues) issues = errorBody.issues;
-    } catch {
+    } catch (cause) {
+      // The other place an abort could be laundered into an ApiError:
+      // aborting mid-body-read rejects response.json(), and swallowing that
+      // would surface a 500 nobody is waiting for.
+      if (signal?.aborted) throw cause;
       /* not JSON — keep the generic message */
     }
     throw new ApiError(response.status, message, issues);
@@ -97,35 +143,48 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
   return (await response.json()) as T;
 }
 
-function toQueryString<T extends object>(params: T): string {
+function toQueryString(params: object): string {
   const entries = Object.entries(params).filter(([, value]) => value !== undefined) as [string, string | number][];
   if (entries.length === 0) return '';
   return `?${new URLSearchParams(entries.map(([key, value]) => [key, String(value)])).toString()}`;
 }
 
-export function listLayouts(params: ListLayoutsParams = {}): Promise<ListLayoutsResponse> {
-  return apiRequest(`/api/v1/layouts${toQueryString(params)}`);
+export function listLayouts(
+  params: ListLayoutsParams = {},
+  signal?: AbortSignal,
+): Promise<ListLayoutsResponse> {
+  return apiRequest(`/api/v1/layouts${toQueryString(params)}`, { signal });
 }
 
-export function getLayout(slug: string): Promise<LayoutDetail> {
-  return apiRequest(`/api/v1/layouts/${encodeURIComponent(slug)}`);
+export function getLayout(slug: string, signal?: AbortSignal): Promise<LayoutDetail> {
+  return apiRequest(`/api/v1/layouts/${encodeURIComponent(slug)}`, { signal });
 }
 
-export function getAuthor(id: string): Promise<PublicAuthorResponse> {
-  return apiRequest(`/api/v1/authors/${encodeURIComponent(id)}`);
+export function getAuthor(id: string, signal?: AbortSignal): Promise<PublicAuthorResponse> {
+  return apiRequest(`/api/v1/authors/${encodeURIComponent(id)}`, { signal });
 }
 
 /** Exact uploaded layout.json text; callers may format it for presentation. */
-export function getLayoutJson(slug: string): Promise<string> {
-  return apiRequest(`/api/v1/layouts/${encodeURIComponent(slug)}/download`, { parseAs: 'text' });
+export function getLayoutJson(slug: string, signal?: AbortSignal): Promise<string> {
+  return apiRequest(`/api/v1/layouts/${encodeURIComponent(slug)}/download`, { parseAs: 'text', signal });
 }
 
-export function getMeta(): Promise<MetaResponse> {
-  return apiRequest('/api/v1/meta');
+export function getMeta(signal?: AbortSignal): Promise<MetaResponse> {
+  return apiRequest('/api/v1/meta', { signal });
 }
 
-export function listTags(): Promise<ListTagsResponse> {
-  return apiRequest('/api/v1/tags');
+export function listTags(signal?: AbortSignal): Promise<ListTagsResponse> {
+  return apiRequest('/api/v1/tags', { signal });
+}
+
+/** `GET /` (#32) — the developer landing document: version, commit, and where to find the rest. */
+export function getApiInfo(signal?: AbortSignal): Promise<ApiInfo> {
+  return apiRequest('/', { signal });
+}
+
+/** The same document `@fastify/swagger` serves at `/docs` — the DeveloperPage renders its own reference from this. */
+export function getOpenApiSpec(signal?: AbortSignal): Promise<OpenApiDocument> {
+  return apiRequest('/openapi.json', { signal });
 }
 
 /**
@@ -136,6 +195,17 @@ export function listTags(): Promise<ListTagsResponse> {
  */
 export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path}`;
+}
+
+/**
+ * A link to a file in this instance's own repository, pinned to the exact
+ * commit `GET /` reports — the file existed there for certain, unlike a
+ * `main` branch link a later rename or move could break. Falls back to
+ * `main` only for a self-hosted deployment that never set `API_COMMIT`
+ * (services/api's config.ts), where there is no commit to pin to.
+ */
+export function repoFileUrl(info: ApiInfo, path: string): string {
+  return `${info.repository}/blob/${info.commit ?? 'main'}/${path}`;
 }
 
 export { API_BASE_URL, apiRequest, toQueryString };

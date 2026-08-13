@@ -4,12 +4,20 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
-import { PreviewSourceProvider } from './api/PreviewSourceContext';
+import { PreviewSourceProvider } from './api/PreviewSourceProvider';
 import { App } from './App';
-import { AuthProvider } from './auth/AuthContext';
-import { ThemeProvider } from './theme/ThemeContext';
+import { AuthProvider } from './auth/AuthProvider';
+import { ThemeProvider } from './theme/ThemeProvider';
 
-createRoot(document.getElementById('root')!).render(
+// Deliberately not shared with live-office/main.tsx, which does the same
+// three lines: the two files are in different TypeScript projects
+// (tsconfig.app.json excludes src/live-office, which compiles vendored sources
+// at reduced strictness), and src/live-office imports nothing outside itself
+// except vendor/. A shared helper would be the first crossing of that boundary.
+const root = document.getElementById('root');
+if (!root) throw new Error('index.html is missing its #root element.');
+
+createRoot(root).render(
   <StrictMode>
     {/* basename matches vite.config.ts's `base` — the router has to agree
         with the asset base path, or a GitHub Pages project-site deploy

@@ -9,12 +9,8 @@ software sets their own policy for their own instance.
 
 A layout you submit is **public immediately** — there is no approval queue, no review
 before it appears. Moderation happens after publication: a moderator or admin acts on a
-layout once it is reported or otherwise noticed, not before. This is a deliberate
-trade-off, not an oversight: it keeps contribution friction low, which matters more here
-than it would for a higher-stakes index, and it means the burden of catching a problem
-sits with the community and the moderation team together, not with a gate nothing gets
-past. The traded-away risk is real and worth naming plainly — a tile grid can depict
-something like a hate symbol and will be public until someone acts on it — which is
+layout once it is reported or otherwise noticed, not before. A tile grid can depict
+something like a hate symbol and will be public until someone acts on it, which is
 exactly why "hidden" has to mean hidden from every public read path (list, detail,
 download, preview alike) the moment a moderator acts, not just the gallery view.
 
@@ -36,15 +32,17 @@ whether it matches a bullet point exactly.
 
 ## How to report a layout
 
-Reporting tooling does not exist yet in this index's software (see the note below). For
-now, contact a moderator or admin directly — see the account list in
-[MODERATORS.md](MODERATORS.md) — with the layout's link and what's wrong with it. You
-can expect an initial response within a few days; a small volunteer team, not a
-staffed trust-and-safety desk, is doing this.
+There is no in-app report button — this index has no report-intake queue. Contact a
+moderator or admin directly — see the account list in
+[MODERATORS.md](MODERATORS.md) — with the layout's link and what's wrong with it. Expect
+an initial response within a few days; a small volunteer team, not a staffed
+trust-and-safety desk, handles this.
 
 ## Enforcement
 
-Three actions, applied to the layout or the account, in increasing severity:
+Moderators hide, remove and block through the app's Moderation and Admin pages (see
+`services/api/README.md` for the endpoints behind them). Three actions, applied to the
+layout or the account, in increasing severity:
 
 | Action | Reversible? | What it means |
 |---|---|---|
@@ -63,11 +61,3 @@ Contact a moderator or admin — the same ones you'd report a layout to. If they
 hide or a block was wrong, they reverse it. There is no second layer beyond that today:
 this is a small volunteer project, not an organization with a formal appeals board.
 Disagreements are worked out by talking to the people who made the call.
-
-## A note on what exists today
-
-Moderators hide, remove and block through a real moderation console in the app now
-(`apps/web`'s Moderation and Admin pages, see `services/api/README.md` for the endpoints
-behind them). There is deliberately still no in-app **report button** — this index has
-no report-intake queue at all (see MODERATORS.md and the #10 issue thread for why) —
-so reporting stays the manual, contact-a-person path above.

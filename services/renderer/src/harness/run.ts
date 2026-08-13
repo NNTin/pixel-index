@@ -10,10 +10,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { createValidator, sha256, upstreamPin, type Layout } from '@pixel-index/layout-core';
+import { createValidator, type Layout, sha256, upstreamPin } from '@pixel-index/layout-core';
 
-import { startDevServer, type DevServer } from '../devServer.js';
-import { RenderTimeoutError, Renderer } from '../render.js';
+import { type DevServer, startDevServer } from '../devServer.js';
+import { Renderer, RenderTimeoutError } from '../render.js';
 import { HarnessInfraError, type HarnessLayout, type LayoutOutcome, type PinRun } from './types.js';
 
 export interface RunPinOptions {
@@ -37,9 +37,9 @@ export interface RunPinDeps {
 }
 
 export interface RendererLike {
-  start(): Promise<void>;
-  render(layout: Layout): Promise<Buffer>;
-  close(): Promise<void>;
+  start: () => Promise<void>;
+  render: (layout: Layout) => Promise<Buffer>;
+  close: () => Promise<void>;
 }
 
 const DEFAULT_CONCURRENCY = 2;
@@ -112,7 +112,11 @@ export async function runPin(
       onProgress?.(done, layouts.length);
     }
   } finally {
-    await renderer.close().catch(() => {});
+    await renderer.close().catch(() => {
+      // A browser that will not shut down cleanly must not mask whatever is
+      // already propagating out of the try, and must not stop devServer.stop()
+      // on the next line from running.
+    });
     devServer.stop();
   }
 
@@ -137,7 +141,7 @@ async function renderOne(
   let retried = false;
   try {
     png = await attempt();
-  } catch (first) {
+  } catch {
     // Retry once, and only the failures. A genuine incompatibility is
     // deterministic and will fail again; a timeout on a contended runner
     // usually will not. This is the cheapest available discriminator between

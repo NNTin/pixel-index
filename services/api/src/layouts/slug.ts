@@ -1,69 +1,62 @@
 /**
- * Slug generation from a submitted title.
+ * Random slug generation for a submission.
  *
- * Collision-safe and stable: generated once at submission time and never
- * regenerated from a later title edit (#9), because the slug is a permanent,
- * linkable, downloadable URL — silently moving it out from under a link
- * someone already shared would be a worse surprise than a slug that no
- * longer matches a since-renamed title.
+ * Deliberately unrelated to the submitted title (#29): a title-derived slug
+ * is a first-come-first-served vanity name, free for the taking by anyone
+ * fast enough to submit it — a real abuse vector regardless of the author's
+ * role. Every submission, admin or community member alike, gets a random,
+ * unpredictable slug instead; a human-chosen vanity slug is a privilege a
+ * moderator grants deliberately afterwards, via `PATCH /api/v1/layouts/:slug`
+ * (manage.ts), never something a submitter picks for themselves.
+ *
+ * The slug is never regenerated from a later title edit (#9) — it is a
+ * permanent, linkable, downloadable URL, and silently moving it out from
+ * under a link someone already shared would be a worse surprise than a slug
+ * that no longer matches a since-renamed title.
  */
 
-import { sql } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
+
+import { eq } from 'drizzle-orm';
 
 import type { AnyDatabase } from '../db/client.js';
 import * as schema from '../db/schema.js';
 
-const MAX_SLUG_LENGTH = 60; // matches the title length limit it is derived from
-const FALLBACK_BASE = 'layout';
+// 5 bytes -> 10 lowercase hex characters. Hex is exactly the [a-z0-9]
+// alphabet SLUG_RE (layout-core) and the `layouts_slug_format` check
+// constraint (schema.ts) require, so every candidate is valid by
+// construction — no further formatting or validation needed.
+const RANDOM_SLUG_BYTES = 5;
+const MAX_ATTEMPTS = 5;
 
-/**
- * A title to a bare slug base — no collision handling yet. Mirrors
- * `layouts_slug_format` (schema.ts) and layout-core's `SLUG_RE`
- * (`^[a-z0-9][a-z0-9-]*$`) exactly, since the database check constraint will
- * reject anything this function could produce that does not match it.
- */
-export function slugify(title: string): string {
-  const base = title
-    .toLowerCase()
-    .normalize('NFKD')
-    // Strip combining diacritical marks (U+0300–U+036F) left behind by NFKD
-    // decomposition, so "Café" -> "cafe" rather than losing the "e" entirely.
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, MAX_SLUG_LENGTH)
-    .replace(/-+$/g, ''); // truncation can leave a trailing "-"
-
-  // A title that is all emoji, all CJK, or otherwise contributes nothing
-  // ASCII-alphanumeric still needs a valid, non-empty slug to exist under.
-  return base.length > 0 ? base : FALLBACK_BASE;
+/** A CSPRNG candidate, not a guessable counter or Math.random() — see the file header. */
+function randomSlugCandidate(): string {
+  return randomBytes(RANDOM_SLUG_BYTES).toString('hex');
 }
 
 /**
- * The slug column has no visibility filter on its unique index (schema.ts) —
- * a moderator-removed layout still reserves its slug forever, so a resubmission
- * of similarly-titled content cannot collide with, or launder into, a slug
- * that was already taken. This query has to agree with that: no visibility
- * filter here either.
+ * True if `slug` is currently held by some row in `layouts`, regardless of
+ * visibility. A `removed`/`deleted` row still literally holds its slug value
+ * — the unique index (`layouts_slug_key`, schema.ts) is not visibility-aware,
+ * so this has to check every row or it could hand a fresh random candidate
+ * to a submission and have the insert rejected. Only used for picking a
+ * genuinely free *random* candidate; a moderator's vanity-slug claim
+ * (manage.ts) needs the actual row, not just this boolean, because it is
+ * willing to evict a removed/deleted holder rather than treat it as blocking
+ * — see manage.ts for why.
  */
-export async function generateUniqueSlug(db: AnyDatabase, title: string): Promise<string> {
-  const base = slugify(title);
-
-  const taken = await db
+export async function isSlugReserved(db: AnyDatabase, slug: string): Promise<boolean> {
+  const [row] = await db
     .select({ slug: schema.layouts.slug })
     .from(schema.layouts)
-    .where(sql`${schema.layouts.slug} = ${base} OR ${schema.layouts.slug} ~ ${`^${escapeRegex(base)}-[0-9]+$`}`);
-
-  if (taken.length === 0) return base;
-
-  const takenSet = new Set(taken.map((row) => row.slug));
-  if (!takenSet.has(base)) return base; // shouldn't happen given the query above, but cheap to keep correct
-
-  let suffix = 2;
-  while (takenSet.has(`${base}-${suffix}`)) suffix += 1;
-  return `${base}-${suffix}`;
+    .where(eq(schema.layouts.slug, slug));
+  return row !== undefined;
 }
 
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export async function generateUniqueSlug(db: AnyDatabase): Promise<string> {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const candidate = randomSlugCandidate();
+    if (!(await isSlugReserved(db, candidate))) return candidate;
+  }
+  throw new Error('Could not generate a unique slug after multiple attempts.');
 }

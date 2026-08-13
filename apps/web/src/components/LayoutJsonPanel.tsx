@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { apiUrl } from '../api/client';
+import { clipboardWriteText, copyViaSelection } from '../platform/clipboard';
 
 export type LayoutJsonState =
   | { status: 'loading' }
@@ -12,22 +13,14 @@ function formatJson(source: string): string {
 }
 
 async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
+  // Both branches are genuinely reachable, and platform/clipboard.ts is where
+  // the types are corrected to say so.
+  const writeText = clipboardWriteText();
+  if (writeText) {
+    await writeText(text);
     return;
   }
-
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  document.body.append(textarea);
-  textarea.select();
-  try {
-    if (!document.execCommand('copy')) throw new Error('Copy command was rejected.');
-  } finally {
-    textarea.remove();
-  }
+  copyViaSelection(text);
 }
 
 export function LayoutJsonPanel({
