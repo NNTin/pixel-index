@@ -473,6 +473,20 @@ gh api repos/pixel-agents-hq/index/rulesets/<id>
 gh api users/nntin-bot --jq .id   # the actor_id for the bypass entry
 ```
 
+**The first promotion has to be done by hand.** These workflows arrive on `develop`
+first, and `main` only gets them by being promoted — but a `workflow_dispatch` workflow
+is only listed in the Actions tab, and only resolvable by filename through the API, once
+it exists on the *default* branch. So **Advance main** cannot perform the promotion that
+would give `main` **Advance main**. Break the loop once, as an admin:
+
+```bash
+git fetch origin main develop
+git merge-base --is-ancestor origin/main origin/develop && \
+  git push origin origin/develop:refs/heads/main
+```
+
+Every promotion after that is the workflow.
+
 **4. Vercel** (Project → Settings; Root Directory must be `apps/web`)
 
 Set the **Production Branch** (Settings → Git) to `develop`. Vercel hosts staging, not
