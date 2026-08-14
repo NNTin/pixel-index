@@ -39,6 +39,8 @@ const ENV_KEYS = [
   'API_COMMIT',
   'MAX_LAYOUT_BYTES',
   'MAX_SUBMISSIONS_PER_USER_PER_DAY',
+  'MAX_IMPORT_BYTES',
+  'BACKUP_API_KEY',
   'PUBLIC_WEB_ORIGIN_PATTERNS',
 ] as const;
 
@@ -266,6 +268,23 @@ describe('loadConfig — SESSION_SECRET', () => {
   });
 });
 
+describe('loadConfig — BACKUP_API_KEY (#63)', () => {
+  it('is unset by default — the scheduled backup workflow is opt-in', () => {
+    setRequired();
+    expect(loadConfig().backupApiKey).toBeUndefined();
+  });
+
+  it('accepts a key at the minimum length', () => {
+    setRequired({ BACKUP_API_KEY: 'x'.repeat(32) });
+    expect(loadConfig().backupApiKey).toHaveLength(32);
+  });
+
+  it('rejects a short key — short shared secrets are brute-forceable', () => {
+    setRequired({ BACKUP_API_KEY: 'too-short' });
+    expect(() => loadConfig()).toThrow(/BACKUP_API_KEY must be at least 32 characters/);
+  });
+});
+
 describe('loadConfig — auth extras', () => {
   it('community integration is optional for self-hosters', () => {
     setRequired();
@@ -352,6 +371,20 @@ describe('loadConfig — submission limits (#8)', () => {
     const config = loadConfig();
     expect(config.maxLayoutBytes).toBe(500_000);
     expect(config.maxSubmissionsPerUserPerDay).toBe(5);
+  });
+});
+
+describe('loadConfig — backup import limit (#63)', () => {
+  it('defaults to 50MB, well above a single layout\'s cap', () => {
+    setRequired();
+    const config = loadConfig();
+    expect(config.maxImportBytes).toBe(50_000_000);
+  });
+
+  it('reads an override', () => {
+    setRequired({ MAX_IMPORT_BYTES: '1000000' });
+    const config = loadConfig();
+    expect(config.maxImportBytes).toBe(1_000_000);
   });
 });
 

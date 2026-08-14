@@ -19,7 +19,7 @@
  * redirect itself.
  */
 
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 
 import type { FastifyInstance } from 'fastify';
 
@@ -46,6 +46,7 @@ import {
   rotateRefreshToken,
   type TokenPair,
 } from './sessions.js';
+import { constantTimeEqual } from './tokens.js';
 import { getUserById, upsertDiscordUser } from './users.js';
 
 const OAUTH_COOKIE = 'pixelindex_oauth';
@@ -124,16 +125,6 @@ function unpackCookie(raw: string): OAuthCookiePayload | null {
   } catch {
     return null;
   }
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  // timingSafeEqual throws on length mismatch rather than returning false —
-  // an attacker learning "wrong length" from a thrown error is not the leak
-  // this guards against (state is unguessable regardless), but returning
-  // false explicitly is one fewer edge case in the caller.
-  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
 }
 
 export function registerAuthRoutes(app: FastifyInstance, { config, db }: AuthRoutesDeps): void {

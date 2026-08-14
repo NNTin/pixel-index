@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/pixel-agents-hq/pixel-index/packages/layout-core/schema/meta.schema.json",
+  "$id": "https://github.com/pixel-agents-hq/index/packages/layout-core/schema/meta.schema.json",
   "title": "Pixel Index layout metadata",
   "description": "Describes one community layout. Kept out of layout.json so that file stays byte-for-byte what Pixel Agents imports. Layouts are not licensed individually — the repository is MIT licensed as a whole.",
   "type": "object",
@@ -40,6 +40,16 @@
       "type": "string",
       "format": "uri",
       "description": "Optional link to the original design, thread, or inspiration."
+    },
+    "visibility": {
+      "type": "string",
+      "enum": ["public", "hidden"],
+      "description": "Absent means public. Carries a layout's visibility through a backup/restore round-trip; `deleted` is intentionally not a valid value here, since a deleted layout has nothing worth backing up or restoring."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Original submission time, so a restore can preserve it instead of stamping the import time. Absent for hand-authored fixtures that were never actually submitted."
     }
   }
 }

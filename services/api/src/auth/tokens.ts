@@ -12,7 +12,7 @@
  * detection are immediate. Only the hash is ever persisted.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { jwtVerify, SignJWT } from 'jose';
 
@@ -71,4 +71,20 @@ export function generateOpaqueToken(bytes = 32): OpaqueToken {
 
 export function hashToken(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+/**
+ * Compares two secrets without leaking their length-of-match through timing.
+ * Shared by the OAuth `state` check (auth/routes.ts) and the backup API key
+ * check (backup/export.ts) — the one place both need the same primitive
+ * rather than each keeping its own copy.
+ */
+export function constantTimeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  // timingSafeEqual throws on length mismatch rather than returning false —
+  // an attacker learning "wrong length" from a thrown error is not the leak
+  // this guards against (a well-formed secret is unguessable regardless),
+  // but returning false explicitly is one fewer edge case for callers.
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
 }

@@ -1,0 +1,110 @@
+name: Backup
+
+# #63: a private, admin-only backup of every public and hidden layout —
+# distinct from GET /api/v1/export/layouts.ndjson (export.ts), which is
+# public, unauthenticated and public-visibility-only by design. Nothing here
+# is sent anywhere public: the zip is only ever the layouts themselves
+# (mirroring seed/'s own <slug>/{layout.json,meta.json} shape), and it is
+# uploaded as a workflow artifact, not published or committed.
+#
+# Authenticates with BACKUP_API_KEY, a static, non-rotating shared secret
+# checked against the API's own config.backupApiKey (services/api/src/
+# backup/export.ts) — not a Discord session. See docs/deployment.md for what
+# it is and how to mint/rotate it.
+#
+# Daily for now. Cron budget is cheap and a daily cadence means at most one
+# day of loss if something goes wrong — will be relaxed to weekly once this
+# has run unattended for a while and the retention/cost tradeoff is revisited.
+on:
+  schedule:
+    - cron: '20 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two simultaneous runs would just download and upload the backup twice —
+# harmless, but pointless. Serialize rather than let them race.
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+env:
+  API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+
+jobs:
+  backup:
+    name: Download and archive a backup of the live index
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Before anything else, so a missing secret surfaces as a clear message
+      # instead of a confusing curl failure several steps down. `secrets`
+      # cannot be used in a step-level `if:`, so this is a shell test — the
+      # key is only ever checked for emptiness, never echoed.
+      - name: Required secrets are set
+        env:
+          BACKUP_API_KEY: ${{ secrets.BACKUP_API_KEY }}
+        run: |
+          if [ -n "$BACKUP_API_KEY" ]; then exit 0; fi
+          {
+            echo "::error::Missing secret: BACKUP_API_KEY"
+            echo "A static, non-rotating shared secret for this API's GET /api/v1/admin/backup —"
+            echo "not a Discord session. Generate one (openssl rand -base64 32), set it as this"
+            echo "API's own BACKUP_API_KEY environment variable, redeploy, then:"
+            echo "  gh secret set BACKUP_API_KEY"
+            echo "Full steps: docs/deployment.md, 'Setup checklist'."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: PRODUCTION_API_BASE_URL is set
+        run: |
+          if [ -n "$API_BASE_URL" ]; then exit 0; fi
+          {
+            echo "::error::No PRODUCTION_API_BASE_URL repository variable is set."
+            echo "Unlike vendor-update.yml, this workflow has nothing meaningful to fall back to —"
+            echo "a backup of the four committed seed/ layouts is not a backup of production."
+            echo "Set it: gh variable set PRODUCTION_API_BASE_URL --body https://api.example.com"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Download the backup
+        env:
+          BACKUP_API_KEY: ${{ secrets.BACKUP_API_KEY }}
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o backup.zip -w '%{http_code}' \
+            -H "X-Backup-Api-Key: $BACKUP_API_KEY" \
+            "$API_BASE_URL/api/v1/admin/backup")"
+          if [ "$status" != "200" ]; then
+            {
+              echo "::error::Backup download failed (HTTP $status)."
+              if [ "$status" = "401" ]; then
+                echo "BACKUP_API_KEY did not match the API's own configured value. Confirm the"
+                echo "repository secret and the API's BACKUP_API_KEY environment variable are"
+                echo "still the same string — see docs/deployment.md."
+              fi
+              cat backup.zip 2>/dev/null || true
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Downloaded $(stat -c%s backup.zip) byte(s)."
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+        id: download
+
+      - name: Upload the backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-index-backup-${{ steps.download.outputs.date }}-${{ github.run_id }}
+          path: backup.zip
+          # GitHub's own maximum — a longer value is rejected, and this repo
+          # sets no shorter organization/repository default. The issue's own
+          # rule: no sensitive information is sent, only a backup of the
+          # layouts — BACKUP_API_KEY itself is never written to this artifact.
+          retention-days: 90
+
+      - name: Summarise
+        if: always()
+        run: |
+          echo "### Backup" >> "$GITHUB_STEP_SUMMARY"
+          echo "Retention: 90 days." >> "$GITHUB_STEP_SUMMARY"

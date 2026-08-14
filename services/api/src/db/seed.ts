@@ -15,11 +15,18 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createValidator, type Layout, layoutStats, sha256, upstreamPin } from '@pixel-index/layout-core';
-import { eq, sql } from 'drizzle-orm';
+import {
+  createValidator,
+  type Layout,
+  type LayoutMeta,
+  layoutStats,
+  sha256,
+  upstreamPin,
+} from '@pixel-index/layout-core';
+import { sql } from 'drizzle-orm';
 
 import { validateTagNames } from '../layouts/metadata.js';
-import { attachTags } from '../layouts/query.js';
+import { attachTags, resolveAuthorFromMeta } from '../layouts/query.js';
 import { recordModerationAction } from '../moderation/audit.js';
 import { type AnyDatabase, createDatabase } from './client.js';
 import { SYSTEM_USER_ID } from './constants.js';
@@ -28,14 +35,6 @@ import * as schema from './schema.js';
 
 /** Resolves identically from `src/` under tsx and from `dist/` after a build — same trick as migrate.ts's MIGRATIONS_FOLDER. */
 export const SEED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../seed');
-
-interface SeedMeta {
-  title: string;
-  author: string;
-  authorDiscordId?: string;
-  description?: string;
-  tags?: string[];
-}
 
 function readSeedSlugs(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
@@ -65,7 +64,7 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
 
   for (const slug of slugs) {
     const raw = fs.readFileSync(path.join(dir, slug, 'layout.json'), 'utf-8');
-    const meta = JSON.parse(fs.readFileSync(path.join(dir, slug, 'meta.json'), 'utf-8')) as SeedMeta;
+    const meta = JSON.parse(fs.readFileSync(path.join(dir, slug, 'meta.json'), 'utf-8')) as LayoutMeta;
     const parsedLayout: unknown = JSON.parse(raw);
 
     // Seed layouts are shipped by this repo, but they still go through the
@@ -82,28 +81,12 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
 
     const stats = layoutStats(parsedLayout as Layout, { catalog: validator.catalog });
     const tags = validateTagNames(meta.tags ?? []);
+    // `deleted` is not a meta.json value (meta.schema.json) — there is nothing
+    // to seed for a layout that no longer exists.
+    const visibility = meta.visibility ?? 'public';
 
     await db.transaction(async (tx: AnyDatabase) => {
-      let authorUserId = SYSTEM_USER_ID;
-      let authorDisplay: string | null = meta.author;
-      if (meta.authorDiscordId) {
-        const [known] = await tx
-          .select({ id: schema.users.id })
-          .from(schema.users)
-          .where(eq(schema.users.discordId, meta.authorDiscordId));
-        if (known) {
-          authorUserId = known.id;
-        } else {
-          const created = one(
-            await tx
-              .insert(schema.users)
-              .values({ discordId: meta.authorDiscordId, username: meta.author })
-              .returning({ id: schema.users.id }),
-          );
-          authorUserId = created.id;
-        }
-        authorDisplay = null;
-      }
+      const { authorUserId, authorDisplay } = await resolveAuthorFromMeta(tx, meta);
 
       const row = one(
         await tx
@@ -111,9 +94,10 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
         .values({
           slug,
           title: meta.title,
-          description: meta.description ?? '',
+          description: meta.description,
           authorUserId,
           authorDisplay,
+          visibility,
           raw,
           layout: parsedLayout,
           sha256: sha256(raw),
@@ -138,7 +122,7 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
         action: 'layout.create',
         targetType: 'layout',
         targetId: row.id,
-        after: { slug, title: meta.title, visibility: 'public' },
+        after: { slug, title: meta.title, visibility },
       });
     });
     console.log(`Seeded ${slug}.`);

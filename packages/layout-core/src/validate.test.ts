@@ -38,6 +38,14 @@ describe('validateMeta', () => {
     expect(validateMeta({ ...meta, authorDiscordId: '1528094749993599038' }).valid).toBe(true);
   });
 
+  it.each(['public', 'hidden'])('accepts an optional %s visibility, for a backup/restore round-trip', (visibility) => {
+    expect(validateMeta({ ...meta, visibility }).valid).toBe(true);
+  });
+
+  it('accepts an optional createdAt, for preserving the original submission time on restore', () => {
+    expect(validateMeta({ ...meta, createdAt: '2026-01-01T00:00:00.000Z' }).valid).toBe(true);
+  });
+
   it.each([
     ['missing title', { author: 'a', description: 'd' }],
     ['empty description', { ...meta, description: '' }],
@@ -46,6 +54,8 @@ describe('validateMeta', () => {
     ['unknown field', { ...meta, license: 'MIT' }],
     ['non-uri source', { ...meta, source: 'not a url' }],
     ['invalid Discord author id', { ...meta, authorDiscordId: 'pablodelucca' }],
+    ['deleted visibility, which is not a valid backup/restore value', { ...meta, visibility: 'deleted' }],
+    ['non-date createdAt', { ...meta, createdAt: 'yesterday' }],
   ])('rejects %s', (_label, candidate) => {
     const result = validateMeta(candidate);
     expect(result.valid).toBe(false);

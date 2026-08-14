@@ -3,5 +3,6 @@
   "author": "pablodelucca",
   "authorDiscordId": "1528094749993599038",
   "description": "Four walled rooms around a shared corridor, each mapped to its own area.",
+  "visibility": "public",
   "tags": []
 }

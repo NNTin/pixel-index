@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/pixel-agents-hq/pixel-index/packages/layout-core/schema/layout.schema.json",
+  "$id": "https://github.com/pixel-agents-hq/index/packages/layout-core/schema/layout.schema.json",
   "title": "Pixel Agents office layout",
   "description": "Structural shape of an exported Pixel Agents layout. Upstream treats the layout as an opaque object owned by the rendering layer, so this schema covers the invariants the index depends on rather than every field. Cross-field and upstream-dependent rules (tiles length, known furniture ids, layoutRevision, grid bounds) cannot be expressed here and are enforced by validateLayout() in @pixel-index/layout-core.",
   "type": "object",

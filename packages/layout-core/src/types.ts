@@ -41,9 +41,14 @@ export interface Area {
 export interface LayoutMeta {
   title: string;
   author: string;
+  authorDiscordId?: string;
   description: string;
   tags?: string[];
   source?: string;
+  /** Absent means public. See meta.schema.json for why `deleted` is not a valid value here. */
+  visibility?: 'public' | 'hidden';
+  /** Original submission time, preserved across a backup/restore round-trip. */
+  createdAt?: string;
 }
 
 /** Placement properties resolved for one furniture id in the pinned upstream. */
