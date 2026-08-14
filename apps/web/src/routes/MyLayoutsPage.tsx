@@ -99,6 +99,15 @@ function EditRow({ layout, accessToken, canEdit, onSaved }: { layout: OwnerLayou
         <button type="button" onClick={() => setEditing(true)} className="text-accent hover:underline">
           Edit
         </button>
+        <Link to={`/layouts/${layout.slug}/edit`} className="text-accent hover:underline">
+          Edit layout
+        </Link>
+        {/*
+          Kept beside the editor (#65), not replaced by it: uploading a
+          layout.json exported from Pixel Agents itself is still the shortest
+          path for someone who drew it there, and it is the only one that
+          preserves their own bytes exactly.
+        */}
         <label className="cursor-pointer text-accent hover:underline">
           {replacing ? 'Replacing…' : 'Replace content'}
           <input
@@ -186,11 +195,26 @@ export function MyLayoutsPage() {
 
   if (error) return <ErrorNotice error={error} />;
   if (layouts === null) return <p className="text-muted">Loading…</p>;
-  if (layouts.length === 0) return <p className="text-muted">You haven't submitted any layouts yet.</p>;
+  if (layouts.length === 0) {
+    return (
+      <p className="text-muted">
+        You haven't submitted any layouts yet —{' '}
+        <Link to="/editor" className="text-accent underline">
+          draw one
+        </Link>
+        .
+      </p>
+    );
+  }
 
   return (
     <div>
-      <h1 className="font-display text-2xl text-ink">My layouts</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-2xl text-ink">My layouts</h1>
+        <Link to="/editor" className="border-2 border-accent px-3 py-1.5 text-sm text-accent">
+          New layout
+        </Link>
+      </div>
       <ul className="mt-6 flex list-none flex-col gap-4 p-0">
         {layouts.map((layout) => (
           <li key={layout.slug} className="border-2 border-border p-4">

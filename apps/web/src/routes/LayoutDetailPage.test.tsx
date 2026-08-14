@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { AuthProvider } from '../auth/AuthProvider';
 import { requestUrl } from '../test/fetchStub';
 import { LayoutDetailPage } from './LayoutDetailPage';
 
@@ -58,12 +59,19 @@ function stubFetch(layoutBody: unknown, metaBody: unknown) {
   );
 }
 
+/**
+ * Wrapped in a real `AuthProvider` with no login code in the URL, which is the
+ * anonymous case: this page is public, and the editor links (#65) it grew are
+ * the only thing on it that depends on who is looking.
+ */
 function renderDetail() {
   return render(
     <MemoryRouter initialEntries={['/layouts/blue-office']}>
-      <Routes>
-        <Route path="layouts/:slug" element={<LayoutDetailPage />} />
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route path="layouts/:slug" element={<LayoutDetailPage />} />
+        </Routes>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }

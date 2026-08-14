@@ -95,10 +95,12 @@ export function LiveOfficePreview({
       } else if (message.type === 'error') {
         setViewerError(message.message);
         setViewerStatus('error');
-      } else {
+      } else if (message.type === 'remove-agent') {
         const removedId = message.id;
         setAgents((current) => current.filter((agent) => agent.id !== removedId));
       }
+      // A `layout` message is the editor's (#65) — this preview never asks the
+      // frame to edit, so it can never be the one that provoked it.
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);

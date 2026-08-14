@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { getLayout, getLayoutJson, getMeta } from '../api/client';
 import { previewImageProps, usePreviewSource } from '../api/previewSourceState';
 import { useApi } from '../api/useApi';
+import { useAuth } from '../auth/authState';
 import { AuthorLink } from '../components/AuthorLink';
 import { ErrorNotice } from '../components/ErrorNotice';
 import { factsFor } from '../components/facts';
@@ -28,6 +29,7 @@ export function LayoutDetailPage() {
   // Read before the early returns below — hooks cannot be called conditionally,
   // and resolving the URL needs `layout.files`, which only exists after them.
   const previewSource = usePreviewSource();
+  const { user } = useAuth();
 
   if (layoutState.status === 'loading') {
     return <p className="text-muted">Loading…</p>;
@@ -54,6 +56,31 @@ export function LayoutDetailPage() {
         by <AuthorLink author={layout.author} /> · published{' '}
         {dateFormatter.format(new Date(layout.createdAt))}
       </p>
+
+      {/*
+        Both links go to the same editor (#65) and are shown to whoever can
+        already submit — a visitor without the capability sees the same page
+        they always did, read-only. Saving over this layout stays owner-only,
+        which is the API's rule (manage.ts) rather than this page's.
+      */}
+      {user?.submission.allowed && (
+        <p className="mt-3 flex flex-wrap gap-3 text-sm">
+          {user.discordId !== null && user.discordId === layout.author.discordId && (
+            <Link
+              to={`/layouts/${layout.slug}/edit`}
+              className="border-2 border-accent px-3 py-1.5 text-accent"
+            >
+              Edit layout
+            </Link>
+          )}
+          <Link
+            to={`/editor?from=${encodeURIComponent(layout.slug)}`}
+            className="border-2 border-border px-3 py-1.5 text-ink hover:border-accent"
+          >
+            Use as a starting point
+          </Link>
+        </p>
+      )}
 
       <div className="max-w-3xl">
         <LiveOfficePreview

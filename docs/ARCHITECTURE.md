@@ -9,7 +9,7 @@ everything else here.
 
 | Service | What it is | Owns |
 |---|---|---|
-| `web` | A static SPA (Vite + React), served by nginx; includes a build-time-pinned live-office viewer | Nothing — no state, no secrets. Just the built frontend. |
+| `web` | A static SPA (Vite + React), served by nginx; includes a build-time-pinned live-office viewer, which doubles as the layout editor | Nothing — no state, no secrets. Just the built frontend. |
 | `api` | A Fastify service | All persistent state: layouts, users, sessions, moderation audit log. The only component with real secrets (Discord client secret, session-signing key). |
 | `renderer` | A real headless Chromium driving the pinned `pixel-agents` webview | Nothing persistent. A pure function: layout JSON in, PNG out. |
 | `postgres` | Postgres 17 | The single source of truth for everything `api` doesn't compute on the fly. |
