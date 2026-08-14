@@ -46,13 +46,13 @@ describe('generateUniqueSlug', () => {
     expect(await generateUniqueSlug(harness.db)).toBe('bbbbbbbbbb');
   });
 
-  it("considers a REMOVED layout's slug just as taken as a public one", async () => {
-    // The unique index has no visibility filter (schema.ts) — a removed row
+  it("considers a DELETED layout's slug just as taken as a public one", async () => {
+    // The unique index has no visibility filter (schema.ts) — a deleted row
     // still literally holds its slug value at rest, and random generation has
     // to agree or it would hand out a slug the database then rejects on
     // insert. (A moderator's vanity-slug claim, unlike random generation, is
-    // willing to evict a removed/deleted holder instead — see manage.ts.)
-    await insertLayout(harness.db, { slug: 'ccccccccc1', visibility: 'removed' });
+    // willing to evict a deleted holder instead — see manage.ts.)
+    await insertLayout(harness.db, { slug: 'ccccccccc1', visibility: 'deleted' });
     mockedRandomBytes
       .mockReturnValueOnce(Buffer.from('ccccccccc1', 'hex'))
       .mockReturnValueOnce(Buffer.from('dddddddddd', 'hex'));
@@ -86,9 +86,9 @@ describe('isSlugReserved', () => {
     expect(await isSlugReserved(harness.db, 'active-office')).toBe(true);
   });
 
-  it('is true for a slug a removed layout still holds — it is not visibility-aware', async () => {
-    await insertLayout(harness.db, { slug: 'removed-office', visibility: 'removed' });
-    expect(await isSlugReserved(harness.db, 'removed-office')).toBe(true);
+  it('is true for a slug a deleted layout still holds — it is not visibility-aware', async () => {
+    await insertLayout(harness.db, { slug: 'deleted-office', visibility: 'deleted' });
+    expect(await isSlugReserved(harness.db, 'deleted-office')).toBe(true);
   });
 
   it('is false again once a layout renames away from a slug — nothing holds it any more', async () => {

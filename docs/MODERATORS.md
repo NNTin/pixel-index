@@ -17,8 +17,13 @@ by default). The Discord bot Pico is not involved and may be offline.
 
 The dashboard has a moderation page. The corresponding API actions are:
 
-- `PATCH /api/v1/layouts/:slug` with `{ "visibility": "hidden" | "removed" | "public", "reason": "…" }`
-  — hide, remove, or restore a layout. A reason is required.
+- `PATCH /api/v1/layouts/:slug` with `{ "visibility": "hidden" | "public", "reason": "…" }`
+  — hide or unhide a layout. A reason is required. This is the same toggle an owner has
+  on their own layout, minus the reason — see CONTENT_POLICY.md.
+- `DELETE /api/v1/layouts/:slug` with `{ "reason": "…" }` — permanently remove a layout.
+  A reason is required. **Irreversible**: unlike hide, there is no undo, no matter who
+  asks. Use this once a violation is confirmed, not for a first offense you're still
+  unsure about — hide buys time that delete does not.
 - `PATCH /api/v1/layouts/:slug` with metadata and a `reason` — correct another user's
   title, description, or tags without hiding an otherwise acceptable layout.
 - `PATCH /api/v1/layouts/:slug` with `{ "slug": "new-vanity-name", "reason": "…" }` —
@@ -26,10 +31,10 @@ The dashboard has a moderation page. The corresponding API actions are:
   first-come-first-served name-squatting; a moderator is the only one who can hand out a
   memorable one afterwards, for anyone. A slug already in use by a **public or hidden**
   layout is rejected outright (never silently modified into something like
-  `-2`). A slug that only a **removed or deleted** layout still holds is not blocking: it
-  is handed to the layout you're patching, and the old holder is automatically given a
-  fresh random slug in the same action, so nothing is left broken. There is no redirect
-  from wherever a slug used to point to wherever it ends up next.
+  `-2`). A slug that only a **deleted** layout still holds is not blocking: it is handed
+  to the layout you're patching, and the old holder is automatically given a fresh
+  random slug in the same action, so nothing is left broken. There is no redirect from
+  wherever a slug used to point to wherever it ends up next.
 - Admins additionally get a **read-only** directory of accounts that have interacted
   with Pixel Index, their last verified Basic/Moderator/Admin capability, and their
   total submitted layouts. It does not enumerate the Discord guild.

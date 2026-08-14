@@ -225,19 +225,15 @@ describe('visibility', () => {
     expect(layout.visibility).toBe('public');
   });
 
-  it('distinguishes moderator-hidden from owner-deleted', async () => {
-    // The two need different behaviour on re-submission: an owner may republish
-    // what they withdrew, but re-uploading moderator-removed content must not
-    // launder it back onto the front page.
+  it('distinguishes hidden from deleted', async () => {
+    // The two need different behaviour on re-submission: a byte-identical
+    // resubmit against the SAME owner's own `deleted` layout is allowed
+    // (manage.ts/submit.ts's dedupe exception); against a `hidden` one it
+    // is still a conflict — see submit.ts.
     const hidden = await insertLayout({ visibility: 'hidden', visibilityReason: 'under review' });
-    const removed = await insertLayout({ visibility: 'removed', visibilityReason: 'policy' });
     const deleted = await insertLayout({ visibility: 'deleted' });
 
-    expect([hidden.visibility, removed.visibility, deleted.visibility]).toEqual([
-      'hidden',
-      'removed',
-      'deleted',
-    ]);
+    expect([hidden.visibility, deleted.visibility]).toEqual(['hidden', 'deleted']);
   });
 
   it('carries the reason an owner needs to see', async () => {
@@ -254,7 +250,7 @@ describe('visibility', () => {
   it('reserves the slug even when a layout is gone', async () => {
     // Slug reuse by a different author is a quiet impersonation vector, so the
     // row survives and the unique index keeps holding.
-    const layout = await insertLayout({ slug: 'taken-forever', visibility: 'removed' });
+    const layout = await insertLayout({ slug: 'taken-forever', visibility: 'deleted' });
     expect(layout.slug).toBe('taken-forever');
     await expectRejection(insertLayout({ slug: 'taken-forever' }), /layouts_slug_key/);
   });

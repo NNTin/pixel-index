@@ -27,10 +27,10 @@ function EditRow({ layout, accessToken, canEdit, onSaved }: { layout: OwnerLayou
   const [togglingVisibility, setTogglingVisibility] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
 
-  // Own-layout public<->hidden toggle (#72) — never 'removed': that stays a
-  // moderator-only judgement call on the content, made via the Moderation
-  // page, not something an owner reaches from here. No `reason` is sent —
-  // the API does not require one for this specific transition.
+  // Own-layout public<->hidden toggle (#72). No `reason` is sent — the API
+  // does not require one for this transition. Permanently taking a layout
+  // down is a separate action (`remove` below, DELETE), not a visibility
+  // value this toggle ever reaches.
   async function toggleVisibility() {
     if (layout.visibility !== 'public' && layout.visibility !== 'hidden') return;
     const nextVisibility = layout.visibility === 'public' ? 'hidden' : 'public';
@@ -122,16 +122,15 @@ function EditRow({ layout, accessToken, canEdit, onSaved }: { layout: OwnerLayou
         <Link to={`/layouts/${layout.slug}/edit`} className="text-accent hover:underline">
           Edit layout
         </Link>
-        {(layout.visibility === 'public' || layout.visibility === 'hidden') && (
-          <button
-            type="button"
-            onClick={() => void toggleVisibility()}
-            disabled={togglingVisibility}
-            className="text-accent hover:underline disabled:opacity-50"
-          >
-            {togglingVisibility ? 'Saving…' : layout.visibility === 'public' ? 'Hide' : 'Make public'}
-          </button>
-        )}
+        {/* Only 'public'/'hidden' ever reach this branch — the 'deleted' case returns early above. */}
+        <button
+          type="button"
+          onClick={() => void toggleVisibility()}
+          disabled={togglingVisibility}
+          className="text-accent hover:underline disabled:opacity-50"
+        >
+          {togglingVisibility ? 'Saving…' : layout.visibility === 'public' ? 'Hide' : 'Make public'}
+        </button>
         {/*
           Kept beside the editor (#65), not replaced by it: uploading a
           layout.json exported from Pixel Agents itself is still the shortest

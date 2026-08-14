@@ -119,7 +119,7 @@ export function toDetail(
 }
 
 export interface OwnerLayoutView extends PublicLayoutDetail {
-  /** Absent from the public shape — a hidden/removed slug is a 404 there. */
+  /** Absent from the public shape — a hidden/deleted slug is a 404 there. */
   visibility: schema.Layout['visibility'];
   /**
    * Why it is not public, if it is not — surfaced to the owner (#9) so a

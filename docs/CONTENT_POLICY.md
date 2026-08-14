@@ -19,14 +19,14 @@ download, preview alike) the moment a moderator acts, not just the gallery view.
 An owner can toggle their own layout between public and hidden at any time, no reason
 needed — hiding your own work-in-progress is not a moderation action. This works even on
 a layout a moderator hid: an owner can put it back to public, the same as hiding it
-themselves. A **removed** layout is different — that is a moderator's finding that the
-content itself is a problem, and only a moderator can undo it. An owner can also delete
-their own layout outright; unlike hide, that is immediate and permanent.
+themselves. An owner can also delete their own layout outright, permanently — see
+Enforcement below for what that means and who else can do it.
 
 Hidden is not private. A backup of every layout, hidden ones included, still exists —
 see [issue #63](https://github.com/pixel-agents-hq/index/issues/63). Repeatedly
-un-hiding content a moderator hid for cause is treated as bad faith and can lead to a
-block under Enforcement below, same as any other repeat violation.
+un-hiding content a moderator hid for cause, or resubmitting content a moderator
+deleted, is treated as bad faith and can lead to a block under Enforcement below, same
+as any other repeat violation.
 
 ## What may not be submitted
 
@@ -54,17 +54,17 @@ trust-and-safety desk, handles this.
 
 ## Enforcement
 
-Moderators hide, remove and block through the app's Moderation and Admin pages (see
+Moderators hide, delete and block through the app's Moderation and Admin pages (see
 `services/api/README.md` for the endpoints behind them). Three actions, applied to the
 layout or the account, in increasing severity:
 
 | Action | Reversible? | What it means |
 |---|---|---|
 | **Hide** | Yes | The layout disappears from every public read path. Used for a first offense, or when the report needs a closer look before a final call. |
-| **Remove** | No | The layout disappears from every public read path, permanently — a moderator-removed layout's content cannot be laundered back in by resubmitting the same bytes under a new title. Used once a violation is confirmed. |
+| **Delete** | No | The layout disappears from every public read path, permanently — the same irreversible action an owner has always had for their own layout, now also available to a moderator on anyone's. Used once a violation is confirmed. Note: unlike a moderator's *hide*, a moderator's *delete* does not stop the same OWNER from later resubmitting the identical bytes — see `services/api/README.md`'s dedupe notes. Someone doing that repeatedly is a bad-faith pattern, handled the same as any repeat violation: a block, below. |
 | **Block the author** | The block itself is reversible; layouts hidden by it are not automatically restored | Every one of the account's currently-public layouts is hidden in the same action, the account can no longer submit or edit anything, and its active sessions are revoked. Used for repeat violations or a single severe one. |
 
-A moderator can hide or remove any single layout and record why. Blocking an account —
+A moderator can hide or delete any single layout and record why. Blocking an account —
 and blocking or unblocking a **moderator or admin** account specifically — requires an
 admin. Every one of these actions is recorded with who did it, when, and why, in an
 append-only log that is never edited or deleted after the fact.

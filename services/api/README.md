@@ -263,7 +263,7 @@ secret and update `.env`, before spending any time on the flow itself.
 
 No authentication anywhere in this section: reading is public, per the requirements.
 Every query filters to `visibility = 'public'` before anything else — a hidden or
-removed layout is a **404**, identical to a slug that never existed, never a 403 that
+deleted layout is a **404**, identical to a slug that never existed, never a 403 that
 would confirm something is there to hide.
 
 | Route | Purpose |
@@ -410,14 +410,22 @@ as possible:
 7. Slug generation, insert (in a transaction with tag attachment), then a best-effort
    render.
 
-### Dedupe also stops a moderation decision being laundered back in
+### Dedupe also stops a DIFFERENT owner resubmitting someone else's content
 
 The `sha256` lookup (`findLayoutBySha256`) is **not** scoped to public layouts — it
-checks every visibility. A layout a moderator removed still blocks a byte-identical
-resubmission with the same `409`, worded so it does not confirm *why* ("was submitted
-before and is not available", never naming the slug) — otherwise dedupe-by-content-hash
-would be exactly the mechanism someone could use to quietly undo a moderation decision by
-resubmitting the same content under a new title.
+checks every visibility. A layout that is currently `hidden`, or `deleted` and owned by
+someone ELSE, still blocks a byte-identical resubmission with the same `409`, worded so
+it does not confirm *why* ("was submitted before and is not available", never naming the
+slug) — otherwise dedupe-by-content-hash would be exactly the mechanism someone could use
+to quietly claim content that is not theirs.
+
+The one deliberate exception (`isOwnersOwnDeleted`, shared by this route, `manage.ts`'s
+`PUT .../layout`, and its `DELETE`): the SAME owner may always resubmit their own
+`deleted` layout's exact bytes, even one a MODERATOR deleted (#72) — this is a policy
+choice, not an oversight. There used to be a separate `removed` visibility specifically
+so a moderator's decision could never be "laundered back in" this way, even by the
+original owner; #72 retired it, so that specific guarantee is gone. Abuse is a
+Discord-membership problem (losing submission rights), not something dedupe enforces.
 
 ### Render failure never blocks publication
 
@@ -438,8 +446,8 @@ characters from a CSPRNG, regardless of the submitter's role. **Not** derived fr
 title — a title-derived slug is a first-come-first-served vanity name, free for the
 taking by anyone fast enough to submit it, which this design removes as an avenue of
 abuse. A candidate is checked against `layouts.slug` regardless of visibility — a
-`removed`/`deleted` row still literally holds its slug value at rest, since the unique
-index (schema.ts) is not visibility-aware — and retried on the (astronomically rare)
+`deleted` row still literally holds its slug value at rest, since the unique index
+(schema.ts) is not visibility-aware — and retried on the (astronomically rare)
 collision rather than stealing that row's slug; a manual vanity pick, unlike random
 generation, is willing to do that (see below). A true race between two concurrent
 submissions generating the same slug before either commits is retried (up to 3
@@ -450,7 +458,7 @@ A moderator can grant a vanity slug afterwards — `PATCH /api/v1/layouts/:slug`
 owner, format-checked against layout-core's shared `SLUG_RE`. A slug currently held by a
 `public` or `hidden` layout is a hard `409` — no silent `-2` suffix like an
 auto-generated slug gets, since a moderator typing a specific string expects that string
-or a clear rejection. A slug held by a `removed`/`deleted` layout is **not** blocking:
+or a clear rejection. A slug held by a `deleted` layout is **not** blocking:
 that row is evicted to a fresh random slug in the same transaction as the claim, and the
 requested string is handed to the new layout — the "reuse the same URL" case, where a
 newer version of a design takes over the vanity slug a now-dead earlier version held.
@@ -506,53 +514,47 @@ end-to-end suite" further down.
 
 ```text
 PATCH  /api/v1/layouts/:slug            edit title/description/tags; owner may also toggle
-                                         public<->hidden on their own; moderator gets full
-                                         visibility (incl. removed) and slug on anyone's
+                                         public<->hidden on their own; moderator gets the
+                                         same public/hidden toggle on anyone's, plus slug
 PUT    /api/v1/layouts/:slug/layout     replace the layout.json content — owner-only
-DELETE /api/v1/layouts/:slug            withdraw — owner-only, idempotent
+DELETE /api/v1/layouts/:slug            permanent removal — owner OR moderator, idempotent
 GET    /api/v1/me/layouts               the caller's own layouts, every visibility
 ```
 
 ### One `PATCH`, not a separate moderator endpoint
 
 Moderation was originally scoped as a separate report-intake API — `POST .../report`, a
-queue of open reports, dedicated hide/remove/restore routes. Instead: there is no report
-queue, and a moderator hides, removes or restores a layout through the **same** `PATCH
+queue of open reports, dedicated hide/restore routes. Instead: there is no report queue,
+and a moderator hides or unhides a layout through the **same** `PATCH
 /api/v1/layouts/:slug` an owner uses to fix a typo, not a parallel `/moderate` surface.
 The difference between an owner's edit and a moderator's action is which fields the
 request is allowed to touch, checked once per request:
 
-- `visibility` (#72): an owner may set it on their **own** layout, but only to `public` or
-  `hidden`, and only starting from one of those two — a plain self-service toggle for
-  unfinished work, not a moderation action. `removed` stays moderator-only, full stop,
-  as does undoing it: an owner cannot reach `removed` at all, and cannot move a
-  `removed` layout back to `public`/`hidden` themselves (that content was judged a
-  problem by someone else). A moderator keeps the full `MODERATOR_VISIBILITIES` set —
-  `public`/`hidden`/`removed` — on **anyone's** layout, including their own (see
-  MODERATORS.md's "recuse yourself" guidance for why that is discouraged even though it
-  is not blocked). `deleted` is never a value this field accepts for either actor — see
-  below.
+- `visibility` (#72): settable to `public` or `hidden` only — by the layout's OWNER on
+  their own layout, or by a MODERATOR on anyone's, including their own. Symmetric on
+  purpose: there is no longer a third, moderator-only visibility value, so there is
+  nothing left for the allowed-VALUES check to distinguish by actor. `deleted` is never a
+  value this field accepts for either actor, current OR target state — see `DELETE`
+  below for the only way in or out of it.
 - `slug` is moderator-only, full stop — an owner can never set even their own layout's
   slug. See "Vanity slugs" below.
-- A `reason` is required whenever the change is **not** the owner doing one of the two
-  things this endpoint lets them do without justifying themselves to themselves: editing
-  their own metadata, or toggling their own layout's visibility between public and
-  hidden. Every other write — a moderator's visibility change (their own layout included),
-  a slug change, or anyone editing someone else's layout — is moderation, and "no silent
-  moderation" means it is always attributed and always explained.
-- Every visibility transition maps onto one of `layout.hide` / `unhide` / `remove` /
-  `restore` in the audit log (`visibilityAuditAction()`, `manage.ts`) purely from
-  `(from, to)`, so the log reads as an actual moderation history, not four undifferentiated
-  "visibility changed" rows. This applies identically whether the actor is the owner or a
-  moderator — only `actorUserId`/`reason` on the row differ.
+- A `reason` is required whenever the change is **not** the caller acting on their OWN
+  layout: metadata edits, or a visibility toggle, on your own content needs no
+  justification to yourself, whether you happen to be a moderator or not. Anyone editing
+  someone ELSE's layout, or any slug change (moderator-only in the first place), is
+  moderation, and "no silent moderation" means it is always attributed and explained.
+- Every visibility transition maps onto `layout.hide` / `layout.unhide` in the audit log
+  (`visibilityAuditAction()`, `manage.ts`), purely from the target value — there is only
+  one direction left to distinguish now that `removed`/`restore` are gone. Identical
+  whether the actor is the owner or a moderator; only `actorUserId`/`reason` on the row
+  differ.
 
-`hidden` and `removed` are both reversible by a moderator through the same route — this
-means a moderator CAN currently move a layout back out of `removed`, despite
-CONTENT_POLICY.md describing Remove as not reversible; that is a pre-existing
-discrepancy between the code and that doc, not something #72 changes or resolves.
-`deleted` (owner-only, via `DELETE`) is not reachable from `PATCH` at all, for either
-actor — see schema.ts's visibility-state table for why hidden/removed and deleted are
-different things with different owners.
+There used to be a third, moderator-only `removed` visibility here, with its own
+`layout.remove`/`layout.restore` audit actions — folded by #72 into `DELETE`'s
+`deleted` instead (see "`DELETE`: owner or moderator, permanent, idempotent" below).
+`hidden` stays reversible by either actor;
+`deleted` (via `DELETE`, now either actor) is never reachable from `PATCH` at all, for
+either actor, current OR target state — see schema.ts's visibility-state table.
 
 ### Vanity slugs are moderator-granted, not self-service
 
@@ -566,9 +568,9 @@ a memorable vanity slug afterwards through the same `PATCH` route: `{ "slug":
 - Held by a `public` or `hidden` layout: a hard `409`. No silent `-2` suffix, since a
   moderator typing a specific string expects that string or a clear rejection, not a
   surprise variant.
-- Held by a `removed`/`deleted` layout: **not** blocking. That row is evicted to a fresh
-  random slug (`generateUniqueSlug`) in the same transaction, and a `layout.rename_slug`
-  audit entry is recorded against it, attributed to the acting moderator — before the
+- Held by a `deleted` layout: **not** blocking. That row is evicted to a fresh random
+  slug (`generateUniqueSlug`) in the same transaction, and a `layout.rename_slug` audit
+  entry is recorded against it, attributed to the acting moderator — before the
   requested string is handed to the layout being patched. This is the "reuse the same
   URL" workflow: a newer submission of a design takes over the vanity slug a superseded,
   no-longer-public earlier version held, rather than getting a different URL for what a
@@ -580,27 +582,48 @@ There is no redirect from wherever a slug used to point to wherever it ends up n
 the old URL simply 404s once its layout stops holding it, whether via a rename or an
 eviction. Two rows can never literally share a slug value, not even briefly: the unique
 index (`layouts_slug_key`, schema.ts) is not visibility-aware, which is also why a
-`removed`/`deleted` row's OWN slug column has to change, not just its visibility, for
-another layout to use that string.
+`deleted` row's OWN slug column has to change, not just its visibility, for another
+layout to use that string.
 
 ### `PUT .../layout` stays owner-only, even for a moderator
 
 Replacing the *content* of a layout is never something moderation does on someone
-else's behalf — a moderator who objects to the design hides or removes it; they do not
+else's behalf — a moderator who objects to the design hides or deletes it; they do not
 rewrite someone else's submission. It shares the raw-body content-type parser trick and
 the `layoutStats`/dedupe/render pipeline with `POST /layouts`, via the same
 `upstreamValidator.ts` instance built once at boot. The same dedupe rule applies:
 replacing with content that byte-matches one of the *same owner's* previously `deleted`
-layouts is allowed — only a match against someone else's layout, or a `removed` one, is
-a `409`.
+layouts is allowed, even a layout a MODERATOR deleted (#72) — only a match against
+someone else's layout is a `409`.
 
-### `DELETE` is owner-only and idempotent
+### `DELETE`: owner or moderator, permanent, idempotent (#72)
 
-A moderator never `DELETE`s — that would conflate "the owner withdrew this" with "a
-moderator acted on this" in the audit trail, which is exactly the distinction the audit
-trail exists to keep. Re-deleting an already-`deleted` layout is a silent `204`,
-matching `/auth/logout`'s existing idempotent-DELETE precedent rather than a `404` for a
-state the caller already achieved.
+There used to be a moderator-only `removed` visibility, set via `PATCH` the same way
+`hidden` was, plus a separate owner-only `DELETE` reaching a *different*, also
+irreversible `deleted` — two names for functionally the same outcome, gone-for-good and
+never coming back. #72 retired `removed`: a moderator now reaches the exact same
+`deleted` outcome an owner always has, through this same `DELETE`, rather than a second
+value under a different name depending on who acted. `manage.ts`'s route comment:
+
+- `!isOwner && !isModerator` → `403`, same gate as `PATCH`.
+- Already `deleted` → a silent idempotent `204`, matching `/auth/logout`'s existing
+  idempotent-DELETE precedent, no reason needed even for a moderator re-issuing the same
+  call — nothing changed, nothing to attribute.
+- Deleting someone ELSE's layout needs a `reason` (`{ "reason": "…" }` body) — "no silent
+  moderation" (#10), same rule as `PATCH`. Deleting your OWN needs none, moderator or
+  not — same reasoning as `PATCH`'s owner visibility toggle. There is deliberately no
+  `body` JSON Schema on this route (unlike `PATCH`) so that an owner's historically
+  bodiless call — no `Content-Type`, no payload at all — keeps working exactly as
+  before; `reason` is read and length-checked by hand instead (`readOptionalReason()`).
+- The dedupe exception above (`isOwnersOwnDeleted`) does not distinguish WHO deleted a
+  layout — a moderator-deleted one is exactly as resubmittable by its original owner as
+  a self-deleted one. This is a deliberate policy choice, not an oversight: the
+  anti-laundering guarantee `removed` used to provide (nobody, not even the original
+  owner, could resubmit moderator-removed content) is gone. Abuse of the reopened path —
+  an owner repeatedly resubmitting content a moderator keeps having to delete — is
+  handled the same way the issue that introduced this (#72) describes: losing Discord
+  guild membership loses submission capability entirely, upstream of anything this API
+  enforces.
 
 ### `GET /me/layouts`
 
@@ -771,23 +794,27 @@ anywhere else in the codebase.
 **Post-moderation.** `visibility` defaults to `public` on insert. There is no approval
 queue — the queue is the *report* queue.
 
-**Four visibility states, not a boolean:**
+**Three visibility states, not a boolean:**
 
 | state | set by | reversible | slug reserved | in public API |
 |---|---|---|---|---|
 | `public` | — | — | yes | yes |
-| `hidden` | moderator or owner (#72, on their own layout) | yes, by a moderator OR by the owner | yes | no |
-| `removed` | moderator | no | yes | no |
-| `deleted` | owner | no | yes | no |
+| `hidden` | owner or moderator | yes, by either | yes | no |
+| `deleted` | owner or moderator (#72) | no | yes | no |
 
 An owner can toggle their own layout `public`<->`hidden` freely, including undoing a
-moderator's `hidden` — but never reach `removed` or claw one back out of it; see "One
-`PATCH`, not a separate moderator endpoint" above for the exact rule and why.
+moderator's `hidden` — but can never reach `deleted`'s current OR target state through
+`PATCH`; that is `DELETE`-only. See "One `PATCH`, not a separate moderator endpoint"
+above for the exact rule and why. There used to be a fourth, moderator-only `removed`
+state occupying the same "gone for good" niche as `deleted` under a different name;
+retired by #72 — see "`DELETE`: owner or moderator, permanent, idempotent" above.
 
-Moderator-hidden and owner-deleted need different behaviour on re-submission: an owner
-may republish what they withdrew, but re-uploading moderator-removed content must not
-launder it back onto the front page. The row always survives, because slug reuse by a
-different author is a quiet impersonation vector.
+A byte-identical resubmit is allowed once a layout is `deleted`, but only by the SAME
+owner — even if a MODERATOR was the one who deleted it (#72's deliberate policy choice,
+see "Dedupe also stops a DIFFERENT owner..." above). A different owner resubmitting the
+same bytes, or a `hidden` layout's owner doing so, is still a `409`. The row always
+survives regardless, because slug reuse by a different author is a quiet impersonation
+vector.
 
 **Seed layouts have a real owner.** Git-versioned seed layouts have no Discord account
 behind them. Rather than a nullable
@@ -848,7 +875,7 @@ ORDER BY created_at;
 ## Indexes
 
 Every public read path filters on visibility first, so the layout-listing and tag-filter
-indexes are **partial** (`WHERE visibility = 'public'`). They stay small as removed and
+indexes are **partial** (`WHERE visibility = 'public'`). They stay small as hidden and
 deleted rows accumulate. Verified against Postgres 17 with 20k rows across 60 authors:
 listing uses `layouts_public_created_idx`, author filtering uses
 `layouts_public_author_idx`, dedupe uses `layouts_sha256_idx`, and full-text search uses
@@ -899,7 +926,7 @@ right test go red is what proves the test is actually anchored to the security p
 it claims to guard, not merely exercising the code path around it. The public layout API
 applies the same discipline to its own three easiest-to-silently-break properties: the
 tags ALL-match filter, the visibility filter
-(never returning a hidden/removed layout), and the cursor's sort-mismatch rejection.
+(never returning a hidden/deleted layout), and the cursor's sort-mismatch rejection.
 
 `layouts/routes.test.ts` runs the **whole public layout API through real HTTP route
 handlers** against a migrated PGlite database, including the renderer proxy — with only

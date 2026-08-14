@@ -376,8 +376,8 @@ export async function getLayoutBySlug(db: AnyDatabase, slug: string): Promise<sc
 /**
  * Same lookup, no visibility filter — for the owner/moderator write routes
  * (manage.ts), which have to be able to find and act on a layout that is
- * already hidden or removed (to edit it, or to restore it). #6's public read
- * paths must never use this one.
+ * already hidden or deleted (to edit or hide/unhide it, or to delete it).
+ * #6's public read paths must never use this one.
  */
 export async function getLayoutBySlugAnyVisibility(
   db: AnyDatabase,
@@ -427,9 +427,13 @@ export async function authorsForLayouts(
 
 /**
  * By content hash, **regardless of visibility** — dedupe (#8) has to catch a
- * resubmission of something a moderator already removed, not just a public
- * one, or a moderation decision could be silently laundered back onto the
- * front page by re-uploading byte-identical content under a fresh slug.
+ * resubmission of hidden or deleted content too, not just public, or a
+ * DIFFERENT owner could re-upload someone else's non-public layout
+ * byte-for-byte under a fresh slug. The one deliberate exception (manage.ts/
+ * submit.ts's `isOwnersOwnDeleted` check) is the SAME owner resubmitting
+ * their own `deleted` layout — allowed even if a moderator was the one who
+ * deleted it (#72): abuse of that is a Discord-membership problem, not
+ * something dedupe enforces.
  */
 export async function findLayoutBySha256(
   db: AnyDatabase,

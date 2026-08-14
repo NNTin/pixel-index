@@ -13,11 +13,16 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   'layout.create': 'Created',
   'layout.update': 'Edited (owner)',
   'layout.replace': 'Content replaced',
-  'layout.delete': 'Deleted (owner)',
+  // Owner or moderator (#72) — unlike update/moderate_edit above, deletion
+  // shares one action label for both actors; `by {actorLabel}` below (not
+  // this label) is what says who.
+  'layout.delete': 'Deleted',
   'layout.hide': 'Hidden',
   'layout.unhide': 'Unhidden',
-  'layout.remove': 'Removed',
-  'layout.restore': 'Restored',
+  // Retired (#72): no longer written — 'removed' was folded into 'deleted'.
+  // Kept so history from before #72 still renders with a real label.
+  'layout.remove': 'Removed (retired)',
+  'layout.restore': 'Restored (retired)',
   'layout.moderate_edit': 'Edited (moderator)',
   'layout.rename_slug': 'Slug renamed',
   'report.create': 'Report filed',
@@ -114,7 +119,7 @@ export function AuditLogPage() {
     <div>
       <h1 className="font-display text-2xl text-ink">Moderation history</h1>
       <p className="mt-1 text-sm text-muted">
-        Every owner and moderator action on every layout — created, edited, hidden, removed, renamed — with its
+        Every owner and moderator action on every layout — created, edited, hidden, deleted, renamed — with its
         reason, its actor, and a before/after snapshot.
       </p>
 

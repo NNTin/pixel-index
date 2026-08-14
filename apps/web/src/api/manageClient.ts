@@ -71,10 +71,17 @@ export function replaceLayoutContent(
   });
 }
 
-export function deleteLayout(slug: string, accessToken: string): Promise<void> {
+/**
+ * Owner or moderator (#72) — a moderator deleting someone else's layout must
+ * pass `reason`; an owner deleting their own does not, and omitting the
+ * param entirely (rather than passing `reason: undefined`) keeps that call
+ * bodyless, exactly as it always was before a moderator could reach this too.
+ */
+export function deleteLayout(slug: string, accessToken: string, reason?: string): Promise<void> {
   return apiRequest(`/api/v1/layouts/${encodeURIComponent(slug)}`, {
     method: 'DELETE',
     accessToken,
     parseAs: 'none',
+    ...(reason !== undefined ? { body: { reason } } : {}),
   });
 }

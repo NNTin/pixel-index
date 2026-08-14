@@ -155,7 +155,7 @@ export interface TokenExchangeResponse extends TokenPair {
 // ─── Owner self-service (#9, #15) ───────────────────────────────────────
 
 export interface OwnerLayoutView extends LayoutDetail {
-  visibility: 'public' | 'hidden' | 'removed' | 'deleted';
+  visibility: 'public' | 'hidden' | 'deleted';
   visibilityReason: string | null;
   visibilityChangedAt: string | null;
 }
@@ -177,7 +177,11 @@ export interface PatchLayoutBody {
   title?: string;
   description?: string;
   tags?: string[];
-  visibility?: 'public' | 'hidden' | 'removed';
+  /**
+   * Owner or moderator, on public/hidden only (#72) — `deleted` is never
+   * reachable through PATCH for either actor; see `deleteLayout` instead.
+   */
+  visibility?: 'public' | 'hidden';
   /** Moderator-only vanity slug (#29) — see manage.ts's PATCH handler. */
   slug?: string;
   reason?: string;
@@ -189,7 +193,7 @@ export interface ListModerationLayoutsParams {
   limit?: number;
   cursor?: string;
   sort?: 'newest' | 'furniture' | 'largest' | 'title';
-  visibility?: 'public' | 'hidden' | 'removed' | 'deleted';
+  visibility?: 'public' | 'hidden' | 'deleted';
   author?: string;
   q?: string;
 }
@@ -217,6 +221,7 @@ export type AuditAction =
   | 'layout.delete'
   | 'layout.hide'
   | 'layout.unhide'
+  // Retired (#72) — no longer written, kept only so pre-#72 history renders.
   | 'layout.remove'
   | 'layout.restore'
   | 'layout.moderate_edit'

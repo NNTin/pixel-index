@@ -3,7 +3,7 @@
  * what our own frontend consumes too, so it never has a backend-for-frontend
  * shortcut this API itself lacks. No auth anywhere in this file: reading is
  * public, per the requirements, and every query already filters to
- * `visibility = 'public'` (query.ts) — a hidden or removed layout is 404,
+ * `visibility = 'public'` (query.ts) — a hidden or deleted layout is 404,
  * indistinguishable from a slug that never existed.
  */
 

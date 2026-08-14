@@ -117,10 +117,11 @@ function put(slug: string, body: string, accessToken?: string) {
   });
 }
 
-function del(slug: string, accessToken?: string) {
+function del(slug: string, accessToken?: string, body?: { reason?: string }) {
   return app.inject({
     method: 'DELETE',
     url: `/api/v1/layouts/${slug}`,
+    ...(body !== undefined ? { payload: body } : {}),
     headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
   });
 }
@@ -176,14 +177,14 @@ describe('PATCH /api/v1/layouts/:slug — owner edits', () => {
     expect(response.json<OwnerLayoutView>().visibility).toBe('public');
   });
 
-  it('refuses an owner setting their own layout to removed — that stays a moderator action (#72)', async () => {
+  it('rejects "removed" as an unknown visibility value — that state no longer exists (#72)', async () => {
     const { accessToken, layout } = await ownedLayout();
     const response = await patch(layout.slug, { visibility: 'removed', reason: 'nah' }, accessToken);
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(400);
   });
 
-  it('refuses an owner un-hiding a layout a MODERATOR has removed — restoring stays moderator-only (#72)', async () => {
-    const { accessToken, layout } = await ownedLayout({ visibility: 'removed' });
+  it('refuses an owner reviving their own DELETED layout via PATCH — deletion is permanent (#72)', async () => {
+    const { accessToken, layout } = await ownedLayout({ visibility: 'deleted' });
     const response = await patch(layout.slug, { visibility: 'public' }, accessToken);
     expect(response.statusCode).toBe(403);
   });
@@ -208,10 +209,10 @@ describe('PATCH /api/v1/layouts/:slug — moderation', () => {
     expect(publicView.statusCode).toBe(404);
   });
 
-  it('requires a reason to hide, remove or restore', async () => {
+  it('requires a reason for a moderator to hide someone else\'s layout', async () => {
     const { layout } = await ownedLayout();
     const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
-    const response = await patch(layout.slug, { visibility: 'removed' }, modToken);
+    const response = await patch(layout.slug, { visibility: 'hidden' }, modToken);
     expect(response.statusCode).toBe(400);
   });
 
@@ -229,7 +230,7 @@ describe('PATCH /api/v1/layouts/:slug — moderation', () => {
     expect(response.statusCode).toBe(403);
   });
 
-  it('still requires a reason when a MODERATOR changes visibility, even on their own layout (#72 unchanged)', async () => {
+  it('needs no reason when a MODERATOR toggles visibility on their OWN layout — same as any owner (#72)', async () => {
     const { accessToken: modToken, user: moderator } = await tokenFor({ role: 'moderator' });
     const raw = validLayoutJson();
     const ownLayout = await insertLayout(harness.db, {
@@ -240,15 +241,15 @@ describe('PATCH /api/v1/layouts/:slug — moderation', () => {
       visibility: 'public',
     });
     const response = await patch(ownLayout.slug, { visibility: 'hidden' }, modToken);
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(200);
+    expect(response.json<OwnerLayoutView>().visibility).toBe('hidden');
   });
 
-  it('is reversible: a removed layout can be restored by a moderator', async () => {
-    const { layout } = await ownedLayout({ visibility: 'removed' });
+  it('refuses a MODERATOR reviving a DELETED layout via PATCH — deletion is permanent for everyone (#72)', async () => {
+    const { layout } = await ownedLayout({ visibility: 'deleted' });
     const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
     const response = await patch(layout.slug, { visibility: 'public', reason: 'appeal granted' }, modToken);
-    expect(response.statusCode).toBe(200);
-    expect(response.json<OwnerLayoutView>().visibility).toBe('public');
+    expect(response.statusCode).toBe(403);
   });
 });
 
@@ -333,8 +334,8 @@ describe('PATCH /api/v1/layouts/:slug — vanity slug (#29)', () => {
     expect(response.statusCode).toBe(409);
   });
 
-  it('lets a newer layout take over a REMOVED layout\'s vanity slug (#29 "reuse the same URL")', async () => {
-    const superseded = await insertLayout(harness.db, { slug: 'moonbase-office', visibility: 'removed' });
+  it('lets a newer layout take over a DELETED layout\'s vanity slug (#29 "reuse the same URL")', async () => {
+    const superseded = await insertLayout(harness.db, { slug: 'moonbase-office', visibility: 'deleted' });
     const { layout: newer } = await ownedLayout();
     const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
 
@@ -353,18 +354,8 @@ describe('PATCH /api/v1/layouts/:slug — vanity slug (#29)', () => {
     expect(evictedRow.slug).toMatch(SLUG_RE);
   });
 
-  it("lets a newer layout take over a DELETED (owner-withdrawn) layout's vanity slug", async () => {
-    await insertLayout(harness.db, { slug: 'withdrawn-office', visibility: 'deleted' });
-    const { layout: newer } = await ownedLayout();
-    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
-
-    const response = await patch(newer.slug, { slug: 'withdrawn-office', reason: 'newer version' }, modToken);
-    expect(response.statusCode).toBe(200);
-    expect(response.json<OwnerLayoutView>().slug).toBe('withdrawn-office');
-  });
-
   it('records an audit entry for the evicted layout, attributed to the acting moderator', async () => {
-    const superseded = await insertLayout(harness.db, { slug: 'evicted-office', visibility: 'removed' });
+    const superseded = await insertLayout(harness.db, { slug: 'evicted-office', visibility: 'deleted' });
     const { layout: newer } = await ownedLayout();
     const { accessToken: modToken, user: moderator } = await tokenFor({ role: 'moderator' });
 
@@ -557,22 +548,15 @@ describe('PUT /api/v1/layouts/:slug/layout — owner replace', () => {
   });
 });
 
-describe('DELETE /api/v1/layouts/:slug — owner withdrawal', () => {
-  it('is owner-only', async () => {
+describe('DELETE /api/v1/layouts/:slug — owner or moderator deletion (#72)', () => {
+  it('refuses a stranger — neither the owner nor a moderator', async () => {
     const { layout } = await ownedLayout();
     const { accessToken: stranger } = await tokenFor();
     const response = await del(layout.slug, stranger);
     expect(response.statusCode).toBe(403);
   });
 
-  it('a moderator cannot delete via this route', async () => {
-    const { layout } = await ownedLayout();
-    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
-    const response = await del(layout.slug, modToken);
-    expect(response.statusCode).toBe(403);
-  });
-
-  it('deletes and is idempotent on re-delete', async () => {
+  it('deletes and is idempotent on re-delete, no reason required for an owner', async () => {
     const { accessToken, layout } = await ownedLayout();
     const first = await del(layout.slug, accessToken);
     expect(first.statusCode).toBe(204);
@@ -582,6 +566,61 @@ describe('DELETE /api/v1/layouts/:slug — owner withdrawal', () => {
 
     const second = await del(layout.slug, accessToken);
     expect(second.statusCode).toBe(204);
+  });
+
+  it('lets a moderator delete someone else\'s layout, with a reason', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken, user: moderator } = await tokenFor({ role: 'moderator' });
+    const response = await del(layout.slug, modToken, { reason: 'policy violation' });
+    expect(response.statusCode).toBe(204);
+
+    const row = await getLayoutById(layout.id);
+    expect(row.visibility).toBe('deleted');
+    expect(row.visibilityReason).toBe('policy violation');
+    expect(row.visibilityChangedBy).toBe(moderator.id);
+
+    const entries = await harness.db
+      .select()
+      .from(schema.moderationActions)
+      .where(eq(schema.moderationActions.targetId, layout.id));
+    const deleteEntry = entries.find((entry) => entry.action === 'layout.delete');
+    expect(deleteEntry?.actorUserId).toBe(moderator.id);
+    expect(deleteEntry?.reason).toBe('policy violation');
+  });
+
+  it('requires a reason when a moderator deletes someone else\'s layout', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await del(layout.slug, modToken);
+    expect(response.statusCode).toBe(400);
+
+    const row = await getLayoutById(layout.id);
+    expect(row.visibility).toBe('public');
+  });
+
+  it('needs no reason when a moderator deletes their OWN layout — same as any owner', async () => {
+    const { accessToken: modToken, user: moderator } = await tokenFor({ role: 'moderator' });
+    const raw = validLayoutJson();
+    const ownLayout = await insertLayout(harness.db, {
+      authorUserId: moderator.id,
+      raw,
+      layout: JSON.parse(raw),
+      sha256: sha256(raw),
+      visibility: 'public',
+    });
+    const response = await del(ownLayout.slug, modToken);
+    expect(response.statusCode).toBe(204);
+
+    const row = await getLayoutById(ownLayout.id);
+    expect(row.visibility).toBe('deleted');
+    expect(row.visibilityReason).toBeNull();
+  });
+
+  it('is idempotent for a moderator re-deleting an already-deleted layout too, without demanding a reason', async () => {
+    const { layout } = await ownedLayout({ visibility: 'deleted' });
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const response = await del(layout.slug, modToken);
+    expect(response.statusCode).toBe(204);
   });
 });
 

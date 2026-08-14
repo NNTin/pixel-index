@@ -196,14 +196,36 @@ async function main() {
     assert.equal(res.status, 200);
   });
 
-  await step('the owner cannot set visibility, even on their own layout', async () => {
+  await step('the owner hides their own layout, no reason required, and it vanishes from the public API (#72)', async () => {
     const res = await api(`/api/v1/layouts/${slug}`, {
       method: 'PATCH',
       token: owner.accessToken,
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ visibility: 'hidden', reason: 'nope' }),
+      body: JSON.stringify({ visibility: 'hidden' }),
     });
-    assert.equal(res.status, 403);
+    assert.equal(res.status, 200);
+    assert.equal((await api(`/api/v1/layouts/${slug}`)).status, 404);
+  });
+
+  await step('the owner un-hides their own layout back to public, no reason required (#72)', async () => {
+    const res = await api(`/api/v1/layouts/${slug}`, {
+      method: 'PATCH',
+      token: owner.accessToken,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ visibility: 'public' }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await api(`/api/v1/layouts/${slug}`)).status, 200);
+  });
+
+  await step('"removed" is rejected as an unknown visibility value — that state no longer exists (#72)', async () => {
+    const res = await api(`/api/v1/layouts/${slug}`, {
+      method: 'PATCH',
+      token: owner.accessToken,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ visibility: 'removed', reason: 'nope' }),
+    });
+    assert.equal(res.status, 400);
   });
 
   await step('a moderator hiding without a reason is rejected', async () => {
@@ -264,6 +286,64 @@ async function main() {
     const second = await api(`/api/v1/layouts/${slug}`, { method: 'DELETE', token: owner.accessToken });
     assert.equal(second.status, 204);
     assert.equal((await api(`/api/v1/layouts/${slug}`)).status, 404);
+  });
+
+  // #72: DELETE is no longer owner-only — a moderator reaches the same
+  // permanent outcome an owner always has, on anyone's layout, with a
+  // reason. There used to be a separate moderator-only "removed" visibility
+  // for this; it is gone.
+  const modDeleteRaw = layoutJson(7, 7);
+  let modDeleteSlug = '';
+  await step('owner submits a second layout, for moderator-deletion coverage (#72)', async () => {
+    const res = await api('/api/v1/layouts?title=E2E+Moderator+Delete+Target', {
+      method: 'POST',
+      token: owner.accessToken,
+      headers: { 'content-type': 'application/json' },
+      body: modDeleteRaw,
+    });
+    assert.equal(res.status, 201);
+    const body = await json<SubmitLayoutBody>(res);
+    modDeleteSlug = body.slug;
+  });
+
+  await step("a moderator deleting someone else's layout without a reason is rejected (#72)", async () => {
+    const res = await api(`/api/v1/layouts/${modDeleteSlug}`, {
+      method: 'DELETE',
+      token: moderator.accessToken,
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await api(`/api/v1/layouts/${modDeleteSlug}`)).status, 200);
+  });
+
+  await step("a moderator deletes someone else's layout with a reason, and it is permanent (#72)", async () => {
+    const res = await api(`/api/v1/layouts/${modDeleteSlug}`, {
+      method: 'DELETE',
+      token: moderator.accessToken,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'e2e moderator delete' }),
+    });
+    assert.equal(res.status, 204);
+    assert.equal((await api(`/api/v1/layouts/${modDeleteSlug}`)).status, 404);
+  });
+
+  await step('the owner cannot revive a moderator-deleted layout via PATCH — deletion is permanent (#72)', async () => {
+    const res = await api(`/api/v1/layouts/${modDeleteSlug}`, {
+      method: 'PATCH',
+      token: owner.accessToken,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ visibility: 'public' }),
+    });
+    assert.equal(res.status, 403);
+  });
+
+  await step('the SAME owner can still resubmit the exact bytes a MODERATOR deleted (#72 deliberate policy)', async () => {
+    const res = await api('/api/v1/layouts?title=Resubmit+After+Moderator+Delete', {
+      method: 'POST',
+      token: owner.accessToken,
+      headers: { 'content-type': 'application/json' },
+      body: modDeleteRaw,
+    });
+    assert.equal(res.status, 201);
   });
 
   await step(

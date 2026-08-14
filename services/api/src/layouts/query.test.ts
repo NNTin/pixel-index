@@ -28,7 +28,7 @@ describe('getLayoutBySlug', () => {
     expect(await getLayoutBySlug(harness.db, 'does-not-exist')).toBeNull();
   });
 
-  it.each(['hidden', 'removed', 'deleted'] as const)(
+  it.each(['hidden', 'deleted'] as const)(
     'returns null for a %s layout — indistinguishable from never having existed',
     async (visibility) => {
       const layout = await insertLayout(harness.db, { slug: `not-public-${visibility}`, visibility });

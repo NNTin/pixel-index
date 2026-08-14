@@ -249,9 +249,11 @@ describe('POST /api/v1/layouts — dedupe', () => {
     expect(dupe.json<EnvelopeBody>().message).toContain(original.json<SubmitLayoutBody>().slug);
   });
 
-  it('rejects resubmitting content matching a non-public (e.g. removed) layout, without laundering it back', async () => {
-    // The exact property #3's schema comment names: re-uploading
-    // moderator-removed content must not launder it back onto the front page.
+  it('rejects resubmitting content matching a non-public layout someone ELSE deleted, without laundering it back', async () => {
+    // The dedupe exception in manage.ts/submit.ts only exempts the SAME
+    // owner's own `deleted` layout — a different user resubmitting the exact
+    // same bytes is still a conflict, moderator-deleted or self-deleted alike
+    // (#72: there is no longer a separate moderator-only `removed` state).
     const raw = JSON.stringify({
       version: 1,
       layoutRevision: BUNDLED_REVISION,
@@ -261,11 +263,11 @@ describe('POST /api/v1/layouts — dedupe', () => {
       furniture: [],
     });
     await insertLayout(harness.db, {
-      slug: 'previously-removed',
+      slug: 'previously-deleted-by-someone-else',
       raw,
       layout: JSON.parse(raw),
       sha256: sha256(raw),
-      visibility: 'removed',
+      visibility: 'deleted',
     });
 
     const { accessToken } = await tokenFor();
@@ -273,14 +275,12 @@ describe('POST /api/v1/layouts — dedupe', () => {
       authorization: `Bearer ${accessToken}`,
     });
     expect(response.statusCode).toBe(409);
-    expect(response.json<EnvelopeBody>().message).not.toContain('previously-removed'); // does not confirm the slug
+    expect(response.json<EnvelopeBody>().message).not.toContain('previously-deleted-by-someone-else'); // does not confirm the slug
   });
 
   it('allows the SAME owner to resubmit content they previously deleted', async () => {
-    // schema.ts's own documented intent: deleted (owner-withdrawn) is not
-    // the same as removed (moderator-withdrawn) — only the latter must
-    // resist being laundered back via resubmission. Scoped to the same
-    // owner, though — see the next test.
+    // schema.ts's own documented intent: `deleted` republishes for its own
+    // owner. Scoped to the same owner, though — see the next test.
     const raw = JSON.stringify({
       version: 1,
       layoutRevision: BUNDLED_REVISION,
@@ -300,6 +300,44 @@ describe('POST /api/v1/layouts — dedupe', () => {
     });
 
     const response = await submit('title=Republish+Attempt', raw, {
+      authorization: `Bearer ${accessToken}`,
+    });
+    expect(response.statusCode).toBe(201);
+  });
+
+  it('allows the SAME owner to resubmit content even after a MODERATOR deleted it (#72 deliberate policy)', async () => {
+    // There used to be a separate moderator-only `removed` state precisely
+    // so this could never happen — #72 retired it in favor of a single
+    // `deleted`, and the dedupe exception does not distinguish WHO deleted a
+    // layout. Abuse of this is a Discord-membership problem, not something
+    // dedupe enforces — see manage.ts's DELETE route and README.md.
+    const raw = JSON.stringify({
+      version: 1,
+      layoutRevision: BUNDLED_REVISION,
+      cols: 15,
+      rows: 15,
+      tiles: Array(225).fill(0),
+      furniture: [],
+    });
+    const { user, accessToken } = await tokenFor();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    await insertLayout(harness.db, {
+      slug: 'moderator-deleted-then-resubmitted',
+      authorUserId: user.id,
+      raw,
+      layout: JSON.parse(raw),
+      sha256: sha256(raw),
+      visibility: 'public',
+    });
+    const del = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/layouts/moderator-deleted-then-resubmitted',
+      payload: { reason: 'policy violation' },
+      headers: { authorization: `Bearer ${modToken}` },
+    });
+    expect(del.statusCode).toBe(204);
+
+    const response = await submit('title=Resubmit+After+Moderator+Delete', raw, {
       authorization: `Bearer ${accessToken}`,
     });
     expect(response.statusCode).toBe(201);

@@ -62,7 +62,7 @@ describe('GET /api/v1/authors/:id', () => {
 
   it('does not expose users with no public layouts or the synthetic system user', async () => {
     const privateAuthor = await insertUser(harness.db);
-    await insertLayout(harness.db, { authorUserId: privateAuthor.id, visibility: 'removed' });
+    await insertLayout(harness.db, { authorUserId: privateAuthor.id, visibility: 'deleted' });
     assert(privateAuthor.discordId !== null, 'insertUser did not give the author a Discord id');
     const privateResponse = await app.inject({
       method: 'GET',

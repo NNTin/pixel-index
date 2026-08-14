@@ -139,7 +139,7 @@ break self-hosting.
 | Capability | Source | Rights |
 |---|---|---|
 | Basic | Member of the configured guild (or any logged-in user on an unguilded instance) | Submit/preview and manage their own layouts, including toggling their own layout between public and hidden. |
-| Moderator | Any configured moderator Discord role | Everything in Basic; list all layout visibilities, edit another author's metadata with a reason, hide, remove, and restore. |
+| Moderator | Any configured moderator Discord role | Everything in Basic; list all layout visibilities, edit another author's metadata with a reason, hide/unhide, and permanently delete, anyone's layout. |
 | Admin | Discord user ID in `DISCORD_ADMIN_IDS`, after membership verification when a guild is configured | Everything in Moderator; read the user directory. |
 
 The Admin directory contains only non-system users already present in Pixel Index — it
