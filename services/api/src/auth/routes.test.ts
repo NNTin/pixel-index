@@ -5,7 +5,7 @@ import { createTestDatabase, type Harness } from '../db/test-support/harness.js'
 import type { EnvelopeBody } from '../errors.js';
 import { buildServer } from '../server.js';
 import { testConfig } from '../test-support/config.js';
-import type { SessionBody } from './routes.js';
+import type { PublicUserBody, SessionBody } from './routes.js';
 import { verifyAccessToken } from './tokens.js';
 
 const DISCORD_USER = { id: '999888777666555444', username: 'pixel-fan', avatar: null };
@@ -337,6 +337,25 @@ describe('GET /api/v1/me', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ username: 'pixel-fan', role: 'user' });
+  });
+
+  it('exposes the Discord id alongside — not instead of — the internal id (#66)', async () => {
+    const session = await completeLogin();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/me',
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+    const body = response.json<PublicUserBody>();
+    // The snowflake is what /authors/:id is keyed by, so it is the only thing
+    // that can address the caller's own public profile from the web app.
+    expect(body.discordId).toBe(DISCORD_USER.id);
+    // `id` must still be the internal UUID: sessions are minted against it
+    // (the `sub` claim above), and #62 changed only the public author surface.
+    expect(body.id).not.toBe(DISCORD_USER.id);
+    expect(await verifyAccessToken(session.accessToken, config.sessionSecret)).toEqual({
+      sub: body.id,
+    });
   });
 
   it('is 401 with no token — viewing never requires login, but this route does', async () => {

@@ -121,7 +121,14 @@ export interface ListTagsResponse {
 export type Role = 'user' | 'moderator' | 'admin';
 
 export interface AuthUser {
+  /** Internal UUID — sessions, ownership, moderation. Not a public identifier. */
   id: string;
+  /**
+   * Discord snowflake, the identifier public author routes are keyed by (#62).
+   * The only way to link a logged-in user to their own `/authors/:id` page;
+   * null for system users, who have no public profile.
+   */
+  discordId: string | null;
   username: string;
   displayName: string;
   avatarUrl: string | null;
