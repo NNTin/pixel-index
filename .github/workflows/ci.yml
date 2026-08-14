@@ -2,8 +2,14 @@ name: CI
 
 on:
   pull_request:
+  # develop as well as main (#64). A pull request's checks are run against a
+  # merge of its head with the base — the squashed commit that actually lands
+  # on develop is a commit nothing has ever tested, and two individually-green
+  # pull requests can land on top of each other into a broken tree. Since
+  # `advance-main.yml` promotes develop's *tip* to production and gates itself
+  # on that tip's checks, that tip has to have checks in the first place.
   push:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   validate:

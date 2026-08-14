@@ -1,0 +1,109 @@
+name: Reject pull requests into main
+
+# The human-facing half of main's protection (#64). `main-pr-guard.yml` is the
+# half that blocks; this one says why, and closes the pull request rather than
+# leaving it open.
+#
+# Closing is a deliberate choice over commenting-and-waiting. Under this model
+# main accepts no merges at all, so a pull request targeting it is not "not
+# ready" — it is permanently unmergeable, and leaving it open parks a red X in
+# the pull request list that nobody can ever clear. Closing costs the author
+# nothing they can't undo: GitHub keeps the branch, the diff, and the thread,
+# and "Reopen" is one click once the base is retargeted at develop. The comment
+# below is what makes the close legible rather than mysterious.
+#
+# `pull_request_target`, not `pull_request` — the same reasoning as
+# labeler.yml, and the same audience. A pull request opened from a fork gets a
+# read-only `GITHUB_TOKEN` under `pull_request`, so the commenting and closing
+# would silently no-op for exactly the contributors most likely to target the
+# wrong branch by accident. This is one of the safe uses of the trigger: the
+# job never checks out, builds, or executes the head branch's code — it reads
+# numbers and names out of the event payload and calls the API — so running
+# with base-repo permissions hands a hostile pull request no code-execution
+# surface.
+#
+# One consequence, same as labeler.yml's: `pull_request_target` always runs the
+# copy of this file on the base branch, so this workflow cannot be exercised by
+# the pull request that introduces it. It starts working once it is on main.
+on:
+  pull_request_target:
+    # No `synchronize`: pushing more commits to an already-closed pull request
+    # should not re-close and re-comment. `edited` is here because that is what
+    # fires when someone retargets an existing pull request onto main.
+    types: [opened, reopened, edited]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+
+# Never cancel-in-progress: a run that is halfway through (comment posted, not
+# yet closed) is worse than a duplicate run, and the duplicate is already
+# handled by the marker check below.
+concurrency:
+  group: main-pr-reject-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  reject:
+    name: Close and explain
+    runs-on: ubuntu-latest
+    # `edited` fires for every title and body change too, including ones made
+    # after this workflow already closed the pull request.
+    if: github.event.pull_request.state == 'open'
+    steps:
+      - name: Comment, then close
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          # Through env, not `${{ }}` in the script: a fork's branch name is
+          # attacker-controlled text.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+
+          # Idempotence. `edited` can fire repeatedly, and a reopened pull
+          # request that is still pointed at main will come back through here;
+          # neither should stack up another copy of the same explanation. The
+          # marker is an HTML comment, so it is invisible in the rendered
+          # thread but greppable in the API response.
+          marker='<!-- main-pr-reject -->'
+          if gh api "repos/$REPO/issues/$NUMBER/comments" --paginate \
+               --jq '.[].body' | grep -qF "$marker"; then
+            echo "Already explained on #$NUMBER — closing without a second comment."
+          else
+            {
+              printf '%s\n\n' "$marker"
+              echo "### This pull request targets \`main\`, which does not accept pull requests"
+              echo
+              # develop is the one case where the author is not confused about
+              # the branch, only about the mechanism, so it gets its own
+              # sentence rather than "retarget at develop" — which would be
+              # advice to point develop at itself.
+              if [ "$HEAD_REF" = "develop" ]; then
+                echo "\`develop\` reaches \`main\` through the **Advance main** workflow, not"
+                echo "through a merge: a maintainer runs it, and it fast-forwards \`main\` onto"
+                echo "\`develop\`'s tip. Run it from the"
+                echo "[Actions tab](https://github.com/$REPO/actions/workflows/advance-main.yml)"
+                echo "instead of merging this."
+              else
+                echo "Open it against **\`develop\`** instead — that is the branch that takes"
+                echo "changes, and it is where staging deploys from. Everything on \`develop\`"
+                echo "reaches \`main\` together, when a maintainer runs the **Advance main**"
+                echo "workflow and \`main\` fast-forwards onto \`develop\`'s tip."
+                echo
+                echo "Nothing is lost by closing this. The branch and the diff are still here:"
+                echo "change the base to \`develop\` with **Edit** next to the title, then"
+                echo "**Reopen** — or open a fresh pull request"
+                echo "[against develop](https://github.com/$REPO/compare/develop...$HEAD_REF?expand=1)."
+              fi
+              echo
+              echo "Why it works this way — one promotion path, so nothing reaches production"
+              echo "without going through staging first — is in"
+              echo "[\`docs/deployment.md\`](https://github.com/$REPO/blob/main/docs/deployment.md#environments)"
+              echo "and [#64](https://github.com/$REPO/issues/64)."
+            } > comment.md
+            gh pr comment "$NUMBER" --repo "$REPO" --body-file comment.md
+          fi
+
+          gh pr close "$NUMBER" --repo "$REPO"

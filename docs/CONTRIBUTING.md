@@ -50,6 +50,22 @@ CI runs the same validation the live submit flow does, so a seed layout can neve
 the site would itself reject. This path is specifically for the curated starter set —
 publishing your own layout for the community index is the web flow above.
 
+## Which branch to open it against
+
+**`develop`, always** — for a seed layout, a docs fix, a code change, anything. `main` is
+production, and it does not accept pull requests at all: a pull request opened against it
+is closed automatically with a comment pointing here, because there is no head branch that
+would ever make it mergeable.
+
+`develop` is staging. Changes land there squash-merged with checks green, and reach `main`
+in one go later, when a maintainer runs the **Advance main** workflow and `main`
+fast-forwards onto `develop`'s tip. Nothing is skipped and nothing waits on you: this is
+about *when* your change reaches production, not whether.
+
+If you already opened one against `main`, nothing is lost. The branch, the diff and the
+thread survive being closed — change the base with **Edit** next to the title, then
+**Reopen**. See [`deployment.md`](deployment.md#environments) for the whole model.
+
 ## Editing the docs
 
 Markdown is also linted and checked in CI — run all of it locally with:
