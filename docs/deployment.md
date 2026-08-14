@@ -210,43 +210,52 @@ Unlike `vendor-update.yml` there is no `seed/`-only fallback: a backup of four d
 layouts is not a backup of production, so the job refuses outright with no
 `PRODUCTION_API_BASE_URL` set rather than quietly running against nothing.
 
-**`BACKUP_API_TOKEN` — a repository *secret*, and a different kind of secret than
+**`BACKUP_API_KEY` — a repository *secret*, and a different kind of secret than
 `VENDOR_UPDATE_TOKEN`/`ADVANCE_MAIN_TOKEN` below.** Those two are GitHub PATs — credentials
-for pushing *git*. This is a Pixel Index *API* credential: there is no service-account or
-API-key auth in this codebase at all, only Discord OAuth login for a human in a browser
-(`auth/discord.ts`, `sessions.ts`), so a headless workflow reuses that same session
-mechanism rather than a separate one built just for this. Concretely, it is the **refresh
-token** (`auth/sessions.ts`) belonging to an admin-eligible Discord account (one listed in
-`DISCORD_ADMIN_IDS`) — the same opaque, DB-backed token the web app itself persists to
-keep a browser session alive across reloads.
+for pushing *git*. This is a Pixel Index *API* credential, but not a Discord session either:
+it is a **static, non-rotating shared secret**, checked by `GET /api/v1/admin/backup`
+(`backup/export.ts`) against the API's own `BACKUP_API_KEY` environment variable
+(`config.ts`'s `backupApiKey`) before, and independently of, the ordinary admin-session
+check every other `/admin/*` route uses. Same pattern as `SESSION_SECRET` or
+`DISCORD_CLIENT_SECRET` just above — a value you generate once and set on both sides — not
+a credential minted by logging into the app.
 
-Mint it once: log into the web app with that account, open devtools → Application → Local
-Storage, and copy the value of `pixelindex_refresh_token` (`apps/web/src/auth/storage.ts`).
-Then:
+An earlier version of this mechanism reused a real admin's Discord session refresh token
+instead. That token rotates on every use (`auth/sessions.ts`'s reuse detection), which meant
+the workflow had to write the newly-rotated value back into this same secret after every
+run using a second PAT, and had no fast way to revoke a leaked copy short of kicking the
+underlying Discord account. A static shared secret has neither problem — nothing rotates,
+so there is nothing to persist back to GitHub, and revocation is just "generate a new value
+and redeploy both sides" (below) — at the cost of a real tradeoff of its own: rotating it is
+a deploy, not a click, and it is only ever as secret as the two places that hold it.
+
+Mint one and set it on both sides:
 
 ```bash
-gh secret set BACKUP_API_TOKEN   # paste the copied refresh token
+openssl rand -base64 32
 ```
 
-**It rotates itself, on every run.** Refresh tokens are single-use by design
-(`auth/sessions.ts`'s reuse detection: presenting an already-rotated one a second time
-revokes the whole session, on the theory that only theft would do that) — so `backup.yml`
-cannot just call `POST /api/v1/auth/refresh` and move on. It captures the NEW refresh token
-that call returns and immediately overwrites the `BACKUP_API_TOKEN` secret with it, using
-`VENDOR_UPDATE_TOKEN` for the write — a repository secret can only be set through the
-GitHub API, `GITHUB_TOKEN` cannot do it under any `permissions:` setting, and
-`VENDOR_UPDATE_TOKEN`'s existing `repo` scope already covers it, so this reuses that PAT
-rather than minting a third one. If a run is ever cancelled between refreshing and
-persisting, the next run's stored token is already spent and fails with 401 — the job's own
-error message says so; the fix is re-minting from the browser, the same as the first time.
+Set the result as this API's own `BACKUP_API_KEY` environment variable (`.env` for a
+self-hosted deployment — see "The self-hosted backend" below) and redeploy/restart the API
+so it picks the value up, then:
 
-Standing access to an admin's own session, sitting in a repository secret, is worth the
-same caution the deployment docs already give `VENDOR_UPDATE_TOKEN`/`ADVANCE_MAIN_TOKEN` —
-**rotate it like production access**, and arguably a more sensitive one: it can read every
-hidden layout and mass-overwrite the index via `POST /api/v1/admin/backup/import`, not just
-push commits. Revoking it early is exactly `POST /api/v1/auth/logout` with this token (or
-just leaving it unset and letting the workflow fail loudly, per above) — there is no
-separate revocation UI to hunt for.
+```bash
+gh secret set BACKUP_API_KEY   # paste the same value
+```
+
+Leave it unset on the API and the header check is simply never available — `backup.yml`
+then fails loudly with a clear message (it has no session to fall back to; it is not a
+human), rather than the route silently becoming unreachable by automation.
+
+**Scoped to read-only backup export, on purpose.** This key only ever works on
+`GET /api/v1/admin/backup` — `POST /api/v1/admin/backup/import` never reads it, staying
+admin-session-only exactly as it always has. A leaked key can read every hidden layout; it
+can never moderate, delete, or overwrite a single one. Standing access sitting in a
+repository secret is still worth the same caution the deployment docs already give
+`VENDOR_UPDATE_TOKEN`/`ADVANCE_MAIN_TOKEN` — **rotate it like production access** — but
+rotation here is deterministic and immediate: generate a new value with the command above,
+set it on both sides, redeploy. The old value stops working the instant the API restarts
+with the new one.
 
 The static renderer gate is not the only candidate-pin check. The workflow also builds
 the web SPA at its real Pages subpath and drives the layout detail page in Chromium with
@@ -351,6 +360,7 @@ than one restart per missing value.
 | `DISCORD_INVITE_URL` | With a guild | `https://discord.gg/...` | HTTPS invite shown to authenticated outsiders. |
 | `DISCORD_OAUTH_TOKEN_ENCRYPTION_KEY` | With a guild | `openssl rand -base64 32` | **API-only secret.** Encrypts retained Discord OAuth grants in Postgres. |
 | `DISCORD_MEMBERSHIP_CACHE_TTL_MS` | No | `60000` | Recommended one-minute role/membership cache. |
+| `BACKUP_API_KEY` | No | `openssl rand -base64 32` | **API-only secret** (#63). Static shared secret `backup.yml` sends as `X-Backup-Api-Key` on `GET /api/v1/admin/backup`. Rejected below 32 characters. Unset means that route is admin-session-only — see "`BACKUP_API_KEY`" above. |
 | `VITE_API_BASE_URL` | Only if you build the `web` image | `https://api.example.com` | **Build-time**, baked into the bundle by `apps/web/Dockerfile`. `docker compose build web` after a change — restarting is not enough. |
 | `API_COMMIT` | No | `$(git rev-parse HEAD)` | **Build-time**, baked into the `api` image by `services/api/Dockerfile`. Unset means `GET /` and `GET /api/v1/meta` report `commit: null` — see below. |
 | `API_TRUST_PROXY` | No (`true` by default in the app) | `true` | Compose ships `false`. Flip it to `true` the moment a reverse proxy is in front — see above. |
@@ -479,9 +489,9 @@ job; `Preview` and `Production` are Vercel's own and hold nothing this build rea
 gh secret set VENDOR_UPDATE_TOKEN   # scopes: repo
 gh secret set ADVANCE_MAIN_TOKEN    # scopes: repo, workflow
 
-# Not a GitHub PAT — see "BACKUP_API_TOKEN" above for what this actually is
-# (a Pixel Index admin session's refresh token) and how to mint it.
-gh secret set BACKUP_API_TOKEN
+# Not a GitHub PAT — see "BACKUP_API_KEY" above for what this actually is (a
+# static shared secret, not a Discord session) and how to mint/set it.
+gh secret set BACKUP_API_KEY   # same value as the API's own BACKUP_API_KEY env var
 ```
 
 **3. GitHub — the branch ruleset** (Settings → Rules → Rulesets). This is what makes the

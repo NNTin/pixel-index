@@ -85,6 +85,19 @@ function getBackup(accessToken?: string) {
   });
 }
 
+/** Sends the shared-secret header instead of a session Authorization header. */
+function getBackupWithKey(
+  targetApp: FastifyInstance,
+  key: string,
+  extraHeaders: Record<string, string> = {},
+) {
+  return targetApp.inject({
+    method: 'GET',
+    url: '/api/v1/admin/backup',
+    headers: { 'x-backup-api-key': key, ...extraHeaders },
+  });
+}
+
 async function fileText(zip: JSZip, path: string): Promise<string> {
   const file = zip.file(path);
   assert(file !== null, `zip is missing ${path}`);
@@ -141,6 +154,71 @@ describe('GET /api/v1/admin/backup', () => {
     expect(hiddenMeta).toMatchObject({ visibility: 'hidden' });
 
     expect(zip.file('backup-deleted/layout.json')).toBeNull();
+  });
+
+  describe('the X-Backup-Api-Key shared secret (#63)', () => {
+    const KEY = 'x'.repeat(32);
+    let keyedConfig: ReturnType<typeof testConfig>;
+    let keyedApp: FastifyInstance;
+
+    beforeAll(async () => {
+      keyedConfig = testConfig({ backupApiKey: KEY });
+      keyedApp = await buildServer({ config: keyedConfig, pool: fakePool, db: harness.db });
+    });
+    afterAll(async () => {
+      await keyedApp.close();
+    });
+
+    it('authorizes with no session/Authorization header at all', async () => {
+      const response = await getBackupWithKey(keyedApp, KEY);
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toBe('application/zip');
+    });
+
+    it('rejects a wrong key, even alongside a valid admin session', async () => {
+      const { accessToken: adminToken } = await tokenFor({ role: 'admin' });
+      const response = await getBackupWithKey(keyedApp, 'not-the-configured-key', {
+        authorization: `Bearer ${adminToken}`,
+      });
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('rejects any key when the server has none configured', async () => {
+      // `app`/`config` (the suite-wide instance) has no backupApiKey set.
+      const response = await getBackupWithKey(app, KEY);
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('falls back to the ordinary admin-session check when no header is sent', async () => {
+      // A fresh admin registered on keyedConfig specifically — tokenFor()
+      // registers against the suite-wide `config`, which keyedApp does not use.
+      const admin = await insertUser(harness.db, { role: 'admin' });
+      assert(admin.discordId !== null, 'insertUser did not give this admin a Discord id');
+      keyedConfig.discordAdminIds.push(admin.discordId);
+      const adminToken = await signAccessToken(
+        { sub: admin.id, role: admin.role },
+        keyedConfig.sessionSecret,
+        keyedConfig.accessTokenTtlMs,
+      );
+
+      const response = await keyedApp.inject({
+        method: 'GET',
+        url: '/api/v1/admin/backup',
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('is never accepted on POST /api/v1/admin/backup/import', async () => {
+      const zip = await zipOf({});
+      const response = await keyedApp.inject({
+        method: 'POST',
+        url: '/api/v1/admin/backup/import',
+        headers: { 'content-type': 'application/zip', 'x-backup-api-key': KEY },
+        payload: zip,
+      });
+      expect(response.statusCode).toBe(401);
+    });
   });
 });
 

@@ -1,6 +1,12 @@
 import { assert, describe, expect, it } from 'vitest';
 
-import { generateOpaqueToken, hashToken, signAccessToken, verifyAccessToken } from './tokens.js';
+import {
+  constantTimeEqual,
+  generateOpaqueToken,
+  hashToken,
+  signAccessToken,
+  verifyAccessToken,
+} from './tokens.js';
 
 const SECRET = 'a'.repeat(32);
 
@@ -69,5 +75,23 @@ describe('opaque tokens', () => {
   it('hashToken is deterministic — required for the lookup-by-hash pattern', () => {
     const { value, hash } = generateOpaqueToken();
     expect(hashToken(value)).toBe(hash);
+  });
+});
+
+describe('constantTimeEqual', () => {
+  it('is true for identical strings', () => {
+    expect(constantTimeEqual('a-shared-secret', 'a-shared-secret')).toBe(true);
+  });
+
+  it('is false for different strings of the same length', () => {
+    expect(constantTimeEqual('a-shared-secret', 'b-shared-secret')).toBe(false);
+  });
+
+  it('is false, not throwing, for different-length strings', () => {
+    expect(constantTimeEqual('short', 'a-much-longer-value')).toBe(false);
+  });
+
+  it('is false for an empty string against a non-empty one', () => {
+    expect(constantTimeEqual('', 'a-shared-secret')).toBe(false);
   });
 });

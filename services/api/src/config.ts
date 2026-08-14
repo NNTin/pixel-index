@@ -150,6 +150,22 @@ export interface ApiConfig {
    * route stays bounded by the smaller default.
    */
   maxImportBytes: number;
+  /**
+   * A static, non-rotating shared secret for `GET /api/v1/admin/backup`
+   * (#63), checked against the `X-Backup-Api-Key` header — independently of,
+   * and before, the usual Discord-session admin check. Unset by default: a
+   * self-hoster who doesn't run the scheduled backup workflow sets nothing,
+   * and the route falls back to the ordinary human admin session.
+   *
+   * Deliberately NOT a database-backed credential (no rotation, no reuse
+   * detection, no revocation table) — same shape as `sessionSecret`/
+   * `discordClientSecret` below: a value the deployment operator generates
+   * once, sets on both this process and the GitHub Actions secret, and
+   * rotates by generating a new one and redeploying both sides. Scoped to
+   * this one read-only route only: `POST /api/v1/admin/backup/import` never
+   * reads it, so a leaked key can read a backup but never write anything.
+   */
+  backupApiKey?: string;
 }
 
 export class ConfigError extends Error {
@@ -428,6 +444,22 @@ function optionalEnv(name: string): string | undefined {
   return raw === undefined || raw.trim() === '' ? undefined : raw;
 }
 
+const MIN_BACKUP_API_KEY_LENGTH = 32;
+
+/** Optional, unlike `requireSessionSecret` above — but held to the same length bar when set. */
+function backupApiKey(problems: string[]): string | undefined {
+  const raw = optionalEnv('BACKUP_API_KEY');
+  if (raw === undefined) return undefined;
+  if (raw.length < MIN_BACKUP_API_KEY_LENGTH) {
+    problems.push(
+      `BACKUP_API_KEY must be at least ${MIN_BACKUP_API_KEY_LENGTH} characters ` +
+        `(got ${raw.length}) — short shared secrets are brute-forceable. ` +
+        'Generate one with: openssl rand -base64 32',
+    );
+  }
+  return raw;
+}
+
 const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
 
 function discordIdsFromEnv(name: string, problems: string[]): string[] {
@@ -477,6 +509,7 @@ export function loadConfig(): ApiConfig {
   const oauthTokenEncryptionKey = discordEncryptionKey(problems);
   const upstreamDir = optionalEnv('PIXEL_AGENTS_DIR');
   const commit = optionalEnv('API_COMMIT');
+  const backupKey = backupApiKey(problems);
 
   if (discordGuildId && !DISCORD_SNOWFLAKE_RE.test(discordGuildId)) {
     problems.push(`DISCORD_GUILD_ID must be a Discord snowflake, got ${JSON.stringify(discordGuildId)}`);
@@ -559,6 +592,7 @@ export function loadConfig(): ApiConfig {
     // upload's worst case — unlike `bodyLimitBytes`, this is refused before
     // JSON.parse or zip decoding ever runs.
     maxImportBytes: intFromEnv('MAX_IMPORT_BYTES', 50_000_000, problems),
+    ...(backupKey ? { backupApiKey: backupKey } : {}),
   };
 
   if (problems.length > 0) throw new ConfigError(problems);

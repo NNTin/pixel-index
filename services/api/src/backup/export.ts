@@ -2,12 +2,30 @@
  * `GET /api/v1/admin/backup` — a zip of every non-deleted layout, mirroring
  * `seed/`'s own `<slug>/{layout.json,meta.json}` shape (#63).
  *
- * Admin-only and deliberately NOT the same route as `GET
- * /api/v1/export/layouts.ndjson` (export.ts): that one is public,
- * unauthenticated, and public-visibility-only by design (#26's vendor-update
- * gate, which has no business seeing hidden content). This one exists
- * specifically because `hidden` layouts need backing up too, which is not
- * something a public, unauthenticated route can ever serve.
+ * Deliberately NOT the same route as `GET /api/v1/export/layouts.ndjson`
+ * (export.ts): that one is public, unauthenticated, and public-visibility-
+ * only by design (#26's vendor-update gate, which has no business seeing
+ * hidden content). This one exists specifically because `hidden` layouts
+ * need backing up too, which is not something a public, unauthenticated
+ * route can ever serve.
+ *
+ * **Two independent ways in.** The ordinary human path is the same
+ * Discord-session admin check every other `/admin/*` route uses
+ * (`requireCapability`). Alongside it, the scheduled `backup.yml` workflow
+ * authenticates with a static, non-rotating shared secret sent as
+ * `X-Backup-Api-Key` and compared against `config.backupApiKey` — see
+ * config.ts's doc comment for why this is a plain env-configured secret
+ * (the same pattern as `sessionSecret`/`discordClientSecret`) rather than a
+ * database-backed credential with rotation or revocation state: an earlier
+ * version of this workflow reused a real admin's Discord refresh token,
+ * which rotates on every use and had no fast revoke path short of kicking
+ * the underlying Discord account. This key has neither problem, at the cost
+ * of a real one of its own — rotating it means generating a new value and
+ * redeploying both the API and the GitHub secret, not clicking a button —
+ * and it is deliberately scoped to this one read-only route: `POST
+ * /api/v1/admin/backup/import` (import.ts) never reads this header, so a
+ * leaked key can read a backup but can never moderate, delete, or overwrite
+ * a single layout.
  *
  * Buffered, not streamed: JSZip has to hold the whole archive to produce a
  * single `generateAsync()` result, and at today's scale (an admin-only route,
@@ -25,12 +43,22 @@ import type { FastifyInstance } from 'fastify';
 import JSZip from 'jszip';
 
 import { requireCapability } from '../auth/capability.js';
+import { constantTimeEqual } from '../auth/tokens.js';
 import type { ApiConfig } from '../config.js';
 import type { AnyDatabase } from '../db/client.js';
 import type * as schema from '../db/schema.js';
+import { ApiError } from '../errors.js';
 import { authorsForLayouts, streamBackupLayouts, tagsForLayouts } from '../layouts/query.js';
 import { publicAuthor } from '../layouts/serialize.js';
 import { BACKUP_SCHEMA_VERSION, type BackupManifest } from './manifest.js';
+
+/**
+ * The header a machine credential asserts on this route (#63). Deliberately
+ * a name of its own, never `Authorization` — that header stays exclusively
+ * for the human Discord-session bearer token, so the two auth methods can
+ * never be confused for one another mid-request.
+ */
+const BACKUP_API_KEY_HEADER = 'x-backup-api-key';
 
 export interface BackupExportRoutesDeps {
   config: ApiConfig;
@@ -106,10 +134,12 @@ export function registerBackupExportRoutes(app: FastifyInstance, { config, db }:
       schema: {
         summary: 'A zip backup of every public and hidden layout, mirroring seed/\'s folder shape.',
         description:
-          'Admin only. manifest.json at the root, then <slug>/{layout.json,meta.json} per layout — ' +
-          'the same shape seed/ uses, so this can be mass-imported with POST ' +
-          '/api/v1/admin/backup/import. deleted layouts are excluded: there is nothing to back up ' +
-          'for a layout that is gone for good.',
+          'Admin only — or an X-Backup-Api-Key header carrying the static shared secret the ' +
+          'scheduled backup workflow uses. manifest.json at the root, then ' +
+          '<slug>/{layout.json,meta.json} per layout — the same shape seed/ uses, so this can be ' +
+          'mass-imported with POST /api/v1/admin/backup/import (which does NOT accept the shared ' +
+          'secret; that route is admin-session only). deleted layouts are excluded: there is ' +
+          'nothing to back up for a layout that is gone for good.',
         tags: ['admin'],
       },
       // Its own bucket, not the general one: like the public NDJSON export,
@@ -123,7 +153,24 @@ export function registerBackupExportRoutes(app: FastifyInstance, { config, db }:
       },
     },
     async (request, reply) => {
-      await requireCapability(db, config, request, 'admin');
+      const headerValue = request.headers[BACKUP_API_KEY_HEADER];
+      const providedKey = typeof headerValue === 'string' ? headerValue : undefined;
+
+      if (providedKey !== undefined) {
+        // A key was asserted for this request — it either authorizes on its
+        // own or the request is rejected outright. Never fall through to the
+        // admin-session check below: that would turn a mistyped or
+        // misconfigured shared secret into a confusing "not admin" response
+        // instead of the actual problem, and would mean a caller's intended
+        // auth method silently depends on whether a *different* credential
+        // (a session cookie/header this caller likely never sent) also
+        // happens to be present.
+        if (!config.backupApiKey || !constantTimeEqual(providedKey, config.backupApiKey)) {
+          throw ApiError.unauthorized('Invalid backup API key.');
+        }
+      } else {
+        await requireCapability(db, config, request, 'admin');
+      }
 
       const { zip, count } = await buildBackupZip(db);
       const manifest: BackupManifest = {

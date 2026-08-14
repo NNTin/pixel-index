@@ -40,6 +40,7 @@ const ENV_KEYS = [
   'MAX_LAYOUT_BYTES',
   'MAX_SUBMISSIONS_PER_USER_PER_DAY',
   'MAX_IMPORT_BYTES',
+  'BACKUP_API_KEY',
   'PUBLIC_WEB_ORIGIN_PATTERNS',
 ] as const;
 
@@ -264,6 +265,23 @@ describe('loadConfig — SESSION_SECRET', () => {
   it('rejects a short secret — short signing keys are brute-forceable', () => {
     setRequired({ SESSION_SECRET: 'too-short' });
     expect(() => loadConfig()).toThrow(/SESSION_SECRET must be at least 32 characters/);
+  });
+});
+
+describe('loadConfig — BACKUP_API_KEY (#63)', () => {
+  it('is unset by default — the scheduled backup workflow is opt-in', () => {
+    setRequired();
+    expect(loadConfig().backupApiKey).toBeUndefined();
+  });
+
+  it('accepts a key at the minimum length', () => {
+    setRequired({ BACKUP_API_KEY: 'x'.repeat(32) });
+    expect(loadConfig().backupApiKey).toHaveLength(32);
+  });
+
+  it('rejects a short key — short shared secrets are brute-forceable', () => {
+    setRequired({ BACKUP_API_KEY: 'too-short' });
+    expect(() => loadConfig()).toThrow(/BACKUP_API_KEY must be at least 32 characters/);
   });
 });
 

@@ -1,6 +1,12 @@
 /**
  * `POST /api/v1/admin/backup/import` — mass-restore from a backup zip built
- * by `GET /api/v1/admin/backup` (#63). Admin-only.
+ * by `GET /api/v1/admin/backup` (#63). Admin-only — deliberately ONLY a
+ * Discord-session admin, unlike that route: this one never checks the
+ * `X-Backup-Api-Key` header the scheduled backup workflow authenticates
+ * with (see export.ts's doc comment for what that key is and why). A key
+ * that can only ever trigger a read is a materially smaller blast radius
+ * than one that can also mass-overwrite the index; nothing here widens
+ * that on purpose.
  *
  * **Collision handling: upsert by slug.** The whole reason this exists (#64's
  * staging/production model) is "import production's backup into develop to
