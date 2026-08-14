@@ -25,12 +25,43 @@ Three tiers, each backed by its own API and its own Postgres — see
 | **Staging** | `develop` | Vercel **Production environment** | A second self-hosted deployment, same shape as production, different host/DB | Reset on demand — this is where risk lives before it reaches `main` |
 | **PR preview** | any branch | Vercel **Preview environment** | Staging's API (same `VITE_API_BASE_URL` as the Production environment above) | Whatever staging currently holds |
 
-`main` only ever advances by merging a stabilized `develop` — never a feature branch
-directly (enforced by `.github/workflows/enforce-merge-source.yml` as a required check).
-`develop` takes PRs from anywhere. Everything below this section — the three config
-surfaces, Traefik/Caddy/nginx examples — applies identically to a production deployment
-and a staging one; run through it twice, once per environment, pointing each at its own
-hostnames and its own `.env`.
+`develop` takes pull requests from anywhere, squash-merged, checks required. **`main`
+takes none at all** — not from a feature branch and not from `develop` either. It moves
+in exactly one way: a maintainer runs the **Advance main** workflow, and `main`
+fast-forwards onto `develop`'s tip.
+
+```mermaid
+flowchart LR
+  F["feature branch"] -->|"pull request<br/>squash, checks required"| D["develop<br/><i>staging</i>"]
+  D -->|"Advance main<br/>manual, fast-forward only"| M["main<br/><i>production</i>"]
+  X["pull request into main"] -.->|"closed automatically,<br/>with an explanation"| M
+```
+
+Three workflows hold that shape, and it is worth knowing which does what when one of
+them surprises you:
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `advance-main.yml` | manual dispatch | The promotion. Refuses anything that isn't a fast-forward, and refuses a `develop` whose checks aren't green. |
+| `main-pr-guard.yml` | every pull request | Fails on any pull request based on `main`, passes on every other base. This is the *block* — add it as a required status check (see the [setup checklist](#setup-checklist)). |
+| `main-pr-reject.yml` | pull request into `main` | Closes it and comments explaining where it belongs. This is the *explanation*, not the block. |
+
+Two of them because they fail in opposite directions: the reject workflow fails open — if
+it breaks, the pull request just sits there — while a required status check fails closed,
+since a check that never reports keeps the merge button down. Closing rather than only
+commenting is deliberate: under this model a pull request into `main` is not "not ready
+yet", it is permanently unmergeable, so leaving it open parks something in the list that
+nobody can ever clear. Nothing is lost — the branch, the diff and the thread survive a
+close, and retargeting at `develop` plus **Reopen** is two clicks.
+
+The promotion being manual is the point. `develop` deploying automatically and `main`
+never doing so is what makes staging a staging environment; a `push: develop` trigger on
+the promotion would make `main` track `develop` continuously, which is the same as not
+having one.
+
+Everything below this section — the three config surfaces, Traefik/Caddy/nginx examples —
+applies identically to a production deployment and a staging one; run through it twice,
+once per environment, pointing each at its own hostnames and its own `.env`.
 
 ## Environment variables
 
@@ -116,7 +147,7 @@ Pages site the domain belongs to:
 If you are unsure which you have, load the deployed page and look at where the `<script
 src>` points: `/pixel-index/assets/…` means keep the subpath, `/assets/…` means root.
 
-**`VENDOR_UPDATE_TOKEN` — a repository *secret*, and the only one this repo has.** Without
+**`VENDOR_UPDATE_TOKEN` — a repository *secret*.** Without
 it the vendor-update PR opens but arrives with **no checks at all**: GitHub never triggers
 `pull_request` workflows for anything `GITHUB_TOKEN` creates, so `ci.yml` simply does not
 run on the bot's PR. The gate's own verdict is unaffected — it runs inside the workflow,
@@ -132,6 +163,29 @@ PATs expire. When this one does, the run pushes its branch and renders as usual 
 fails on the last step with a 401 or 403; the workflow prints both that possibility and
 the settings one, so the log says which. Mint a replacement on the same account and re-set
 the secret — nothing else changes.
+
+**`ADVANCE_MAIN_TOKEN` — the second repository *secret*, and the one `advance-main.yml`
+pushes with.** `GITHUB_TOKEN` cannot do this job: `main`'s ruleset requires a pull request
+for any change, and `github-actions[bot]` is not on its bypass list — nor can it easily be
+put there, which is the practical reason a machine account is the answer here rather than
+the ambient Actions identity.
+
+Same account as `VENDOR_UPDATE_TOKEN` (`nntin-bot`), same *classic* PAT reasoning — a
+fine-grained token still does not work for a collaborator on a repository owned by
+somebody else — but **not the same token**, because the scopes genuinely differ:
+
+| | `VENDOR_UPDATE_TOKEN` | `ADVANCE_MAIN_TOKEN` |
+|---|---|---|
+| `repo` | yes | yes |
+| `workflow` | **no**, deliberately — its PR's `add-paths` never touches `.github/`, and granting it would let the token rewrite CI | **yes**, unavoidably — a promotion carries whatever `develop` holds, including workflow changes, and git refuses a PAT without `workflow` scope any push that modifies `.github/workflows` |
+
+That refusal is worth recognising when you hit it: the push fails with
+`refusing to allow a Personal Access Token to create or update workflow`, on a run where
+everything else passed, and only for promotions that happen to contain a CI change. Mint
+the token with both scopes and it never comes up.
+
+The scope is only half of it — see the [setup checklist](#setup-checklist) for the ruleset
+bypass entry, without which a correctly-scoped token is still refused.
 
 **One repository setting `vendor-update.yml` cannot work without.** Settings → Actions →
 General → Workflow permissions → **"Allow GitHub Actions to create and approve pull
@@ -366,11 +420,65 @@ gh variable set PAGES_BASE_PATH --body "/"
 gh variable list   # verify
 ```
 
-No GitHub *secret* is needed for either deployment. No new Environment is needed either:
-`github-pages` already exists and is used by the `deploy` job; `Preview` and `Production`
-are Vercel's own and hold nothing this build reads.
+No new Environment is needed: `github-pages` already exists and is used by the `deploy`
+job; `Preview` and `Production` are Vercel's own and hold nothing this build reads.
 
-**2. Vercel** (Project → Settings → Environment Variables; Root Directory must be `apps/web`)
+**2. GitHub — secrets** (Settings → Secrets and variables → Actions → Secrets)
+
+```bash
+# Both are classic PATs on the nntin-bot machine account. Scopes differ — see
+# "VENDOR_UPDATE_TOKEN" and "ADVANCE_MAIN_TOKEN" above for why.
+gh secret set VENDOR_UPDATE_TOKEN   # scopes: repo
+gh secret set ADVANCE_MAIN_TOKEN    # scopes: repo, workflow
+```
+
+**3. GitHub — the branch ruleset** (Settings → Rules → Rulesets). This is what makes the
+[Environments](#environments) model real rather than a convention, and it is the one step
+that needs *admin*, not maintain.
+
+Today a single ruleset — `PR protection` — covers `main` and `develop` with identical
+rules. Three changes:
+
+- **Add `main does not take pull requests` as a required status check.** That is
+  `main-pr-guard.yml`'s job name, and it is what actually stops a pull request into `main`
+  from being mergeable. Safe to add to the *combined* ruleset without splitting it first:
+  the workflow runs on every pull request and passes for every base except `main`,
+  precisely so that adding it here cannot leave `develop`'s pull requests waiting on a
+  check that never reports.
+- **Split `main` out, or add a `main`-only ruleset, to fix the merge methods.** `develop`
+  should allow squash only (the issue's rule, and what keeps its history one commit per
+  pull request); `main`'s merge methods stop mattering once nothing merges into it, but
+  leaving all three enabled reads as though something might.
+- **Add `nntin-bot` to `main`'s bypass list** — this is what `advance-main.yml` needs, and
+  it is the answer to "is there such a thing as a workflow bypass": there is, it is the
+  ruleset's Bypass list, and it takes actors rather than tokens. In the REST API that is
+  `{"actor_type": "User", "actor_id": <nntin-bot's id>, "bypass_mode": "always"}`;
+  `Integration` (a GitHub App), `Team`, `RepositoryRole` and `OrganizationAdmin` are the
+  other actor types, and a role or team entry would be the way to do this without naming
+  an individual account. A PAT inherits the bypass of the account it authenticates as,
+  which is what makes the machine-account approach work at all.
+
+  Two things to know about that entry. It is **whole-ruleset, not per-rule** — `nntin-bot`
+  ends up exempt from `non_fast_forward` and the required checks too, not just from the
+  pull-request requirement. So the fast-forward guarantee comes from `advance-main.yml`
+  refusing to push anything that isn't one (`git merge-base --is-ancestor`, and a bare
+  `git push` with no `--force`), not from the ruleset; the ruleset is the backstop for
+  everyone *else*. And it is a standing grant on a token that lives in CI, so `repo` scope
+  on that PAT is worth treating as production access — rotate it like one.
+
+```bash
+# What is there now, before changing anything:
+gh api repos/pixel-agents-hq/index/rulesets --jq '.[] | "\(.id)\t\(.name)"'
+gh api repos/pixel-agents-hq/index/rulesets/<id>
+gh api users/nntin-bot --jq .id   # the actor_id for the bypass entry
+```
+
+**4. Vercel** (Project → Settings; Root Directory must be `apps/web`)
+
+Set the **Production Branch** (Settings → Git) to `develop`. Vercel hosts staging, not
+production — `main` is GitHub Pages plus the self-hosted stack, and should not be a Vercel
+deployment at all. Then both environments get staging's API, because a PR preview is meant
+to reuse it:
 
 ```bash
 # --no-sensitive matters: the CLI defaults to Sensitive non-interactively, and a
@@ -391,7 +499,9 @@ if they should stay team-only. Either way, verify with:
 curl -s -o /dev/null -w '%{http_code}\n' https://<preview-url>/   # 200 public, 302 protected
 ```
 
-**3. The backend host** — `cp .env.example .env`, then fill in:
+**5. The backend host** — `cp .env.example .env`, then fill in. Twice, once per
+environment: production and staging are two deployments of this same stack, each with its
+own hostnames, its own database and its own `.env`.
 
 ```bash
 POSTGRES_PASSWORD=...                 # any strong random string
@@ -415,10 +525,13 @@ PUBLIC_WEB_ORIGIN_PATTERNS=https://my-project-*-my-team.vercel.app
 
 then `docker compose up --build -d`.
 
-**4. Discord Developer Portal** — under OAuth2 → Redirects, add
-`${PUBLIC_API_ORIGIN}/callback` exactly (e.g. `https://api.example.com/callback`).
+**6. Discord Developer Portal** — under OAuth2 → Redirects, add
+`${PUBLIC_API_ORIGIN}/callback` exactly (e.g. `https://api.example.com/callback`). One
+entry per environment: a single app takes several redirect URIs, so staging needs its own
+line there rather than its own application, unless you would rather keep the two entirely
+separate.
 
-**5. Verify.** `curl https://api.example.com/health`; open the Pages and Vercel sites and
+**7. Verify.** `curl https://api.example.com/health`; open the Pages and Vercel sites and
 confirm layouts load; click through a Discord login.
 
 The single most useful check, because it distinguishes "misconfigured" from "built before

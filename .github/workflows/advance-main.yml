@@ -1,0 +1,207 @@
+name: Advance main
+
+# The one way main moves (#64): fast-forward it onto develop's tip.
+#
+# Not a merge, and not a pull request. `main-pr-guard.yml` and
+# `main-pr-reject.yml` between them make main refuse pull requests outright,
+# which leaves this workflow as the single promotion path — so "what is on
+# production" is always exactly "what was on staging when someone pressed the
+# button", with no third state where a hotfix went straight to main and
+# develop is quietly behind.
+#
+# `workflow_dispatch` only. Nothing here is automatic: the issue's rule is
+# "once staging is stable it can be merged to production", and only a person
+# can judge stable. A `push: develop` trigger would make main track develop
+# continuously, which is the same as not having a staging environment.
+#
+# Fast-forward is what makes this safe to run casually. It cannot produce a
+# tree that nobody has seen — main ends up at a commit that already exists on
+# develop, already went through develop's pull request review, and already has
+# develop's checks against it. There is no merge commit and no conflict
+# resolution, so there is nothing for this job to get wrong: it either applies
+# develop's history unchanged or refuses.
+#
+# See docs/deployment.md → "Setup checklist" for the two things this needs
+# that cannot be committed: the ADVANCE_MAIN_TOKEN secret, and main's ruleset
+# letting that token's account push.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Check everything and report, but do not move main'
+        type: boolean
+        default: false
+      skip_ci_check:
+        description: "Promote even if develop's checks are not green (say why in the run notes)"
+        type: boolean
+        default: false
+
+permissions:
+  # Deliberately empty of `contents: write`. GITHUB_TOKEN is not what pushes
+  # here — ADVANCE_MAIN_TOKEN is — and granting write to a token that cannot
+  # get past the ruleset anyway would only make the failure less obvious.
+  # `checks: read` is for reading develop's verdict, below.
+  contents: read
+  checks: read
+
+# Two promotions racing would have the second one fail its fast-forward check
+# rather than do damage, but a queued run is a clearer outcome than a red one.
+concurrency:
+  group: advance-main
+  cancel-in-progress: false
+
+jobs:
+  advance:
+    name: Fast-forward main onto develop
+    runs-on: ubuntu-latest
+    steps:
+      # Before the checkout, because the checkout is the first thing that needs
+      # the token and a missing secret there surfaces as an unrelated-looking
+      # git failure. `secrets` cannot be used in a step-level `if:`, so this is
+      # a shell test. The token is only ever checked for emptiness.
+      - name: The push token exists
+        env:
+          ADVANCE_MAIN_TOKEN: ${{ secrets.ADVANCE_MAIN_TOKEN }}
+        run: |
+          if [ -n "$ADVANCE_MAIN_TOKEN" ]; then exit 0; fi
+          {
+            echo "::error::No ADVANCE_MAIN_TOKEN secret is set, so this run has nothing that can push to main."
+            echo "GITHUB_TOKEN cannot do it: main's ruleset requires a pull request, and"
+            echo "github-actions[bot] is not on its bypass list. Create a classic PAT on the"
+            echo "machine account (nntin-bot) with BOTH the 'repo' and 'workflow' scopes — the"
+            echo "second one because a promotion carries .github/workflows changes, which a PAT"
+            echo "without it is refused for — and add that account as a bypass actor on main's"
+            echo "ruleset. Full steps: docs/deployment.md, 'Setup checklist'."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the fast-forward check below is an ancestry question,
+          # and a shallow clone cannot answer it.
+          fetch-depth: 0
+          # Persisted for the push at the end. Not GITHUB_TOKEN — see above.
+          token: ${{ secrets.ADVANCE_MAIN_TOKEN }}
+
+      - name: Resolve both tips
+        id: tips
+        run: |
+          set -euo pipefail
+          # Explicit refspecs rather than `git fetch origin main develop`:
+          # actions/checkout leaves its own narrow `remote.origin.fetch`
+          # behind, and without these the fetch can update FETCH_HEAD while
+          # leaving origin/develop pointing wherever the checkout left it.
+          git fetch --no-tags origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/heads/develop:refs/remotes/origin/develop'
+          main_sha="$(git rev-parse origin/main)"
+          develop_sha="$(git rev-parse origin/develop)"
+          echo "main=$main_sha" >> "$GITHUB_OUTPUT"
+          echo "develop=$develop_sha" >> "$GITHUB_OUTPUT"
+
+          if [ "$main_sha" = "$develop_sha" ]; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "main is already at $develop_sha. Nothing to promote."
+            echo "### ⏭️ Nothing to promote — main is already at develop's tip" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "already=false" >> "$GITHUB_OUTPUT"
+
+          # The whole safety property, in one command. If main is not an
+          # ancestor of develop then main holds something develop does not,
+          # and there is no fast-forward to make — only a merge, which is
+          # exactly what this workflow exists to avoid doing behind anyone's
+          # back.
+          if git merge-base --is-ancestor "$main_sha" "$develop_sha"; then
+            echo "Fast-forward is possible: $(git rev-list --count "$main_sha..$develop_sha") commit(s) ahead."
+            exit 0
+          fi
+          {
+            echo "::error::main is not an ancestor of develop, so this is not a fast-forward."
+            echo "Something reached main without going through develop — an admin push, a"
+            echo "bypassed merge, a revert made on main directly. Bring develop up to date"
+            echo "first (merge main into develop, resolve there, open it as a pull request"
+            echo "against develop like anything else), then run this again."
+            echo "  main:    $main_sha"
+            echo "  develop: $develop_sha"
+            echo "  only on main: $(git rev-list --count "$develop_sha..$main_sha") commit(s)"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      # develop's tip is a squashed pull request commit, so its checks passed
+      # as a pull request — but the squash itself is a new commit, and the
+      # merge that produced it can combine two individually-green branches
+      # into a broken one. ci.yml runs on push to develop for this reason;
+      # this reads that run's verdict rather than trusting the pull request's.
+      - name: develop's checks are green
+        if: steps.tips.outputs.already == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.tips.outputs.develop }}
+          SKIP: ${{ inputs.skip_ci_check }}
+        run: |
+          set -euo pipefail
+          runs="$(gh api "repos/$REPO/commits/$SHA/check-runs" --paginate \
+            --jq '.check_runs[] | [.name, (.status), (.conclusion // "")] | @tsv')"
+
+          # neutral and skipped are passes: a job that correctly decided it had
+          # nothing to do is not a reason to hold production back.
+          bad="$(printf '%s\n' "$runs" | awk -F'\t' '
+            NF == 0 { next }
+            $2 != "completed" { print $1 " (" $2 ")"; next }
+            $3 != "success" && $3 != "neutral" && $3 != "skipped" { print $1 " (" $3 ")" }
+          ')"
+
+          if [ -z "$runs" ]; then
+            bad="no checks ran on this commit at all"
+          fi
+
+          if [ -z "$bad" ]; then
+            echo "All checks on $SHA are green."
+            exit 0
+          fi
+
+          if [ "$SKIP" = "true" ]; then icon='⚠️'; else icon='❌'; fi
+          {
+            echo "### $icon develop's tip is not green"
+            echo
+            echo "\`$SHA\`:"
+            echo
+            printf '%s\n' "$bad" | sed 's/^/- /'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          if [ "$SKIP" = "true" ]; then
+            echo "::warning::Promoting anyway — skip_ci_check was set for this run."
+            exit 0
+          fi
+          echo "::error::Refusing to promote a develop that is not green. Re-run with skip_ci_check if this is deliberate."
+          exit 1
+
+      - name: Fast-forward main
+        if: steps.tips.outputs.already == 'false'
+        env:
+          MAIN: ${{ steps.tips.outputs.main }}
+          DEVELOP: ${{ steps.tips.outputs.develop }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### $([ "$DRY_RUN" = 'true' ] && echo '🧪 Dry run — main was not moved' || echo '🚀 main advanced')"
+            echo
+            echo "\`$MAIN\` → \`$DEVELOP\`"
+            echo
+            git log --oneline --no-decorate "$MAIN..$DEVELOP" | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run — everything checked out, not pushing."
+            exit 0
+          fi
+
+          # A source ref of an explicit sha, not `origin/develop`, so the thing
+          # pushed is the exact commit every check above was run against —
+          # develop moving mid-run cannot smuggle an unchecked commit onto
+          # main. No --force: this is a fast-forward or it is nothing, and
+          # main's ruleset independently forbids non-fast-forward pushes.
+          git push origin "$DEVELOP:refs/heads/main"

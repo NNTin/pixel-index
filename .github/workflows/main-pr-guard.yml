@@ -1,0 +1,80 @@
+name: main PR guard
+
+# main does not take pull requests at all (#64).
+#
+# It advances in exactly one way: `advance-main.yml` fast-forwards it onto
+# develop's tip on a manual dispatch. Nothing merges into it — not a feature
+# branch, and not develop either. The point of having one promotion path is
+# that there is only one, and a `develop -> main` pull request sitting there
+# with a green merge button is a second one.
+#
+# `main-pr-reject.yml` is what a contributor actually sees: it closes a
+# wrongly-targeted pull request and explains where it belongs. This file is
+# the part that cannot be talked around, and the two exist together because
+# they fail in opposite directions:
+#
+#   * the reject workflow fails OPEN — if it errors, gets disabled, or loses
+#     a race with a fast merge, the pull request just sits there mergeable;
+#   * a required status check fails CLOSED — a check that never reports stays
+#     pending and holds the merge button down, and one that reports failure
+#     holds it down too. Turning the workflow off does not make it pass.
+#
+# So this is the enforcement and the other one is the courtesy.
+#
+# Two deliberate shapes here:
+#
+# `pull_request`, not `pull_request_target`. A required status check is
+# evaluated against the pull request's head commit, and only a `pull_request`
+# run reports its check run there. This job never reads the branch's contents
+# — it looks at a base ref in the event payload — so the read-only token a
+# fork's `pull_request` gets is all it needs, and `permissions: {}` takes even
+# that away.
+#
+# No `branches:` filter, so this runs on EVERY pull request and passes for
+# every base except main. That is what makes it safe to add to the existing
+# combined `PR protection` ruleset without splitting it first: a filtered
+# trigger would never fire for a develop pull request, and a required check
+# that never fires is a check that stays pending forever — it would block
+# develop rather than main. Cheap job, correct on both branches.
+on:
+  pull_request:
+    # `edited` is the one that matters most: retargeting an existing pull
+    # request onto main in the UI fires `edited` with `changes.base`, and
+    # without it a pull request could be pointed at main after its checks
+    # were already green.
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  guard:
+    name: main does not take pull requests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse a pull request into main
+        env:
+          # Through env rather than `${{ }}` inside the script: a branch name
+          # is attacker-controlled text on a fork pull request, and an
+          # expression is substituted before bash ever sees it.
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ "$BASE_REF" != "main" ]; then
+            echo "Base is '$BASE_REF', not main — nothing to guard."
+            exit 0
+          fi
+
+          echo "::error::main does not accept pull requests. Retarget this one at develop."
+          {
+            echo "### ❌ main does not accept pull requests"
+            echo
+            echo "This one is \`$HEAD_REF\` → \`main\`. Retarget it at \`develop\` — every"
+            echo "change reaches main the same way, by being on develop when a maintainer"
+            echo "runs **Advance main**, which fast-forwards main onto develop's tip."
+            echo
+            echo "Nothing is merged into main, including develop itself, so there is no"
+            echo "head branch that would make this pull request mergeable."
+            echo
+            echo "See \`docs/deployment.md\` → **Environments**."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
