@@ -55,7 +55,7 @@ function Nav() {
           onClick={login}
           aria-label="Log in with Discord"
           title="Log in with Discord"
-          className="border-2 border-border px-3 py-1.5 text-sm text-ink hover:border-accent"
+          className="px-3 py-1.5 text-sm text-ink hover:text-accent"
         >
           {/*
             The glyph alone would leave this control with no accessible name at
@@ -165,9 +165,9 @@ function ThemeToggle() {
       onClick={toggleTheme}
       aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
       title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-      className="border-2 border-border px-2 py-1 text-sm text-ink hover:border-accent"
+      className="flex size-8 items-center justify-center text-sm text-ink hover:text-accent"
     >
-      {theme === 'dark' ? '☀' : '☾'}
+      <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
     </button>
   );
 }
