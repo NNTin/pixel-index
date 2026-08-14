@@ -64,14 +64,12 @@ describe('GET /api/v1/export/layouts.ndjson', () => {
 
   it('excludes everything that is not public', async () => {
     await insertLayout(harness.db, { slug: 'export-hidden', visibility: 'hidden' });
-    await insertLayout(harness.db, { slug: 'export-removed', visibility: 'removed' });
     await insertLayout(harness.db, { slug: 'export-deleted', visibility: 'deleted' });
 
     const slugs = parseLines((await app.inject({ method: 'GET', url: URL })).body).map(
       (row) => row.slug,
     );
     expect(slugs).not.toContain('export-hidden');
-    expect(slugs).not.toContain('export-removed');
     expect(slugs).not.toContain('export-deleted');
   });
 

@@ -36,14 +36,13 @@ function randomSlugCandidate(): string {
 
 /**
  * True if `slug` is currently held by some row in `layouts`, regardless of
- * visibility. A `removed`/`deleted` row still literally holds its slug value
- * — the unique index (`layouts_slug_key`, schema.ts) is not visibility-aware,
- * so this has to check every row or it could hand a fresh random candidate
- * to a submission and have the insert rejected. Only used for picking a
- * genuinely free *random* candidate; a moderator's vanity-slug claim
- * (manage.ts) needs the actual row, not just this boolean, because it is
- * willing to evict a removed/deleted holder rather than treat it as blocking
- * — see manage.ts for why.
+ * visibility. A `deleted` row still literally holds its slug value — the
+ * unique index (`layouts_slug_key`, schema.ts) is not visibility-aware, so
+ * this has to check every row or it could hand a fresh random candidate to a
+ * submission and have the insert rejected. Only used for picking a genuinely
+ * free *random* candidate; a moderator's vanity-slug claim (manage.ts) needs
+ * the actual row, not just this boolean, because it is willing to evict a
+ * deleted holder rather than treat it as blocking — see manage.ts for why.
  */
 export async function isSlugReserved(db: AnyDatabase, slug: string): Promise<boolean> {
   const [row] = await db

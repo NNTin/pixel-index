@@ -2,14 +2,18 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { ApiError, getApiInfo, repoFileUrl } from '../api/client';
-import { patchLayout } from '../api/manageClient';
+import { deleteLayout, patchLayout } from '../api/manageClient';
 import { getModerationLayouts } from '../api/moderationClient';
 import type { OwnerLayoutView } from '../api/types';
 import { useApi } from '../api/useApi';
 import { useAuth } from '../auth/authState';
 import { ErrorNotice } from '../components/ErrorNotice';
 
-const VISIBILITY_OPTIONS = ['public', 'hidden', 'removed', 'deleted'] as const;
+const VISIBILITY_OPTIONS = ['public', 'hidden', 'deleted'] as const;
+// What a moderator can PATCH `visibility` to (#72) — `deleted` is a filter
+// value above, never a PATCH target; that state is reached only through the
+// Delete button, same endpoint an owner has always used for their own.
+const PATCHABLE_VISIBILITY_OPTIONS = ['public', 'hidden'] as const;
 
 /** '' means "any visibility" — the filter's default. */
 type VisibilityFilter = OwnerLayoutView['visibility'] | '';
@@ -33,7 +37,7 @@ function ModerationRow({
   onSaved: (previousSlug: string, updated: OwnerLayoutView) => void;
 }) {
   const { user } = useAuth();
-  const [visibility, setVisibility] = useState<'public' | 'hidden' | 'removed'>(
+  const [visibility, setVisibility] = useState<'public' | 'hidden'>(
     layout.visibility === 'deleted' ? 'public' : layout.visibility,
   );
   const [slug, setSlug] = useState(layout.slug);
@@ -66,6 +70,25 @@ function ModerationRow({
     }
   }
 
+  // Permanent, unlike hide/unhide above — same DELETE an owner has always
+  // used for their own layout, now also reachable by a moderator on
+  // someone else's (#72), with the same `reason` field this row already
+  // has for the visibility/slug apply.
+  async function remove() {
+    if (!confirm(`Delete "${layout.title}"? This cannot be undone.`)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await deleteLayout(layout.slug, accessToken, reason);
+      onSaved(layout.slug, { ...layout, visibility: 'deleted', visibilityReason: reason || null });
+      setReason('');
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <li className="border-2 border-border p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -90,7 +113,7 @@ function ModerationRow({
       </p>
 
       {layout.visibility === 'deleted' ? (
-        <p className="mt-2 text-sm text-subtle">Owner-deleted. Not reachable by a moderator action.</p>
+        <p className="mt-2 text-sm text-subtle">Deleted. This is permanent — nothing more to do here.</p>
       ) : (
         <div className="mt-2 flex flex-col gap-2">
           <label className="flex items-center gap-2 text-sm text-muted">
@@ -110,7 +133,7 @@ function ModerationRow({
               onChange={(event) => setVisibility(event.target.value as typeof visibility)}
               className="border border-border bg-canvas px-2 py-1 text-sm text-ink"
             >
-              {VISIBILITY_OPTIONS.filter((v) => v !== 'deleted').map((v) => (
+              {PATCHABLE_VISIBILITY_OPTIONS.map((v) => (
                 <option key={v} value={v}>
                   {v}
                 </option>
@@ -129,6 +152,14 @@ function ModerationRow({
               className="border border-accent px-3 py-1 text-sm text-accent disabled:opacity-50"
             >
               {saving ? 'Applying…' : 'Apply'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void remove()}
+              disabled={saving || !reason}
+              className="border border-danger px-3 py-1 text-sm text-danger disabled:opacity-50"
+            >
+              Delete
             </button>
           </div>
         </div>

@@ -71,14 +71,14 @@ describe('GET /api/v1/layouts', () => {
     expect(entry?.files.layout).toBe('/api/v1/layouts/route-list-basic/download');
   });
 
-  it('never lists a hidden or removed layout', async () => {
+  it('never lists a hidden or deleted layout', async () => {
     await insertLayout(harness.db, { slug: 'route-hidden', visibility: 'hidden' });
-    await insertLayout(harness.db, { slug: 'route-removed', visibility: 'removed' });
+    await insertLayout(harness.db, { slug: 'route-deleted', visibility: 'deleted' });
 
     const response = await app.inject({ method: 'GET', url: '/api/v1/layouts?limit=100' });
     const slugs = response.json<ListLayoutsBody>().layouts.map((l) => l.slug);
     expect(slugs).not.toContain('route-hidden');
-    expect(slugs).not.toContain('route-removed');
+    expect(slugs).not.toContain('route-deleted');
   });
 
   it('composes filters over HTTP query params', async () => {
@@ -149,7 +149,7 @@ describe('GET /api/v1/layouts/:slug', () => {
     expect(response.statusCode).toBe(404);
   });
 
-  it.each(['hidden', 'removed', 'deleted'] as const)(
+  it.each(['hidden', 'deleted'] as const)(
     'is a 404 for a %s layout — cannot be distinguished from a slug that never existed',
     async (visibility) => {
       await insertLayout(harness.db, { slug: `route-detail-${visibility}`, visibility });

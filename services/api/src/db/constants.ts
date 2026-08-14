@@ -7,4 +7,4 @@
 export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 /** Visibility states that are absent from every public read path. */
-export const NON_PUBLIC_VISIBILITIES = ['hidden', 'removed', 'deleted'] as const;
+export const NON_PUBLIC_VISIBILITIES = ['hidden', 'deleted'] as const;

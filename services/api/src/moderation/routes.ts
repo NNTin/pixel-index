@@ -21,7 +21,7 @@ export interface ModerationRoutesDeps {
   db: AnyDatabase;
 }
 
-const MODERATION_VISIBILITIES = ['public', 'hidden', 'removed', 'deleted'] as const;
+const MODERATION_VISIBILITIES = ['public', 'hidden', 'deleted'] as const;
 
 const listQuerySchema = {
   type: 'object',

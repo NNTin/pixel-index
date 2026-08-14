@@ -48,18 +48,27 @@ const updatedAt = () => timestamp('updated_at', { withTimezone: true }).notNull(
 export const userRole = pgEnum('user_role', ['user', 'moderator', 'admin']);
 
 /**
- * Why four states rather than a boolean:
+ * Why three states rather than a boolean:
  *
- * | state     | set by    | reversible | slug reserved | in public API |
- * |-----------|-----------|------------|---------------|---------------|
- * | `public`  | —         | —          | yes           | yes           |
- * | `hidden`  | moderator | yes        | yes           | no            |
- * | `removed` | moderator | no         | yes           | no            |
- * | `deleted` | owner     | no         | yes           | no            |
+ * | state     | set by             | reversible | slug reserved | in public API |
+ * |-----------|--------------------|------------|---------------|---------------|
+ * | `public`  | —                  | —          | yes           | yes           |
+ * | `hidden`  | owner or moderator | yes        | yes           | no            |
+ * | `deleted` | owner or moderator | no         | yes           | no            |
  *
- * Moderator-hidden and owner-deleted need different behaviour on re-submission:
- * an owner may re-publish something they withdrew, but re-uploading content a
- * moderator removed must not be a way to launder it back onto the front page.
+ * `deleted` is the single "gone for good" state (#72). There used to be a
+ * separate moderator-only `removed`, but a moderator now reaches the exact
+ * same irreversible outcome an owner does, through the same `DELETE`
+ * endpoint (`manage.ts`), rather than a second value meaning the same thing
+ * under a different name depending on who acted. A byte-identical resubmit
+ * is allowed once a layout is `deleted`, even one a moderator deleted, same
+ * as an owner's own self-delete — abuse of that is a Discord-membership
+ * problem (losing submission rights), not something this enum enforces.
+ *
+ * `hidden` is reversible by either actor: a moderator can hide/unhide
+ * anyone's layout (with a reason), and an owner can toggle their own layout
+ * between public and hidden — including undoing a moderator's hide — with
+ * no reason needed, since it is not a moderation action on their own content.
  *
  * The row always survives. Slugs stay reserved because slug reuse by a
  * different author is a quiet impersonation vector, and because the audit log
@@ -68,7 +77,6 @@ export const userRole = pgEnum('user_role', ['user', 'moderator', 'admin']);
 export const layoutVisibility = pgEnum('layout_visibility', [
   'public',
   'hidden',
-  'removed',
   'deleted',
 ]);
 
@@ -97,6 +105,12 @@ export const auditAction = pgEnum('audit_action', [
   'layout.delete',
   'layout.hide',
   'layout.unhide',
+  /**
+   * Retired (#72): no code path writes these anymore — `removed` was folded
+   * into `deleted`, so a moderator now records `layout.delete` like an owner
+   * does. Kept in the enum only because the append-only audit log is never
+   * rewritten; historical rows from before #72 still use them.
+   */
   'layout.remove',
   'layout.restore',
   'layout.moderate_edit',
@@ -242,7 +256,7 @@ export const layouts = pgTable(
 
     // Every public read path filters on visibility first, so the indexes that
     // matter for #6 and #14 are partial. A partial index also stays small as
-    // removed and deleted rows accumulate.
+    // hidden and deleted rows accumulate.
     //
     // The "…_idx" sort indexes below all end in `id` as a tiebreaker. #6 uses
     // keyset (cursor) pagination — WHERE (sortCol, id) < (cursorVal, cursorId)

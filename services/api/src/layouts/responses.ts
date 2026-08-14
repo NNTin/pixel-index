@@ -30,7 +30,7 @@ export interface ListTagsBody {
 /**
  * `GET /api/v1/me/layouts` and `GET /api/v1/moderation/layouts` — the same
  * envelope as the public list, but carrying the owner/moderator view of each
- * row (hidden and removed layouts included, with their reasons).
+ * row (hidden and deleted layouts included, with their reasons).
  */
 export interface ListOwnerLayoutsBody {
   schemaVersion: number;

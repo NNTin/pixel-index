@@ -1,16 +1,30 @@
 /**
- * Everything a layout's owner (#9) — or, for visibility and metadata only, a
- * moderator/admin (#10) — can do to a layout that already exists:
- * `PATCH` (edit), `PUT .../layout` (replace the content), `DELETE` (owner
- * withdrawal), and `GET /me/layouts` (the owner's own full history,
+ * Everything a layout's owner (#9, #72) — or, for visibility, metadata and
+ * deletion, a moderator/admin (#10, #72) — can do to a layout that already
+ * exists: `PATCH` (edit), `PUT .../layout` (replace the content), `DELETE`
+ * (permanent removal), and `GET /me/layouts` (the owner's own full history,
  * including what is not public right now).
  *
- * #10 does not add its own hide/remove/restore endpoints — it reuses this
- * file's `PATCH`. A moderator sets `visibility` (with a required `reason`)
- * in the same request shape an owner uses to fix a typo in their
- * description; the difference is which fields the caller is allowed to
- * touch, checked once per request, not a different URL. See the comment
- * thread on issue #10 for why.
+ * #10 does not add its own hide/restore endpoints — it reuses this file's
+ * `PATCH`. A moderator sets `visibility` (with a required `reason`) in the
+ * same request shape an owner uses to fix a typo in their description; the
+ * difference is which fields the caller is allowed to touch, and whether a
+ * `reason` is demanded, checked once per request, not a different URL. See
+ * the comment thread on issue #10 for why.
+ *
+ * #72 extends this two ways:
+ * - `visibility`: an owner may now toggle their OWN layout between `public`
+ *   and `hidden` too — no reason needed, it is their own low-stakes call on
+ *   their own content, not a moderation action — including undoing a
+ *   moderator's hide. A moderator keeps the same public/hidden toggle on
+ *   ANYONE's layout, with a reason.
+ * - `DELETE`: no longer owner-only. There used to be a separate
+ *   moderator-only `removed` visibility, set via `PATCH` like `hidden` was;
+ *   it is gone, folded into `DELETE`'s existing, single, irreversible
+ *   `deleted` outcome — a moderator reaches it the same way an owner always
+ *   has, through this same endpoint, rather than a second value meaning the
+ *   same thing under a different name depending on who acted. See `DELETE`
+ *   below for the reason requirement that distinguishes the two callers.
  */
 
 import { type Layout, layoutStats, sha256, SLUG_RE, validateSlug } from '@pixel-index/layout-core';
@@ -57,12 +71,19 @@ export interface ManageRoutesDeps {
   upstream: UpstreamValidator | null;
 }
 
-const MODERATOR_VISIBILITIES = ['public', 'hidden', 'removed'] as const;
-type ModeratorVisibility = (typeof MODERATOR_VISIBILITIES)[number];
+// Everything `visibility` can be set to via THIS endpoint, by either actor
+// (#72) — `deleted` is permanent and only reachable through `DELETE` below,
+// for owner and moderator alike, never through a PATCH.
+const PATCHABLE_VISIBILITIES = ['public', 'hidden'] as const;
+type PatchableVisibility = (typeof PATCHABLE_VISIBILITIES)[number];
+function isPatchableVisibility(value: schema.Layout['visibility']): value is PatchableVisibility {
+  return (PATCHABLE_VISIBILITIES as readonly string[]).includes(value);
+}
 
 // A vanity slug is still a URL segment, not free text — same practical bound
 // as a title, even though (#29) it is no longer derived from one.
 const MAX_SLUG_LENGTH = 60;
+const MAX_REASON_LENGTH = 300;
 
 const patchBodySchema = {
   type: 'object',
@@ -71,22 +92,35 @@ const patchBodySchema = {
     title: { type: 'string', minLength: 1, maxLength: MAX_TITLE_LENGTH },
     description: { type: 'string', maxLength: MAX_DESCRIPTION_LENGTH },
     tags: { type: 'array', items: { type: 'string' }, maxItems: MAX_TAGS },
-    visibility: { type: 'string', enum: MODERATOR_VISIBILITIES },
+    visibility: { type: 'string', enum: PATCHABLE_VISIBILITIES },
     // Moderator-only (#29) — see the `slug` handling below. Format-checked
     // here for a fast 400; `validateSlug` (shared with layout-core) is the
     // actual source of truth and runs again in the handler.
     slug: { type: 'string', minLength: 1, maxLength: MAX_SLUG_LENGTH, pattern: SLUG_RE.source },
-    reason: { type: 'string', minLength: 1, maxLength: 300 },
+    reason: { type: 'string', minLength: 1, maxLength: MAX_REASON_LENGTH },
   },
 } as const;
 
-/** `hidden`/`removed`/`public` transitions map onto the four enum actions schema.ts already has. */
-function visibilityAuditAction(
-  from: schema.Layout['visibility'],
-  to: ModeratorVisibility,
-): schema.ModerationAction['action'] {
-  if (to === 'removed') return 'layout.remove';
-  if (from === 'removed') return 'layout.restore';
+/**
+ * DELETE has no `body` JSON Schema (see the route below for why an owner's
+ * historically bodiless request has to keep working), so `reason` there is
+ * validated by hand instead of by AJV — same bounds as PATCH's `reason`
+ * property above, just enforced in code rather than declaratively.
+ */
+function readOptionalReason(body: unknown): string | undefined {
+  if (body === undefined || body === null) return undefined;
+  if (typeof body !== 'object' || Array.isArray(body)) {
+    throw ApiError.badRequest('Body must be a JSON object.');
+  }
+  const reason = (body as Record<string, unknown>).reason;
+  if (reason === undefined) return undefined;
+  if (typeof reason !== 'string' || reason.length < 1 || reason.length > MAX_REASON_LENGTH) {
+    throw ApiError.badRequest(`reason must be a string between 1 and ${MAX_REASON_LENGTH} characters.`);
+  }
+  return reason;
+}
+
+function visibilityAuditAction(to: PatchableVisibility): schema.ModerationAction['action'] {
   return to === 'hidden' ? 'layout.hide' : 'layout.unhide';
 }
 
@@ -126,8 +160,11 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       const isModerator = user.role === 'moderator' || user.role === 'admin';
       if (!isOwner && !isModerator) throw ApiError.forbidden();
 
-      if (body.visibility !== undefined && !isModerator) {
-        throw ApiError.forbidden("Only a moderator can change a layout's visibility.");
+      if (body.visibility !== undefined && !isPatchableVisibility(layout.visibility)) {
+        // Applies to owner and moderator alike: `deleted` is permanent, full
+        // stop, so this is the one visibility check that does not depend on
+        // `isModerator` — nobody undoes a `DELETE` through `PATCH`.
+        throw ApiError.forbidden('A deleted layout cannot be restored.');
       }
       // A vanity slug is a privilege granted by staff, never something even
       // the owner of the layout can pick for themselves (#29) — same rule,
@@ -144,11 +181,15 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       const newSlug = body.slug !== undefined && body.slug !== layout.slug ? body.slug : null;
       const slugChanged = newSlug !== null;
 
-      // Metadata on someone ELSE's layout, or any visibility/slug change, is
-      // moderation — "no silent moderation" (#10) means it needs a reason.
-      // An owner editing their own needs none; nobody has to justify their
-      // own choices to themselves.
-      const actingAsModerator = !isOwner || body.visibility !== undefined || slugChanged;
+      // Acting on someone ELSE's layout, or any slug change, is moderation —
+      // "no silent moderation" (#10) means it needs a reason. Acting on your
+      // OWN layout — metadata, or a visibility toggle (#72) — needs none,
+      // whether you happen to be a moderator or not; nobody has to justify
+      // their own routine, low-stakes choices to themselves. `slugChanged`
+      // alone is enough to require a reason without re-testing `isModerator`
+      // here — it is only ever true when a moderator set it (owners are
+      // forbidden from touching `slug` above).
+      const actingAsModerator = !isOwner || slugChanged;
       if (actingAsModerator && !body.reason) {
         throw ApiError.badRequest('A reason is required for this change.');
       }
@@ -205,8 +246,8 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
           if (newSlug !== null) {
             // Whoever currently holds `newSlug`, if anyone — the unique index
             // (`layouts_slug_key`, schema.ts) is not visibility-aware, so a
-            // `removed`/`deleted` row still literally owns its slug string
-            // even though it is gone from every public/moderator listing.
+            // `deleted` row still literally owns its slug string even though
+            // it is gone from every public/moderator listing.
             const holder = await getLayoutBySlugAnyVisibility(tx, newSlug);
             if (holder) {
               if (holder.visibility === 'public' || holder.visibility === 'hidden') {
@@ -218,10 +259,10 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
                 // chosen string) — an exact rejection instead.
                 throw ApiError.conflict(`The slug "${newSlug}" is already in use.`);
               }
-              // `removed`/`deleted`: this row cannot become live again under
-              // its current slug without a moderator's separate say-so (a
-              // `removed` restore does not touch `slug`), so it is not
-              // "in use" in any way a fresh claim needs to respect — #29's
+              // `deleted`: this row can never become live again under its
+              // current slug — `DELETE` is permanent for owner and moderator
+              // alike (#72) — so it is not "in use" in any way a fresh claim
+              // needs to respect — #29's
               // "reuse the same URL" case, where a newer version of a layout
               // takes over the vanity slug a superseded one held. Evict the
               // holder to a fresh random slug in THIS transaction, before
@@ -300,7 +341,7 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
             await recordModerationAction(tx, {
               actorUserId: user.id,
               actorLabel: user.username,
-              action: visibilityAuditAction(layout.visibility, body.visibility),
+              action: visibilityAuditAction(body.visibility),
               targetType: 'layout',
               targetId: layout.id,
               reason: moderationReason,
@@ -384,7 +425,8 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
         // Replace is deliberately owner-only, even for a moderator — #10's
         // scope is "edit metadata on any layout", never someone else's
         // design. A moderator who thinks a layout's content is the problem
-        // hides or removes it (PATCH visibility) rather than rewriting it.
+        // hides it (PATCH visibility) or deletes it (DELETE, #72) rather
+        // than rewriting it.
         if (layout.authorUserId !== user.id) throw ApiError.forbidden();
 
         const raw = request.body;
@@ -479,6 +521,14 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
   });
 
   typed.delete(
+    // No `body` schema: unlike PATCH, a DELETE historically never sent a
+    // body at all (an owner leaving the guild still needs this to work with
+    // the plainest possible request — see membership.test.ts), and AJV has
+    // no clean way to say "validate this shape IF a body is present, but do
+    // not require one to exist" — a `type: 'object'` schema rejects a
+    // genuinely absent body outright. So `reason` is read and validated by
+    // hand below instead, the same way it always was optional before #72
+    // gave DELETE a second (moderator) caller.
     '/api/v1/layouts/:slug',
     { schema: { params: slugParamsSchema } },
     async (request, reply) => {
@@ -489,19 +539,31 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
 
       const layout = await getLayoutBySlugAnyVisibility(db, slug);
       if (!layout) throw ApiError.notFound(`No layout "${slug}".`);
-      // Deletion is owner-only — a moderator removes via PATCH visibility,
-      // never DELETE. Different actor, different action, even though both
-      // land the layout out of the public API.
-      if (layout.authorUserId !== user.id) throw ApiError.forbidden();
+
+      const isOwner = layout.authorUserId === user.id;
+      const isModerator = user.role === 'moderator' || user.role === 'admin';
+      // Delete is now the ONE way anything leaves the public API for good
+      // (#72) — a moderator reaches it the same way an owner always has,
+      // rather than a separate `removed` visibility meaning the same thing.
+      if (!isOwner && !isModerator) throw ApiError.forbidden();
 
       if (layout.visibility === 'deleted') return reply.code(204).send();
+
+      // Deleting someone ELSE's layout is moderation and needs a reason —
+      // "no silent moderation" (#10), same rule as PATCH. Deleting your own
+      // needs none, moderator or not, same as PATCH's own visibility toggle.
+      const actingAsModerator = !isOwner;
+      const reason = readOptionalReason(request.body);
+      if (actingAsModerator && !reason) {
+        throw ApiError.badRequest('A reason is required for this change.');
+      }
 
       await db.transaction(async (tx: AnyDatabase) => {
         await tx
           .update(schema.layouts)
           .set({
             visibility: 'deleted',
-            visibilityReason: null,
+            visibilityReason: actingAsModerator ? (reason ?? null) : null,
             visibilityChangedAt: new Date(),
             visibilityChangedBy: user.id,
           })
@@ -512,6 +574,7 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
           action: 'layout.delete',
           targetType: 'layout',
           targetId: layout.id,
+          reason: actingAsModerator ? (reason ?? null) : null,
           before: { visibility: layout.visibility },
           after: { visibility: 'deleted' },
         });

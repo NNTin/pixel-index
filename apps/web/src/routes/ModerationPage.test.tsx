@@ -8,9 +8,11 @@ import { ModerationPage } from './ModerationPage';
 
 beforeEach(() => {
   location.hash = '#pixelIndexLoginCode=test-code';
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   localStorage.clear();
   location.hash = '';
 });
@@ -193,6 +195,47 @@ describe('ModerationPage', () => {
     fireEvent.click(applyButton);
 
     await waitFor(() => expect(sentBody).toMatchObject({ visibility: 'hidden', reason: 'inappropriate content' }));
+  });
+
+  it('only offers public/hidden as PATCH targets — "removed" no longer exists (#72)', async () => {
+    stubFetch(() =>
+      Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null }),
+    );
+    renderPage();
+    await screen.findByText('Reported Office');
+
+    const applyButton = screen.getByRole('button', { name: 'Apply' });
+    const row = applyButton.closest('li, tr, form, div[data-layout]') ?? applyButton.parentElement;
+    assert(row instanceof HTMLElement, 'the Apply button has no containing row');
+    const rowVisibilitySelect = within(row).getByRole('combobox');
+    const optionValues = within(rowVisibilitySelect)
+      .getAllByRole('option')
+      .map((option) => (option as HTMLOptionElement).value);
+    expect(optionValues).toEqual(['public', 'hidden']);
+  });
+
+  it('requires a reason before Delete is enabled, then sends a DELETE with that reason (#72)', async () => {
+    let deleteReceived: { method: string; reason: string | undefined } | null = null;
+    stubFetch((_url, init) => {
+      if (init?.method === 'DELETE') {
+        deleteReceived = { method: init.method, reason: requestJson<{ reason?: string }>(init).reason };
+        return new Response(null, { status: 204 });
+      }
+      return Response.json({ schemaVersion: 1, total: 1, layouts: [ownerView()], nextCursor: null });
+    });
+    renderPage();
+    await screen.findByText('Reported Office');
+
+    const deleteButton = screen.getByRole('button', { name: 'Delete' });
+    expect(deleteButton).toBeDisabled();
+
+    fireEvent.change(screen.getByPlaceholderText(/Reason/), { target: { value: 'confirmed violation' } });
+    expect(deleteButton).not.toBeDisabled();
+
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => expect(deleteReceived).toMatchObject({ method: 'DELETE', reason: 'confirmed violation' }));
+    expect(await screen.findByText(/Deleted\./)).toBeInTheDocument();
   });
 
   it('shows the current slug in an editable field (#29)', async () => {

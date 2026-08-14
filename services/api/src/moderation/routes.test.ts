@@ -61,14 +61,13 @@ describe('GET /api/v1/moderation/layouts', () => {
     const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
     await insertLayout(harness.db, { slug: 'mod-visible-public', authorUserId: owner.id, visibility: 'public' });
     await insertLayout(harness.db, { slug: 'mod-visible-hidden', authorUserId: owner.id, visibility: 'hidden' });
-    await insertLayout(harness.db, { slug: 'mod-visible-removed', authorUserId: owner.id, visibility: 'removed' });
     await insertLayout(harness.db, { slug: 'mod-visible-deleted', authorUserId: owner.id, visibility: 'deleted' });
 
     const response = await listModerationLayouts(`author=${owner.id}`, modToken);
     expect(response.statusCode).toBe(200);
     const slugs = response.json<ListOwnerLayoutsBody>().layouts.map((l) => l.slug);
     expect(slugs.sort()).toEqual(
-      ['mod-visible-deleted', 'mod-visible-hidden', 'mod-visible-public', 'mod-visible-removed'].sort(),
+      ['mod-visible-deleted', 'mod-visible-hidden', 'mod-visible-public'].sort(),
     );
   });
 

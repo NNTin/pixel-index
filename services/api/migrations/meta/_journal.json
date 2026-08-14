@@ -71,6 +71,13 @@
       "when": 1786526526493,
       "tag": "0009_add_visible_bounds",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786736684986,
+      "tag": "0010_retire_removed_visibility",
+      "breakpoints": true
     }
   ]
 }
