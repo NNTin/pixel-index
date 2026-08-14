@@ -35,7 +35,10 @@ function Nav() {
           rel="noreferrer"
           aria-label="Discord"
           title="Join the Discord"
-          className="flex items-center rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          // text-ink is not decoration here: the mark's face is `currentColor`,
+          // so this is what actually colors the logo, keeping it identical to
+          // the nav links beside it in both themes.
+          className="flex items-center rounded-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <DiscordLogo />
         </a>

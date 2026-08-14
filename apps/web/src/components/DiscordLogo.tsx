@@ -40,7 +40,8 @@ export function DiscordLogo({ size = 32 }: { size?: number }) {
     >
       <defs>
         <g id={markId}>
-          {/* Face: `currentColor` resolves to the inherited `color` (--color-accent). */}
+          {/* Face: `currentColor`, so the mark takes the text color of wherever
+              it is placed — text-ink alongside the header's other nav links. */}
           <path
             fill="currentColor"
             d="M40,12C40,12,35.415,8.412,30,8L29.512,8.976C34.408,10.174,36.654,11.891,39,14C34.955,11.935,30.961,10,24,10S13.045,11.935,9,14C11.346,11.891,14.018,9.985,18.488,8.976L18,8C12.319,8.537,8,12,8,12S2.879,19.425,2,34C7.162,39.953,15,40,15,40L16.639,37.815C13.857,36.848,10.715,35.121,8,32C11.238,34.45,16.125,37,24,37S36.762,34.45,40,32C37.285,35.121,34.143,36.848,31.361,37.815L33,40C33,40,40.838,39.953,46,34C45.121,19.425,40,12,40,12Z"

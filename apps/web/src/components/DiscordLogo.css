@@ -8,19 +8,23 @@
  * to nntin.xyz (#28: the site never depends on that host being up).
  *
  * Colors are not hardcoded Discord blurple. `color` and `fill` are both
- * inherited properties, so setting them on the <svg> root reaches the mark's
- * paths — including through the <use> shadow trees the swirl layers are made
- * of. That replaces the upstream component's `discordcolor` / `discordfill`
- * props with this app's own tokens, which means the logo re-themes with the
- * light/dark toggle for free:
- *   color -> --color-accent: the brand foreground, standing in for blurple.
- *   fill  -> --color-canvas: the eyes, which are negative space in the mark.
- *            They must match the surface the logo sits on (the header is
- *            bg-canvas) to read as cutouts rather than as painted dots.
+ * inherited properties, so they reach the mark's paths from the <svg> root —
+ * including through the <use> shadow trees the swirl layers are made of. That
+ * is what replaces the upstream component's `discordcolor` / `discordfill`
+ * props, and it means the logo re-themes with the light/dark toggle for free.
+ *
+ * The face (`fill="currentColor"`) is deliberately NOT set here: it inherits
+ * `color` from whatever the logo is sitting in, so it matches the text beside
+ * it rather than merely happening to agree with it today. In the header that
+ * is `text-ink` — the same color as "Pixel Index", "Submit" and the rest of
+ * the nav, in both themes.
+ *
+ * The eyes do need pinning, because they are negative space in the mark, not a
+ * second brand color: they have to match the *surface* behind the logo (the
+ * header is bg-canvas) to read as cutouts rather than as painted dots.
  */
 
 .discord-logo-container {
-  color: var(--color-accent);
   fill: var(--color-canvas);
 }
 
