@@ -8,6 +8,7 @@ import { AuthorPage } from './routes/AuthorPage';
 import { DeveloperPage } from './routes/DeveloperPage';
 import { Home } from './routes/Home';
 import { LayoutDetailPage } from './routes/LayoutDetailPage';
+import { LayoutEditorPage } from './routes/LayoutEditorPage';
 import { ModerationPage } from './routes/ModerationPage';
 import { MyLayoutsPage } from './routes/MyLayoutsPage';
 import { NotFound } from './routes/NotFound';
@@ -19,6 +20,14 @@ export function App() {
       <Route element={<Layout />}>
         <Route index element={<Home />} />
         <Route path="layouts/:slug" element={<LayoutDetailPage />} />
+        {/*
+          Both editor routes render the same page — the difference is only
+          where the layout comes from and where it goes (#65). The gate is
+          inside it, like /submit's, because the capability being checked is
+          "may submit layouts", not "is logged in".
+        */}
+        <Route path="editor" element={<LayoutEditorPage />} />
+        <Route path="layouts/:slug/edit" element={<LayoutEditorPage />} />
         <Route path="authors/:id" element={<AuthorPage />} />
         <Route path="submit" element={<SubmitPage />} />
         <Route path="developer" element={<DeveloperPage />} />

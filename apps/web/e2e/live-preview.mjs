@@ -1,11 +1,18 @@
 /**
- * Browser regression guard for the live layout-detail preview.
+ * Browser regression guard for the live layout-detail preview, and for the
+ * editor that shares its frame (#65).
  *
  * This deliberately uses the default layout from the pinned Pixel Agents
  * checkout and the production Vite bundle. A vendor bump can compile while
  * still failing at runtime because decoded asset payloads, layout migration,
  * canvas setup, or upstream Tailwind classes changed. Driving the real iframe
  * in Chromium catches those integration failures before the pin is merged.
+ *
+ * The editor half ends by validating the layout it produced with
+ * `@pixel-index/layout-core` — the same validation the API runs on publish.
+ * A blank layout drawn here would otherwise sail through the browser and be
+ * rejected at the last step, because upstream's `createDefaultLayout()` has no
+ * `layoutRevision` at all.
  */
 
 import assert from 'node:assert/strict';
@@ -15,7 +22,7 @@ import { createServer } from 'node:http';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { layoutStats } from '@pixel-index/layout-core';
+import { layoutStats, validateLayout } from '@pixel-index/layout-core';
 import { chromium } from 'playwright';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +39,12 @@ const BASE_PATH = '/pixel-index/';
 const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
 const API_ORIGIN = `http://127.0.0.1:${API_PORT}`;
 const PAGE_URL = `${WEB_ORIGIN}${BASE_PATH}layouts/default`;
+// The login code AuthProvider consumes out of the hash. The mock API below
+// answers it with a member who may submit, which is what the editor gates on.
+const EDITOR_URL = `${WEB_ORIGIN}${BASE_PATH}editor#pixelIndexLoginCode=e2e`;
+const UPSTREAM_DIR = path.join(REPOSITORY_ROOT, 'vendor/pixel-agents');
+/** Upstream's `TileType.VOID` — what the Erase tool leaves behind. */
+const VOID_TILE = 255;
 const SCREENSHOT = path.join(WEB_ROOT, 'test-results/live-preview-failure.png');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
@@ -91,6 +104,18 @@ function detailResponse(layout, source) {
   };
 }
 
+const E2E_USER = {
+  id: 'e2e-user',
+  discordId: 'e2e-discord-id',
+  username: 'e2e',
+  displayName: 'e2e',
+  avatarUrl: null,
+  role: 'user',
+  capabilityCheckedAt: '2026-01-01T00:00:00.000Z',
+  capabilityCacheTtlMs: 600_000,
+  submission: { allowed: true, reason: null, inviteUrl: null },
+};
+
 function sendJson(response, value) {
   response.statusCode = 200;
   response.setHeader('content-type', 'application/json; charset=utf-8');
@@ -101,6 +126,11 @@ function mockApi(layout, source) {
   const detail = detailResponse(layout, source);
   return createServer((request, response) => {
     response.setHeader('access-control-allow-origin', WEB_ORIGIN);
+    // The reads this file started with are simple requests and need no
+    // preflight. Logging in does: it POSTs JSON with an Authorization header,
+    // which the browser will not send unless the preflight allows both.
+    response.setHeader('access-control-allow-headers', 'authorization, content-type');
+    response.setHeader('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE');
     if (request.method === 'OPTIONS') {
       response.statusCode = 204;
       response.end();
@@ -125,6 +155,35 @@ function mockApi(layout, source) {
       response.statusCode = 200;
       response.setHeader('content-type', 'image/png');
       response.end(ONE_PIXEL_PNG);
+      return;
+    }
+    // Enough of a session for the editor's gate: a Discord member who is
+    // allowed to submit. Every write the editor could make is stubbed out
+    // below — this run proves the browser half, not the API's.
+    if (pathname === '/api/v1/auth/token' || pathname === '/api/v1/auth/refresh') {
+      sendJson(response, {
+        accessToken: 'e2e-access-token',
+        refreshToken: 'e2e-refresh-token',
+        expiresInMs: 900_000,
+        user: E2E_USER,
+      });
+      return;
+    }
+    if (pathname === '/api/v1/me') {
+      sendJson(response, E2E_USER);
+      return;
+    }
+    // The API root (#32) — /submit resolves the content-policy link from it.
+    if (pathname === '/') {
+      sendJson(response, {
+        name: 'Pixel Index API',
+        description: 'Mock API for the browser regression guard.',
+        version: '1',
+        commit: 'a'.repeat(40),
+        documentation: `${API_ORIGIN}/docs`,
+        openapi: `${API_ORIGIN}/openapi.json`,
+        repository: 'https://github.com/pixel-agents-hq/index',
+      });
       return;
     }
     if (pathname === '/api/v1/meta') {
@@ -303,6 +362,70 @@ async function assertRenderedOffice(frame, expectedAgents) {
   return overlays.map((overlay) => overlay.activity);
 }
 
+/**
+ * Draw a layout from scratch and follow it all the way to the submit form.
+ *
+ * The whole point is that no fixture is involved: the layout starts as
+ * upstream's blank room inside the frame, is edited by real clicks on the real
+ * canvas, and comes back out as the bytes `/submit` would publish.
+ */
+async function assertEditorRoundTrip(page) {
+  await page.goto(EDITOR_URL, { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: 'New layout' }).waitFor();
+
+  const iframe = page.locator('iframe[title="Pixel Agents office editor"]');
+  await iframe.waitFor({ state: 'visible' });
+  const frame = await (await iframe.elementHandle())?.contentFrame();
+  assert(frame, 'The editor iframe did not attach a browsing context.');
+
+  const canvas = frame.locator('canvas');
+  await canvas.waitFor({ state: 'visible' });
+  // Upstream's toolbar, rendered from upstream's own theme inside this frame.
+  await frame.getByRole('button', { name: 'Furniture' }).waitFor();
+
+  // Count the layouts the frame posts from here on. Edits are debounced, so
+  // the page holds the pre-edit bytes for a moment after the click — waiting
+  // on the protocol itself is what makes this deterministic without a sleep.
+  await page.evaluate((channel) => {
+    const counter = window;
+    counter.__editorLayouts = 0;
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (data && data.channel === channel && data.type === 'layout') {
+        counter.__editorLayouts += 1;
+      }
+    });
+  }, 'pixel-index-live-office');
+
+  // Erase is the one tool whose effect is unambiguous from the JSON alone: the
+  // blank room contains no VOID tiles at all until something erases one.
+  await frame.getByRole('button', { name: 'Erase' }).click();
+  const box = await canvas.boundingBox();
+  assert(box, 'The editor canvas has no layout box.');
+  await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
+  await page.waitForFunction(() => window.__editorLayouts > 0);
+
+  await page.getByRole('button', { name: 'Continue to publish' }).click();
+  const textarea = page.getByPlaceholder('{"version": 1, "layoutRevision": ...}');
+  await textarea.waitFor();
+  const raw = await textarea.inputValue();
+  assert(raw, 'The editor handed the submit form an empty layout.');
+
+  const drawn = JSON.parse(raw);
+  assert(
+    drawn.tiles.includes(VOID_TILE),
+    'Erasing a tile in the editor did not reach the layout the submit form was given.',
+  );
+
+  const validation = validateLayout(drawn, { upstreamDir: UPSTREAM_DIR });
+  assert(
+    validation.valid,
+    `The layout the editor produced would be rejected on publish:\n${validation.issues
+      .map((issue) => `${issue.code} ${issue.path}: ${issue.message}`)
+      .join('\n')}`,
+  );
+}
+
 async function run() {
   const { layout, source } = pinnedDefaultLayout();
   await runBuild();
@@ -388,6 +511,10 @@ async function run() {
     frame = await getLiveFrame(page);
     await assertRenderedOffice(frame, 3);
 
+    // Last, deliberately: this is the step that logs in, and the checks above
+    // are all about what an anonymous visitor sees.
+    await assertEditorRoundTrip(page);
+
     assert.deepEqual(
       runtimeErrors,
       [],
@@ -396,6 +523,7 @@ async function run() {
     console.log(
       '✓ live preview rendered the pinned layout and passed browser interactions',
     );
+    console.log('✓ the editor drew a publishable layout and handed it to /submit');
   } catch (error) {
     if (page) {
       fs.mkdirSync(path.dirname(SCREENSHOT), { recursive: true });

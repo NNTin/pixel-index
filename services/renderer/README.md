@@ -19,6 +19,39 @@ service runs upstream's Vite dev server once at boot, then for each render opens
 and **intercepts the fetch for the bundled default layout**, answering with the layout
 being rendered. Everything on screen is then drawn by upstream's code.
 
+### What comes out
+
+A PNG cropped to the layout's **occupied tiles**, on a **transparent** background.
+
+A layout's declared `cols` × `rows` is padding-inclusive: `6e3bc6dd2e` declares 53×46 and
+occupies 25×27, and the three bundled seeds that share a 21×22 canvas occupy 20×11, 20×21
+and 20×12. The floor of the crop comes from layout-core's `occupiedBounds()` — the same
+function behind the `visibleCols`/`visibleRows` stat, rather than a private answer to the
+same question — so a preview is never smaller than `visibleCols × visibleRows` tiles and
+always agrees with the numbers printed beside it in the gallery.
+
+It can be *larger*, by design: upstream draws things attached to a tile that reach outside
+it. `wallTiles.ts` anchors a wall sprite at the bottom of its tile and lets tall ones
+"extend upward", so the top face of a back wall lands a whole tile above the topmost
+non-VOID row — cropping to the tiles alone decapitates it. The final crop is therefore the
+occupied tiles **unioned with** the canvas's painted bounding box. The union direction is
+the safety property: the scan can only add, so a frame caught mid-paint costs a little
+extra margin rather than a silently truncated office.
+
+The viewport is still sized from the *declared* canvas, because upstream centres the map
+using those numbers (`renderOffice()`): shrinking the viewport would move that centre and
+slide the office out of frame. The crop happens after the centring, not instead of it.
+
+Transparency needs both halves of `page.screenshot({ omitBackground: true })` and an
+explicitly transparent `html`/`body`. `omitBackground` only clears Chromium's *default*
+backdrop, not a background the page itself declares, and the office's own VOID tiles are
+already transparent (upstream skips them). Get either half wrong and the padding is
+composited to solid white on the way to the encoder.
+
+Layouts that fill their bounding box come back as RGB rather than RGBA: after the crop
+there is no transparent pixel left, and Chromium drops an all-opaque alpha channel. That is
+the encoder being sensible, not the background coming back.
+
 ## Why it is a separate service
 
 It needs Chromium *and* the pinned upstream checkout, which rules out the API container
@@ -86,6 +119,12 @@ would serve the previous renderer's preview forever. On disk, so a redeploy is n
 render stampede, and a submission that duplicates an existing layout (dedup on the same
 hash) costs nothing.
 
+Also keyed on `RENDER_FORMAT`, because *this service* can change what a layout looks like
+while the pin sits still — the crop and transparency above did exactly that. Bump it in
+`cache.ts` whenever a render of the same layout at the same pin would come out different,
+or every already-rendered layout keeps serving its stale image. A golden-hash test makes
+the bump deliberate rather than accidental, in both directions.
+
 At the ceiling it stops writing rather than evicting: previews are small and
 deterministic, so a cold entry costs one render, while an eviction policy costs
 correctness bugs. Writes go through a temp file and a rename, so a crash mid-write cannot
@@ -124,7 +163,7 @@ resize, done by the browser at the one size that actually matters. The `scale` p
 stays in this service because it is a correct, generic capability; it's just not the
 right tool for the gallery's thumbnail problem.
 
-## Five fixes not to lose
+## Six fixes not to lose
 
 Each of these is invisible until it bites:
 
@@ -139,9 +178,15 @@ Each of these is invisible until it bites:
 - **Vite's `--port 0` hangs.** A free port is allocated first and passed with
   `--strictPort`.
 - **`ZOOM = 2`** matches upstream's `Math.round(2 * devicePixelRatio)`. The screenshot is
-  clipped to the canvas pixel bounding box, after hiding DOM chrome — an element
-  screenshot captures the page region, so toolbars and toasts drawn over the canvas would
-  otherwise land in the preview.
+  clipped, after hiding DOM chrome — an element screenshot captures the page region, so
+  toolbars and toasts drawn over the canvas would otherwise land in the preview.
+- **Furniture count is not a paint signal.** A layout with no furniture satisfies
+  `getFurnitureCount() === 0` the instant the app mounts, before a sprite has decoded or
+  the game loop has drawn a frame. The renderer used to read the canvas at that moment,
+  find it blank, and fall back to an untrimmed full-canvas screenshot that landed one CDP
+  round-trip later — by which time the office *had* painted, so the output looked
+  plausible and was silently wrong. There is now a second wait, for the canvas to actually
+  hold a painted pixel, and a test that renders a furniture-less layout.
 - **`NODE_ENV=production` silently disables everything.** Vite derives
   `import.meta.env.DEV` from `NODE_ENV` *even when running the dev server*, and upstream
   gates its entire browser mock on `DEV` (`webview-ui/src/main.tsx`). In production mode

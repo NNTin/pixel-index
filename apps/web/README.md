@@ -59,7 +59,14 @@ src/routes/LayoutDetailPage.tsx  live/static office, formatted layout.json, full
                                   revision warning, clickable tags/author
 src/routes/AuthorPage.tsx        public author identity and all of their public layouts
 src/live-office/                isolated iframe entry: thin wrapper around the pinned
-                                  OfficeState/OfficeCanvas/ToolOverlay renderer
+                                  OfficeState/OfficeCanvas/ToolOverlay renderer, and —
+                                  driven by the same postMessage protocol — the editor
+src/routes/LayoutEditorPage.tsx  the editor's chrome: which layout to load, importing one,
+                                  and whether it ends at /submit or replaces an existing
+                                  layout
+src/components/SubmissionGate.tsx
+                                  "members of the Discord community only", shared by
+                                  /submit and the editor
 build/liveOfficeAssets.ts       build-time upstream sprite decode, content-addressed by pin
 e2e/live-preview.mjs            production-build Chromium guard for upstream pin changes
 src/routes/SubmitPage.tsx        paste/upload layout.json, "Check preview" before "Publish"
@@ -96,6 +103,39 @@ window focus so a Discord role or membership change reaches navigation promptly.
 gates makes the exact same API calls a logged-out `curl` could make, and gets the exact
 same 401/403 back. Hiding a "Moderation" link from a normal user makes the product
 legible; it does nothing for security, which is the API's job alone.
+
+### The editor is the viewer, in edit mode — and it stays in the iframe
+
+`/editor` (#65) does not implement office editing. Upstream already ships all of it:
+`hooks/useEditorActions.ts` is the controller (undo/redo, dirty tracking, every canvas
+callback), `office/editor/EditorToolbar.tsx` is the palette, `office/editor/
+editorActions.ts` the operations. `live-office/PreviewApp.tsx` used to pass
+`isEditMode={false}` and six no-ops to a canvas that could already do all of this; it now
+passes upstream's real handlers when the parent asks for an editor.
+
+It stays inside the `live-office.html` frame for a concrete reason, not for symmetry with
+the preview. `EditorToolbar` and the UI primitives it uses are styled from upstream's
+Tailwind theme, whose `@theme inline` block defines `--color-accent`, `--color-border`,
+`--color-danger` and `--color-warning` — the same token names `src/index.css` defines for
+this site, in hardcoded dark-only values. `live-office/viewer.css` can import that theme
+wholesale precisely because the frame is a separate document; importing it into the app
+bundle would repaint the gallery and break light mode.
+
+So the parent and the frame split along what each can know: the page owns who may edit,
+which layout to load, and where the result goes; the frame owns the layout and emits it
+(`layout` messages, debounced) as the exact bytes that would be published. One producer
+of those bytes, no divergence.
+
+**A layout drawn here needs a `layoutRevision` stamped on it.** Upstream never writes that
+field — a layout inherits it from the bundled default it descends from, and
+`createDefaultLayout()` (the blank room) has none, which reads as `0`. `layout-core`
+rejects anything below the bundled revision, so a blank layout would be drawn, previewed,
+and then refused at publish with a message telling the author to re-export from Pixel
+Agents — which is not something the author of a layout drawn *here* can do. The page
+therefore passes the revision from `GET /api/v1/meta` (the API's own pin, which under #64
+can differ from this build's) and the frame stamps it, never downwards. `npm run test:e2e`
+draws a layout from the blank room in Chromium and runs `validateLayout` over the result,
+which is the check that would catch this regressing.
 
 ### CORS needs an explicit methods list
 
@@ -162,9 +202,10 @@ documents the actual path: contact a moderator directly.
 - **The live office is build-time pinned.** It is not an iframe to an external service and
   it never contacts the internal renderer. Vite compiles selected Pixel Agents modules and
   decodes its sprites into immutable JSON sidecars keyed by `vendor/pixel-agents.commit`.
-  The iframe isolates upstream's Tailwind/base styles from the gallery SPA. Run
-  `npm run test:e2e` in this workspace to build the Pages-subpath bundle and exercise the
-  pinned default layout, canvas pixels, activity panels, controls and persistence in Chromium.
+  The iframe isolates upstream's Tailwind/base styles from the gallery SPA — which is also
+  why the editor lives there (see above). Run `npm run test:e2e` in this workspace to build
+  the Pages-subpath bundle and exercise the pinned default layout, canvas pixels, activity
+  panels, controls and persistence in Chromium, then draw and validate a layout in the editor.
 
 ## Deploys
 

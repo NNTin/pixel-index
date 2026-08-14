@@ -98,7 +98,7 @@ describe('MyLayoutsPage', () => {
   it('shows an empty state with no layouts', async () => {
     stubFetch(() => Response.json({ schemaVersion: 1, total: 0, layouts: [], nextCursor: null }));
     renderPage();
-    expect(await screen.findByText("You haven't submitted any layouts yet.")).toBeInTheDocument();
+    expect(await screen.findByText(/You haven't submitted any layouts yet/)).toBeInTheDocument();
   });
 
   it('deletes a layout after confirmation, and reflects it inline', async () => {

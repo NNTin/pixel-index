@@ -63,9 +63,9 @@ function stubFetch(
   );
 }
 
-function renderSubmit() {
+function renderSubmit(state?: { raw: string }) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[{ pathname: '/', ...(state ? { state } : {}) }]}>
       <AuthProvider>
         <Routes>
           <Route path="/" element={<SubmitPage />} />
@@ -223,6 +223,18 @@ describe('SubmitPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
 
     await waitFor(() => expect(screen.getByText('landed on detail page')).toBeInTheDocument());
+  });
+
+  it('starts from the layout the editor handed over (#65)', async () => {
+    stubFetch(() => new Response('{}', { status: 200 }));
+    renderSubmit({ raw: VALID_LAYOUT });
+    await waitForAuthReady();
+
+    expect(screen.getByPlaceholderText(/version.*1/)).toHaveValue(VALID_LAYOUT);
+    // Prefilled content is content: only the title is still missing.
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'From the editor' } });
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled();
   });
 
   it('disables Publish until both content and a title are present', async () => {
