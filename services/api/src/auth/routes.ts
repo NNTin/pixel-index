@@ -295,6 +295,16 @@ function publicUser(resolved: ResolvedCapability, config: ApiConfig) {
   const { user, submission } = resolved;
   return {
     id: user.id,
+    /**
+     * The Discord snowflake, alongside — never instead of — the internal `id`.
+     * #62 moved the *public* author surface onto this identifier and left
+     * authenticated surfaces alone; `id` still means the internal UUID here and
+     * everywhere sessions, ownership and moderation use it. This is additive,
+     * for the one thing that UUID cannot do: address the caller's own public
+     * profile at `/authors/:discordId` (#66). Null only for system users, who
+     * have no Discord account and so have no public profile to link to.
+     */
+    discordId: user.discordId,
     username: user.username,
     displayName: user.guildNickname ?? user.globalName ?? user.username,
     avatarUrl: user.avatarUrl,
