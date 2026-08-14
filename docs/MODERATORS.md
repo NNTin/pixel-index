@@ -49,9 +49,10 @@ still view and delete their own layouts.
 
 ## Always record a reason
 
-Every visibility change and every edit to another user's metadata requires a reason.
-Write it for the next person reading the append-only `moderation_actions` log, not only
-for yourself now.
+Every visibility change *you* make, and every edit to another user's metadata, requires
+a reason. Write it for the next person reading the append-only `moderation_actions` log,
+not only for yourself now. (An owner toggling their own layout between public and hidden
+is not a moderation action and needs none — see CONTENT_POLICY.md.)
 
 ## Recuse yourself from your own layouts
 

@@ -153,9 +153,38 @@ describe('PATCH /api/v1/layouts/:slug — owner edits', () => {
     expect(response.statusCode).toBe(403);
   });
 
-  it('refuses an owner setting visibility', async () => {
+  it('lets an owner hide their own public layout, no reason required (#72)', async () => {
     const { accessToken, layout } = await ownedLayout();
-    const response = await patch(layout.slug, { visibility: 'hidden', reason: 'nah' }, accessToken);
+    const response = await patch(layout.slug, { visibility: 'hidden' }, accessToken);
+    expect(response.statusCode).toBe(200);
+    const body = response.json<OwnerLayoutView>();
+    expect(body.visibility).toBe('hidden');
+    expect(body.visibilityReason).toBeNull();
+
+    const publicView = await app.inject({ method: 'GET', url: `/api/v1/layouts/${layout.slug}` });
+    expect(publicView.statusCode).toBe(404);
+  });
+
+  it('lets an owner un-hide their own layout back to public — even one a MODERATOR hid (#72)', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const { accessToken: modToken } = await tokenFor({ role: 'moderator' });
+    const hidden = await patch(layout.slug, { visibility: 'hidden', reason: 'moderator hide' }, modToken);
+    expect(hidden.statusCode).toBe(200);
+
+    const response = await patch(layout.slug, { visibility: 'public' }, accessToken);
+    expect(response.statusCode).toBe(200);
+    expect(response.json<OwnerLayoutView>().visibility).toBe('public');
+  });
+
+  it('refuses an owner setting their own layout to removed — that stays a moderator action (#72)', async () => {
+    const { accessToken, layout } = await ownedLayout();
+    const response = await patch(layout.slug, { visibility: 'removed', reason: 'nah' }, accessToken);
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('refuses an owner un-hiding a layout a MODERATOR has removed — restoring stays moderator-only (#72)', async () => {
+    const { accessToken, layout } = await ownedLayout({ visibility: 'removed' });
+    const response = await patch(layout.slug, { visibility: 'public' }, accessToken);
     expect(response.statusCode).toBe(403);
   });
 
@@ -193,10 +222,25 @@ describe('PATCH /api/v1/layouts/:slug — moderation', () => {
     expect(response.statusCode).toBe(400);
   });
 
-  it('refuses a plain user setting visibility even on their own layout', async () => {
-    const { accessToken, layout } = await ownedLayout();
-    const response = await patch(layout.slug, { visibility: 'hidden', reason: 'x' }, accessToken);
+  it('refuses a plain user setting visibility on a layout that is not theirs', async () => {
+    const { layout } = await ownedLayout();
+    const { accessToken: stranger } = await tokenFor();
+    const response = await patch(layout.slug, { visibility: 'hidden', reason: 'x' }, stranger);
     expect(response.statusCode).toBe(403);
+  });
+
+  it('still requires a reason when a MODERATOR changes visibility, even on their own layout (#72 unchanged)', async () => {
+    const { accessToken: modToken, user: moderator } = await tokenFor({ role: 'moderator' });
+    const raw = validLayoutJson();
+    const ownLayout = await insertLayout(harness.db, {
+      authorUserId: moderator.id,
+      raw,
+      layout: JSON.parse(raw),
+      sha256: sha256(raw),
+      visibility: 'public',
+    });
+    const response = await patch(ownLayout.slug, { visibility: 'hidden' }, modToken);
+    expect(response.statusCode).toBe(400);
   });
 
   it('is reversible: a removed layout can be restored by a moderator', async () => {

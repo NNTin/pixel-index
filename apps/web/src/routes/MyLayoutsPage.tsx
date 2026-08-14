@@ -24,7 +24,27 @@ function EditRow({ layout, accessToken, canEdit, onSaved }: { layout: OwnerLayou
   const [tags, setTags] = useState(layout.tags.join(','));
   const [saving, setSaving] = useState(false);
   const [replacing, setReplacing] = useState(false);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+
+  // Own-layout public<->hidden toggle (#72) — never 'removed': that stays a
+  // moderator-only judgement call on the content, made via the Moderation
+  // page, not something an owner reaches from here. No `reason` is sent —
+  // the API does not require one for this specific transition.
+  async function toggleVisibility() {
+    if (layout.visibility !== 'public' && layout.visibility !== 'hidden') return;
+    const nextVisibility = layout.visibility === 'public' ? 'hidden' : 'public';
+    setTogglingVisibility(true);
+    setError(null);
+    try {
+      const updated = await patchLayout(layout.slug, { visibility: nextVisibility }, accessToken);
+      onSaved(updated);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught : new ApiError(0, 'Something unexpected went wrong.'));
+    } finally {
+      setTogglingVisibility(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -102,6 +122,16 @@ function EditRow({ layout, accessToken, canEdit, onSaved }: { layout: OwnerLayou
         <Link to={`/layouts/${layout.slug}/edit`} className="text-accent hover:underline">
           Edit layout
         </Link>
+        {(layout.visibility === 'public' || layout.visibility === 'hidden') && (
+          <button
+            type="button"
+            onClick={() => void toggleVisibility()}
+            disabled={togglingVisibility}
+            className="text-accent hover:underline disabled:opacity-50"
+          >
+            {togglingVisibility ? 'Saving…' : layout.visibility === 'public' ? 'Hide' : 'Make public'}
+          </button>
+        )}
         {/*
           Kept beside the editor (#65), not replaced by it: uploading a
           layout.json exported from Pixel Agents itself is still the shortest

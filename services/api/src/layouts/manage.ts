@@ -1,6 +1,6 @@
 /**
- * Everything a layout's owner (#9) — or, for visibility and metadata only, a
- * moderator/admin (#10) — can do to a layout that already exists:
+ * Everything a layout's owner (#9, #72) — or, for visibility and metadata
+ * only, a moderator/admin (#10) — can do to a layout that already exists:
  * `PATCH` (edit), `PUT .../layout` (replace the content), `DELETE` (owner
  * withdrawal), and `GET /me/layouts` (the owner's own full history,
  * including what is not public right now).
@@ -11,6 +11,15 @@
  * description; the difference is which fields the caller is allowed to
  * touch, checked once per request, not a different URL. See the comment
  * thread on issue #10 for why.
+ *
+ * #72 extends `visibility` itself the same way: an owner may toggle their
+ * OWN layout between `public` and `hidden` — no reason needed, it is their
+ * own unfinished work-in-progress, not a moderation call — but cannot reach
+ * `removed` (a moderator judging the content is a problem) or claw a
+ * `removed` layout back to `public` themselves. `deleted` is intentionally
+ * absent from both actors' reachable set here — that is the pre-existing,
+ * already-irreversible owner-withdrawal state reached only via `DELETE`
+ * below, not a value this endpoint's `visibility` field ever accepts.
  */
 
 import { type Layout, layoutStats, sha256, SLUG_RE, validateSlug } from '@pixel-index/layout-core';
@@ -59,6 +68,19 @@ export interface ManageRoutesDeps {
 
 const MODERATOR_VISIBILITIES = ['public', 'hidden', 'removed'] as const;
 type ModeratorVisibility = (typeof MODERATOR_VISIBILITIES)[number];
+
+// The subset of MODERATOR_VISIBILITIES an owner may set on their OWN layout
+// (#72) — a plain public/hidden toggle for unfinished work-in-progress.
+// `removed` stays moderator-only: it is an enforcement action, someone else
+// judging the content is a problem, mirroring DELETE's own doc comment below
+// ("Different actor, different action"). Deliberately a subset of the same
+// enum rather than a parallel one, so `body.visibility`'s schema/type never
+// needs to know which actor is asking.
+const OWNER_VISIBILITIES = ['public', 'hidden'] as const;
+type OwnerVisibility = (typeof OWNER_VISIBILITIES)[number];
+function isOwnerVisibility(value: schema.Layout['visibility']): value is OwnerVisibility {
+  return (OWNER_VISIBILITIES as readonly string[]).includes(value);
+}
 
 // A vanity slug is still a URL segment, not free text — same practical bound
 // as a title, even though (#29) it is no longer derived from one.
@@ -127,7 +149,18 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       if (!isOwner && !isModerator) throw ApiError.forbidden();
 
       if (body.visibility !== undefined && !isModerator) {
-        throw ApiError.forbidden("Only a moderator can change a layout's visibility.");
+        // isOwner is guaranteed true here — the isOwner||isModerator check
+        // above already rejected anyone else. An owner may only toggle
+        // between public and hidden, and only starting from one of those
+        // two: a `removed` layout stays locked to a moderator's say-so
+        // (see visibilityAuditAction's `restore` branch, moderator-only),
+        // and `deleted` is never reachable through this field at all (see
+        // this file's top-of-file comment).
+        if (!isOwnerVisibility(body.visibility) || !isOwnerVisibility(layout.visibility)) {
+          throw ApiError.forbidden(
+            'Owners can toggle a layout between public and hidden. Removing or restoring a layout is a moderator action.',
+          );
+        }
       }
       // A vanity slug is a privilege granted by staff, never something even
       // the owner of the layout can pick for themselves (#29) — same rule,
@@ -144,11 +177,16 @@ export function registerManageRoutes(app: FastifyInstance, { config, db, upstrea
       const newSlug = body.slug !== undefined && body.slug !== layout.slug ? body.slug : null;
       const slugChanged = newSlug !== null;
 
-      // Metadata on someone ELSE's layout, or any visibility/slug change, is
-      // moderation — "no silent moderation" (#10) means it needs a reason.
-      // An owner editing their own needs none; nobody has to justify their
-      // own choices to themselves.
-      const actingAsModerator = !isOwner || body.visibility !== undefined || slugChanged;
+      // Metadata on someone ELSE's layout, a MODERATOR's visibility change,
+      // or any slug change, is moderation — "no silent moderation" (#10)
+      // means it needs a reason. An owner editing their own metadata, or
+      // toggling their own layout's visibility (#72, validated above as
+      // public<->hidden only), needs none; nobody has to justify their own
+      // routine, low-stakes choices to themselves. `slugChanged` alone is
+      // enough to require a reason without re-testing `isModerator` here —
+      // it is only ever true when a moderator set it (owners are forbidden
+      // from touching `slug` above).
+      const actingAsModerator = !isOwner || slugChanged || (body.visibility !== undefined && isModerator);
       if (actingAsModerator && !body.reason) {
         throw ApiError.badRequest('A reason is required for this change.');
       }

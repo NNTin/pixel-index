@@ -505,7 +505,9 @@ end-to-end suite" further down.
 ## Editing, replacing, deleting and moderating a layout
 
 ```text
-PATCH  /api/v1/layouts/:slug            edit title/description/tags, or (moderator) visibility/slug
+PATCH  /api/v1/layouts/:slug            edit title/description/tags; owner may also toggle
+                                         public<->hidden on their own; moderator gets full
+                                         visibility (incl. removed) and slug on anyone's
 PUT    /api/v1/layouts/:slug/layout     replace the layout.json content — owner-only
 DELETE /api/v1/layouts/:slug            withdraw — owner-only, idempotent
 GET    /api/v1/me/layouts               the caller's own layouts, every visibility
@@ -520,23 +522,37 @@ queue, and a moderator hides, removes or restores a layout through the **same** 
 The difference between an owner's edit and a moderator's action is which fields the
 request is allowed to touch, checked once per request:
 
-- `visibility` is moderator-only, full stop — an owner can never set it (they get `DELETE`
-  instead, a one-way trip to `deleted`).
-- `slug` is moderator-only too, full stop — an owner can never set even their own
-  layout's slug. See "Vanity slugs" below.
-- A `reason` is required whenever the change is **not** the owner editing their own
-  metadata — a visibility change, or anyone editing someone else's layout. Nobody has to
-  justify a change to their own title to themselves; every other write is moderation and
-  "no silent moderation" means it is always attributed and always explained.
+- `visibility` (#72): an owner may set it on their **own** layout, but only to `public` or
+  `hidden`, and only starting from one of those two — a plain self-service toggle for
+  unfinished work, not a moderation action. `removed` stays moderator-only, full stop,
+  as does undoing it: an owner cannot reach `removed` at all, and cannot move a
+  `removed` layout back to `public`/`hidden` themselves (that content was judged a
+  problem by someone else). A moderator keeps the full `MODERATOR_VISIBILITIES` set —
+  `public`/`hidden`/`removed` — on **anyone's** layout, including their own (see
+  MODERATORS.md's "recuse yourself" guidance for why that is discouraged even though it
+  is not blocked). `deleted` is never a value this field accepts for either actor — see
+  below.
+- `slug` is moderator-only, full stop — an owner can never set even their own layout's
+  slug. See "Vanity slugs" below.
+- A `reason` is required whenever the change is **not** the owner doing one of the two
+  things this endpoint lets them do without justifying themselves to themselves: editing
+  their own metadata, or toggling their own layout's visibility between public and
+  hidden. Every other write — a moderator's visibility change (their own layout included),
+  a slug change, or anyone editing someone else's layout — is moderation, and "no silent
+  moderation" means it is always attributed and always explained.
 - Every visibility transition maps onto one of `layout.hide` / `unhide` / `remove` /
   `restore` in the audit log (`visibilityAuditAction()`, `manage.ts`) purely from
   `(from, to)`, so the log reads as an actual moderation history, not four undifferentiated
-  "visibility changed" rows.
+  "visibility changed" rows. This applies identically whether the actor is the owner or a
+  moderator — only `actorUserId`/`reason` on the row differ.
 
-`hidden` and `removed` are both reversible by a moderator through the same route;
-`deleted` (owner-only, via `DELETE`) is not reachable from `PATCH` at all — see
-schema.ts's visibility-state table for why hidden/removed and deleted are different
-things with different owners.
+`hidden` and `removed` are both reversible by a moderator through the same route — this
+means a moderator CAN currently move a layout back out of `removed`, despite
+CONTENT_POLICY.md describing Remove as not reversible; that is a pre-existing
+discrepancy between the code and that doc, not something #72 changes or resolves.
+`deleted` (owner-only, via `DELETE`) is not reachable from `PATCH` at all, for either
+actor — see schema.ts's visibility-state table for why hidden/removed and deleted are
+different things with different owners.
 
 ### Vanity slugs are moderator-granted, not self-service
 
@@ -760,9 +776,13 @@ queue — the queue is the *report* queue.
 | state | set by | reversible | slug reserved | in public API |
 |---|---|---|---|---|
 | `public` | — | — | yes | yes |
-| `hidden` | moderator | yes | yes | no |
+| `hidden` | moderator or owner (#72, on their own layout) | yes, by a moderator OR by the owner | yes | no |
 | `removed` | moderator | no | yes | no |
 | `deleted` | owner | no | yes | no |
+
+An owner can toggle their own layout `public`<->`hidden` freely, including undoing a
+moderator's `hidden` — but never reach `removed` or claw one back out of it; see "One
+`PATCH`, not a separate moderator endpoint" above for the exact rule and why.
 
 Moderator-hidden and owner-deleted need different behaviour on re-submission: an owner
 may republish what they withdrew, but re-uploading moderator-removed content must not

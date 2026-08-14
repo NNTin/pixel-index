@@ -14,6 +14,20 @@ something like a hate symbol and will be public until someone acts on it, which 
 exactly why "hidden" has to mean hidden from every public read path (list, detail,
 download, preview alike) the moment a moderator acts, not just the gallery view.
 
+## Owners control their own drafts
+
+An owner can toggle their own layout between public and hidden at any time, no reason
+needed — hiding your own work-in-progress is not a moderation action. This works even on
+a layout a moderator hid: an owner can put it back to public, the same as hiding it
+themselves. A **removed** layout is different — that is a moderator's finding that the
+content itself is a problem, and only a moderator can undo it. An owner can also delete
+their own layout outright; unlike hide, that is immediate and permanent.
+
+Hidden is not private. A backup of every layout, hidden ones included, still exists —
+see [issue #63](https://github.com/pixel-agents-hq/index/issues/63). Repeatedly
+un-hiding content a moderator hid for cause is treated as bad faith and can lead to a
+block under Enforcement below, same as any other repeat violation.
+
 ## What may not be submitted
 
 At minimum, a layout (its design, any furniture arrangement that forms an image, or its
