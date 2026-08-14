@@ -9,7 +9,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { type Layout, readJsonOrNull, upstreamAssetsDir } from '@pixel-index/layout-core';
+import {
+  type Layout,
+  occupiedBounds,
+  readJsonOrNull,
+  upstreamAssetsDir,
+} from '@pixel-index/layout-core';
 import { type Browser, chromium } from 'playwright';
 
 import type { DevServer } from './devServer.js';
@@ -27,14 +32,21 @@ const MARGIN_TILES = 1;
  * An element screenshot captures the page region, not the element in isolation,
  * so the toolbars, connection badge and changelog toast drawn over the canvas
  * would end up in the preview. Hide everything, then bring the canvas back.
+ *
+ * html/body are NOT matched by `body *`, so their own background keeps painting
+ * — and an opaque one under the canvas defeats `omitBackground` (below), which
+ * only clears Chromium's default backdrop, not a background the page itself
+ * declares. Forcing both transparent is what actually lets alpha through.
  */
 const HIDE_CHROME_CSS = `
+  html, body { background: transparent !important; }
   body * { visibility: hidden !important; }
   canvas { visibility: visible !important; }
 `;
 
 const HOOKS_TIMEOUT_MS = 60_000;
 const FURNITURE_TIMEOUT_MS = 30_000;
+const PAINT_TIMEOUT_MS = 30_000;
 
 export interface RenderOptions {
   /**
@@ -62,6 +74,91 @@ export function defaultLayoutFilename(upstreamDir?: string): string {
   const newest = candidates[candidates.length - 1];
   if (!newest) throw new Error('No default-layout JSON found in the pinned upstream assets.');
   return newest;
+}
+
+/** A canvas-space, inclusive pixel box. */
+export interface CanvasBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+export interface RenderGeometry {
+  /** Viewport, sized to hold the whole declared canvas so nothing is cut off. */
+  width: number;
+  height: number;
+  /** The part of that canvas the office's tiles occupy. */
+  box: CanvasBox;
+}
+
+/**
+ * The smallest box containing both.
+ *
+ * The crop is the occupied tiles *unioned with* what was actually painted,
+ * because upstream draws things attached to a tile that reach outside it:
+ * `wallTiles.ts` anchors a wall sprite at the bottom of its tile and lets tall
+ * ones "extend upward", so the top face of a back wall lands a whole tile above
+ * the topmost non-VOID row. Cropping to the tiles alone decapitates it.
+ *
+ * Union rather than the painted box alone: the tiles are the guarantee. The
+ * scan can only ever *add* to the box, so a preview always contains the whole
+ * layout even if a frame is caught mid-paint, and the failure mode is a little
+ * extra margin rather than a silently truncated office.
+ */
+export function unionBox(a: CanvasBox, b: CanvasBox | null): CanvasBox {
+  if (!b) return a;
+  return {
+    minX: Math.min(a.minX, b.minX),
+    minY: Math.min(a.minY, b.minY),
+    maxX: Math.max(a.maxX, b.maxX),
+    maxY: Math.max(a.maxY, b.maxY),
+  };
+}
+
+/**
+ * Where upstream will draw this layout's occupied tiles, computed rather than
+ * measured.
+ *
+ * The viewport still spans the *declared* `cols`×`rows`, because upstream
+ * centres the map using those numbers (`renderOffice()` in
+ * webview-ui/src/office/engine/renderer.ts: `offsetX = floor((canvasWidth -
+ * cols * TILE_SIZE * zoom) / 2)`). Shrinking the viewport to the occupied
+ * region would move that centre and slide the office out of frame — the crop
+ * has to come after the centring, not instead of it.
+ *
+ * `occupiedBounds()` is layout-core's, the same function behind the
+ * `visibleCols`/`visibleRows` stat (#55), rather than a third private answer to
+ * "which part of a layout is visible" alongside it and PreviewApp.tsx's
+ * `visibleTileBounds()`. The preview is then at least `visibleCols ×
+ * visibleRows` tiles by construction, and says the same thing as the numbers
+ * printed beside it.
+ *
+ * This is the floor, not the final crop: `unionBox` widens it to whatever
+ * upstream actually painted. See there for why.
+ */
+export function renderGeometry(layout: Pick<Layout, 'cols' | 'rows' | 'tiles'>): RenderGeometry {
+  const width = (layout.cols + MARGIN_TILES * 2) * TILE_SIZE * ZOOM;
+  const height = (layout.rows + MARGIN_TILES * 2) * TILE_SIZE * ZOOM;
+
+  const scale = TILE_SIZE * ZOOM;
+  // Math.floor, not a plain divide: upstream floors this to land the map on
+  // whole device pixels, and an off-by-half here would shear every crop by a
+  // pixel on odd-sized canvases.
+  const offsetX = Math.floor((width - layout.cols * scale) / 2);
+  const offsetY = Math.floor((height - layout.rows * scale) / 2);
+
+  const bounds = occupiedBounds(layout);
+  return {
+    width,
+    height,
+    box: {
+      minX: offsetX + bounds.minCol * scale,
+      minY: offsetY + bounds.minRow * scale,
+      maxX: offsetX + (bounds.maxCol + 1) * scale - 1,
+      maxY: offsetY + (bounds.maxRow + 1) * scale - 1,
+    },
+  };
 }
 
 /** A bounded gate. This is a browser, not a lambda — unbounded means OOM. */
@@ -139,8 +236,7 @@ export class Renderer {
    * Passing it pins the instance for the whole render.
    */
   private async renderOnce(browser: Browser, layout: Layout, scale: number): Promise<Buffer> {
-    const width = (layout.cols + MARGIN_TILES * 2) * TILE_SIZE * ZOOM;
-    const height = (layout.rows + MARGIN_TILES * 2) * TILE_SIZE * ZOOM;
+    const { width, height, box: tileBox } = renderGeometry(layout);
 
     const context = await browser.newContext({
       viewport: { width, height },
@@ -188,6 +284,27 @@ export class Renderer {
         { timeout: FURNITURE_TIMEOUT_MS },
       );
 
+      // A layout with no furniture satisfies the count above the instant the
+      // app mounts — before a single sprite has decoded and before the game
+      // loop's first paint. The screenshot then caught a blank canvas (#71).
+      // Furniture count says "the office holds the right things"; it does not
+      // say "the office has been drawn", so ask the canvas directly.
+      await page.waitForFunction(
+        () => {
+          const canvas = document.querySelector('canvas');
+          if (!canvas || canvas.width === 0) return false;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          if (!ctx) return false;
+          const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          for (let i = 3; i < data.length; i += 4) {
+            if (data[i] !== 0) return true;
+          }
+          return false;
+        },
+        null,
+        { timeout: PAINT_TIMEOUT_MS },
+      );
+
       await page.addStyleTag({ content: HIDE_CHROME_CSS });
       // One more frame so the freshly built instances are painted.
       await page.evaluate(
@@ -197,10 +314,8 @@ export class Renderer {
           ),
       );
 
-      // The office is drawn wherever the camera puts it on a viewport-sized
-      // canvas, so a plain element screenshot is mostly empty space. Ask the
-      // canvas which pixels it actually painted and clip to those.
-      const clip = await page.evaluate(() => {
+      // What upstream drew, which is the tiles plus whatever hangs off them.
+      const painted = await page.evaluate(() => {
         const canvas = document.querySelector('canvas');
         if (!canvas) return null;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -219,28 +334,40 @@ export class Renderer {
             if (y > maxY) maxY = y;
           }
         }
-        if (maxX < 0) return null;
+        return maxX < 0 ? null : { minX, minY, maxX, maxY };
+      });
+      const box = unionBox(tileBox, painted);
+
+      if (scale !== 1) return await this.thumbnail(page, box, scale);
+
+      // `box` is canvas space; `clip` is page space. Deriving one from the
+      // other in the page — rather than assuming the canvas sits at the origin
+      // at 1:1 — keeps the crop right if upstream ever puts chrome above it.
+      const clip = await page.evaluate((canvasBox) => {
+        const canvas = document.querySelector('canvas');
+        if (!canvas) return null;
         const rect = canvas.getBoundingClientRect();
         const ratio = rect.width / canvas.width;
         return {
-          x: rect.x + minX * ratio,
-          y: rect.y + minY * ratio,
-          width: (maxX - minX + 1) * ratio,
-          height: (maxY - minY + 1) * ratio,
-          // Canvas-space box, for the thumbnail path.
-          canvas: { minX, minY, maxX, maxY },
+          x: rect.x + canvasBox.minX * ratio,
+          y: rect.y + canvasBox.minY * ratio,
+          width: (canvasBox.maxX - canvasBox.minX + 1) * ratio,
+          height: (canvasBox.maxY - canvasBox.minY + 1) * ratio,
         };
-      });
+      }, box);
 
-      if (scale !== 1) return await this.thumbnail(page, clip, scale);
-
-      if (clip) {
-        const { canvas: _canvasBox, ...box } = clip;
-        return await page.screenshot({ clip: box, animations: 'disabled' });
-      }
-      // Nothing painted — screenshot the canvas anyway so the failure is
+      // `omitBackground` is what makes the PNG carry an alpha channel at all.
+      // Without it Chromium composites onto its default opaque white page
+      // backdrop, and the padding around the office — genuinely transparent on
+      // the canvas, since upstream skips VOID tiles — was baked out to solid
+      // white before it ever reached the encoder (#71).
+      if (clip) return await page.screenshot({ clip, animations: 'disabled', omitBackground: true });
+      // No canvas at all — screenshot whatever is there so the failure is
       // visible in the gallery rather than silently missing.
-      return await page.locator('canvas').first().screenshot({ animations: 'disabled' });
+      return await page
+        .locator('canvas')
+        .first()
+        .screenshot({ animations: 'disabled', omitBackground: true });
     } finally {
       await context.close();
     }
@@ -255,18 +382,20 @@ export class Renderer {
    */
   private async thumbnail(
     page: import('playwright').Page,
-    clip: { canvas: { minX: number; minY: number; maxX: number; maxY: number } } | null,
+    box: CanvasBox,
     scale: number,
   ): Promise<Buffer> {
     const dataUrl = await page.evaluate(
       ({ box, factor }) => {
         const source = document.querySelector('canvas');
         if (!source) return null;
-        const sx = box ? box.minX : 0;
-        const sy = box ? box.minY : 0;
-        const sw = box ? box.maxX - box.minX + 1 : source.width;
-        const sh = box ? box.maxY - box.minY + 1 : source.height;
+        const sx = box.minX;
+        const sy = box.minY;
+        const sw = box.maxX - box.minX + 1;
+        const sh = box.maxY - box.minY + 1;
 
+        // Left transparent, never filled: drawImage copies the source's alpha,
+        // so the padding around the office stays see-through here too.
         const target = document.createElement('canvas');
         target.width = Math.max(1, Math.round(sw * factor));
         target.height = Math.max(1, Math.round(sh * factor));
@@ -276,7 +405,7 @@ export class Renderer {
         ctx.drawImage(source, sx, sy, sw, sh, 0, 0, target.width, target.height);
         return target.toDataURL('image/png');
       },
-      { box: clip?.canvas ?? null, factor: scale },
+      { box, factor: scale },
     );
 
     if (!dataUrl) throw new Error('Nothing was painted, so no thumbnail could be produced.');
