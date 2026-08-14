@@ -446,10 +446,39 @@ jobs:
             echo "labels=vendor-update" >> "$GITHUB_OUTPUT"
           fi
 
-      # Not fatal on its own. By the time this runs the branch has already been
-      # pushed and the renders published, so a refused PR creation costs a click,
-      # not a rerun — and swallowing the step here lets the run explain itself
-      # (see the last step) instead of ending on a raw API error.
+      # create-pull-request makes the vendor commit with ordinary `git commit`,
+      # so it runs the repository's Husky hooks just like a contributor's commit.
+      # Keep the secret scan enabled in automation: install the same standalone
+      # gitleaks binary the pre-commit hook requires, pinned and verified against
+      # the checksum published with the upstream release.
+      - name: Install gitleaks for the pull request commit
+        if: steps.candidate.outputs.moved == 'true'
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          checksums="gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          release="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          bin_dir="$RUNNER_TEMP/gitleaks-bin"
+
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "$release/$archive"
+          curl -fsSL -o "$RUNNER_TEMP/$checksums" "$release/$checksums"
+          (
+            cd "$RUNNER_TEMP"
+            grep " $archive$" "$checksums" | sha256sum --check --strict -
+          )
+
+          mkdir -p "$bin_dir"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$bin_dir" gitleaks
+          echo "$bin_dir" >> "$GITHUB_PATH"
+          "$bin_dir/gitleaks" version
+
+      # Not fatal on its own. By the time this runs the vendor changes have been
+      # prepared and the renders published, so a refused PR creation costs a
+      # click, not a rerun — and swallowing the step here lets the run explain
+      # itself (see the last step) instead of ending on a raw action error.
       - name: Open or update the pull request
         id: pr
         continue-on-error: true
@@ -533,24 +562,24 @@ jobs:
           fi
           echo "No layout that rendered before fails now."
 
-      # `GITHUB_TOKEN` can push a branch but may not be allowed to open a PR
-      # with it: that is a repository setting, off by default, and the API's
-      # refusal ("GitHub Actions is not permitted to create or approve pull
-      # requests") arrives 100 lines into a log with no hint of where to fix it.
-      # Everything else has already succeeded by this point, so say what to do
-      # and where the work went, rather than making the next person read the log.
+      # `GITHUB_TOKEN` can push a branch but may not be allowed to open a PR with
+      # it, and a PAT can expire. Those are common failures, not the only ones:
+      # the action also owns the commit and push, so do not claim either happened
+      # when an earlier git operation failed. Point to its log first, then explain
+      # the two API failures that need repository-side intervention.
       - name: Explain a pull request that could not be opened
         if: always() && steps.pr.outcome == 'failure'
         run: |
           {
-            echo "::error::The branch and the renders were pushed, but opening the PR was refused."
-            echo "Two things cause this, and the job log says which:"
+            echo "::error::The pull-request action failed; its log above contains the specific cause."
+            echo "The renders were published, but the PR branch may not have been updated."
+            echo "For GitHub API failures:"
             echo "  * \"not permitted to create or approve pull requests\" — enable Settings →"
             echo "    Actions → General → Workflow permissions → \"Allow GitHub Actions to"
             echo "    create and approve pull requests\"."
             echo "  * 401 or 403 — VENDOR_UPDATE_TOKEN has expired or lost access. PATs expire;"
             echo "    mint a new one on the same account and re-set the secret."
-            echo "Either way the work is already on the branch, so this opens by hand:"
+            echo "If the PR branch was pushed, this opens it by hand:"
             echo "  https://github.com/${{ github.repository }}/compare/${{ github.ref_name }}...${{ env.PR_BRANCH }}?expand=1"
           } | tee -a "$GITHUB_STEP_SUMMARY"
           exit 1
