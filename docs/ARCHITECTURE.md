@@ -121,6 +121,13 @@ install is never a blank page and a seed layout stays reviewable as an ordinary 
 request. Seed layouts are attributed to a synthetic system user in the database, with
 the real human credit carried in `layouts.author_display`.
 
+`meta.json` also carries an optional `visibility` (defaults to `public` when absent) and
+`createdAt` (#63) — hand-curated seeds don't need either, but the same
+`<slug>/{layout.json,meta.json}` shape and `LayoutMeta` type
+(`packages/layout-core/src/types.ts`) is what a future admin backup/restore is expected
+to reuse, so it carries the fields that round-trip needs even though nothing in this repo
+writes them yet.
+
 ## See also
 
 - [`docs/deployment.md`](deployment.md) — this doc explains *why* there are two public

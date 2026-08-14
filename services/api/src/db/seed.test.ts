@@ -15,7 +15,7 @@ import { createTestDatabase, type Harness } from './test-support/harness.js';
 const BUNDLED_REVISION = bundledLayoutRevision();
 
 /** A throwaway seed/ directory with N valid, distinctly-sized layouts. */
-function writeFixtureSeed(entries: { slug: string; cols: number; title: string; tags?: string[]; authorDiscordId?: string }[]): string {
+function writeFixtureSeed(entries: { slug: string; cols: number; title: string; tags?: string[]; authorDiscordId?: string; visibility?: 'public' | 'hidden' }[]): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-index-seed-test-'));
   for (const entry of entries) {
     const layoutDir = path.join(dir, entry.slug);
@@ -39,6 +39,7 @@ function writeFixtureSeed(entries: { slug: string; cols: number; title: string; 
         ...(entry.authorDiscordId ? { authorDiscordId: entry.authorDiscordId } : {}),
         description: `${entry.title} description`,
         tags: entry.tags ?? [],
+        ...(entry.visibility ? { visibility: entry.visibility } : {}),
       }),
     );
   }
@@ -157,6 +158,26 @@ describe('seedIfEmpty', () => {
       .where(eq(schema.moderationActions.targetId, layout.id));
     expect(action?.action).toBe('layout.create');
     expect(action?.actorLabel).toBe('seed');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('defaults to public visibility when meta.json omits it', async () => {
+    const dir = writeFixtureSeed([{ slug: 'seed-public', cols: 4, title: 'Seed Public' }]);
+
+    await seedIfEmpty(db(), dir);
+
+    const row = one(await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-public')));
+    expect(row.visibility).toBe('public');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('honors an explicit hidden visibility from meta.json', async () => {
+    const dir = writeFixtureSeed([{ slug: 'seed-hidden', cols: 4, title: 'Seed Hidden', visibility: 'hidden' }]);
+
+    await seedIfEmpty(db(), dir);
+
+    const row = one(await db().select().from(schema.layouts).where(eq(schema.layouts.slug, 'seed-hidden')));
+    expect(row.visibility).toBe('hidden');
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
