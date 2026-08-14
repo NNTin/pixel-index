@@ -39,6 +39,7 @@ const ENV_KEYS = [
   'API_COMMIT',
   'MAX_LAYOUT_BYTES',
   'MAX_SUBMISSIONS_PER_USER_PER_DAY',
+  'MAX_IMPORT_BYTES',
   'PUBLIC_WEB_ORIGIN_PATTERNS',
 ] as const;
 
@@ -352,6 +353,20 @@ describe('loadConfig — submission limits (#8)', () => {
     const config = loadConfig();
     expect(config.maxLayoutBytes).toBe(500_000);
     expect(config.maxSubmissionsPerUserPerDay).toBe(5);
+  });
+});
+
+describe('loadConfig — backup import limit (#63)', () => {
+  it('defaults to 50MB, well above a single layout\'s cap', () => {
+    setRequired();
+    const config = loadConfig();
+    expect(config.maxImportBytes).toBe(50_000_000);
+  });
+
+  it('reads an override', () => {
+    setRequired({ MAX_IMPORT_BYTES: '1000000' });
+    const config = loadConfig();
+    expect(config.maxImportBytes).toBe(1_000_000);
   });
 });
 

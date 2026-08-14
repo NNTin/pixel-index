@@ -116,6 +116,14 @@ export const auditAction = pgEnum('audit_action', [
   'layout.moderate_edit',
   /** Moderator-only (#29): a vanity slug assigned or changed via manage.ts's PATCH. */
   'layout.rename_slug',
+  /**
+   * Admin-only (#63): one row per layout created or overwritten by
+   * `POST /api/v1/admin/backup/import`. Distinguishable from `layout.create` /
+   * `layout.replace` because a bulk restore is a different kind of event to
+   * audit than an individual owner's submission or edit, even when the
+   * resulting row looks the same.
+   */
+  'layout.import',
   'report.create',
   'report.resolve',
   'report.dismiss',

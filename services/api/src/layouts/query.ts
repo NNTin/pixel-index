@@ -6,9 +6,12 @@
  * without going through HTTP.
  */
 
+import type { LayoutMeta } from '@pixel-index/layout-core';
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 
 import type { AnyDatabase } from '../db/client.js';
+import { SYSTEM_USER_ID } from '../db/constants.js';
+import { one } from '../db/rows.js';
 import * as schema from '../db/schema.js';
 import { type Cursor, decodeCursor, encodeCursor, type SortKey } from './cursor.js';
 
@@ -304,6 +307,42 @@ export async function* streamPublicLayouts(
 }
 
 /**
+ * Every layout worth backing up — `public` and `hidden`, in id order, a page
+ * at a time (#63). `deleted` is excluded on purpose: PR #80's own rationale
+ * for keeping `deleted` out of `seed/`'s meta.json shape applies exactly the
+ * same way here — there is nothing worth backing up for a layout that is
+ * gone for good.
+ *
+ * Same keyset-on-`id` shape as `streamPublicLayouts` just above, for the same
+ * reason: a full backup is the other bulk consumer that must not hold the
+ * whole table in memory or skip/repeat rows under OFFSET pagination.
+ */
+export async function* streamBackupLayouts(
+  db: AnyDatabase,
+  batchSize = 200,
+): AsyncGenerator<schema.Layout> {
+  let after: string | null = null;
+
+  for (;;) {
+    const conditions = [inArray(schema.layouts.visibility, ['public', 'hidden'])];
+    if (after !== null) conditions.push(sql`${schema.layouts.id} > ${after}`);
+
+    const batch: schema.Layout[] = await db
+      .select()
+      .from(schema.layouts)
+      .where(and(...conditions))
+      .orderBy(asc(schema.layouts.id))
+      .limit(batchSize);
+
+    yield* batch;
+
+    const lastRow = batch[batch.length - 1];
+    if (!lastRow || batch.length < batchSize) return;
+    after = lastRow.id;
+  }
+}
+
+/**
  * A cheap, exact fingerprint of the public set — what the export's ETag is
  * built from.
  *
@@ -454,6 +493,37 @@ export async function countUserSubmissionsSince(
     .from(schema.layouts)
     .where(and(eq(schema.layouts.authorUserId, userId), gte(schema.layouts.createdAt, since)));
   return row?.total ?? 0;
+}
+
+/**
+ * Resolve `meta.json`'s `author`/`authorDiscordId` (`LayoutMeta`) to a real
+ * owner row — the system user with a display-name fallback when no Discord id
+ * is given, or a real/newly-created linked account when one is. Shared by
+ * `db/seed.ts` (bootstrap) and the admin backup import (#63) so the two never
+ * carry two hand-written copies of the same resolution rule, the exact
+ * drift #80 found between `SeedMeta` and `LayoutMeta` before this existed.
+ */
+export async function resolveAuthorFromMeta(
+  db: AnyDatabase,
+  meta: Pick<LayoutMeta, 'author' | 'authorDiscordId'>,
+): Promise<{ authorUserId: string; authorDisplay: string | null }> {
+  if (!meta.authorDiscordId) {
+    return { authorUserId: SYSTEM_USER_ID, authorDisplay: meta.author };
+  }
+
+  const [known] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.discordId, meta.authorDiscordId));
+  if (known) return { authorUserId: known.id, authorDisplay: null };
+
+  const created = one(
+    await db
+      .insert(schema.users)
+      .values({ discordId: meta.authorDiscordId, username: meta.author })
+      .returning({ id: schema.users.id }),
+  );
+  return { authorUserId: created.id, authorDisplay: null };
 }
 
 /**

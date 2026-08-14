@@ -1,0 +1,162 @@
+name: Backup
+
+# #63: a private, admin-only backup of every public and hidden layout —
+# distinct from GET /api/v1/export/layouts.ndjson (export.ts), which is
+# public, unauthenticated and public-visibility-only by design. Nothing here
+# is sent anywhere public: the zip is only ever the layouts themselves
+# (mirroring seed/'s own <slug>/{layout.json,meta.json} shape), and it is
+# uploaded as a workflow artifact, not published or committed.
+#
+# Daily for now. Cron budget is cheap and a daily cadence means at most one
+# day of loss if something goes wrong — will be relaxed to weekly once this
+# has run unattended for a while and the retention/cost tradeoff is revisited.
+on:
+  schedule:
+    - cron: '20 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A manual dispatch racing the scheduled run would both try to spend the same
+# BACKUP_API_TOKEN — never let two runs rotate it out from under each other.
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+env:
+  API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+
+jobs:
+  backup:
+    name: Download and archive a backup of the live index
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Before anything else, so a missing secret surfaces as a clear message
+      # instead of a confusing curl failure several steps down. `secrets`
+      # cannot be used in a step-level `if:`, so this is a shell test — the
+      # tokens are only ever checked for emptiness, never echoed.
+      - name: Required secrets are set
+        env:
+          BACKUP_API_TOKEN: ${{ secrets.BACKUP_API_TOKEN }}
+          VENDOR_UPDATE_TOKEN: ${{ secrets.VENDOR_UPDATE_TOKEN }}
+        run: |
+          missing=()
+          [ -z "$BACKUP_API_TOKEN" ] && missing+=("BACKUP_API_TOKEN")
+          [ -z "$VENDOR_UPDATE_TOKEN" ] && missing+=("VENDOR_UPDATE_TOKEN")
+          if [ "${#missing[@]}" -eq 0 ]; then exit 0; fi
+          {
+            echo "::error::Missing secret(s): ${missing[*]}"
+            echo "BACKUP_API_TOKEN is an admin refresh token for this API, minted once by logging"
+            echo "into the web app with an admin-eligible Discord account. VENDOR_UPDATE_TOKEN is"
+            echo "the same classic PAT vendor-update.yml already uses — this workflow reuses it to"
+            echo "rewrite BACKUP_API_TOKEN with its own rotated value after every run, since the"
+            echo "refresh-token endpoint rotates on every use (see the next step)."
+            echo "Full steps: docs/deployment.md, 'Setup checklist'."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: PRODUCTION_API_BASE_URL is set
+        run: |
+          if [ -n "$API_BASE_URL" ]; then exit 0; fi
+          {
+            echo "::error::No PRODUCTION_API_BASE_URL repository variable is set."
+            echo "Unlike vendor-update.yml, this workflow has nothing meaningful to fall back to —"
+            echo "a backup of the four committed seed/ layouts is not a backup of production."
+            echo "Set it: gh variable set PRODUCTION_API_BASE_URL --body https://api.example.com"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      # Refresh tokens rotate on every use (auth/sessions.ts: presenting an
+      # already-rotated one a second time is treated as theft and revokes the
+      # whole session). So this cannot just mint an access token and move on —
+      # the NEW refresh token has to be captured and persisted (next step)
+      # before anything else runs, or the next scheduled run's BACKUP_API_TOKEN
+      # secret would already be the spent, one-generation-stale value and get
+      # its session revoked outright.
+      - name: Refresh the admin session
+        id: refresh
+        env:
+          BACKUP_API_TOKEN: ${{ secrets.BACKUP_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          response="$(curl -sS -X POST "$API_BASE_URL/api/v1/auth/refresh" \
+            -H 'content-type: application/json' \
+            --data "$(jq -n --arg rt "$BACKUP_API_TOKEN" '{refreshToken: $rt}')" \
+            -w '\n%{http_code}')"
+          code="$(printf '%s' "$response" | tail -n1)"
+          body="$(printf '%s' "$response" | sed '$d')"
+
+          if [ "$code" != "200" ]; then
+            {
+              echo "::error::Could not refresh the backup admin session (HTTP $code)."
+              echo "If this is 401, BACKUP_API_TOKEN was already spent or its session was revoked —"
+              echo "reuse detection (auth/sessions.ts) trips if a previous run rotated it but this"
+              echo "workflow never got to persist the new value (e.g. the run was cancelled between"
+              echo "this step and the next). There is no way back from that but minting a fresh"
+              echo "token: log into the web app with an admin-eligible Discord account and re-set"
+              echo "the secret from its stored refresh token. See docs/deployment.md."
+              echo '```'
+              echo "$body"
+              echo '```'
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          access_token="$(printf '%s' "$body" | jq -r '.accessToken')"
+          new_refresh_token="$(printf '%s' "$body" | jq -r '.refreshToken')"
+          echo "::add-mask::$access_token"
+          echo "::add-mask::$new_refresh_token"
+          echo "ACCESS_TOKEN=$access_token" >> "$GITHUB_ENV"
+          echo "NEW_REFRESH_TOKEN=$new_refresh_token" >> "$GITHUB_ENV"
+
+      # Persisted immediately, before the backup call itself — see the note
+      # on the step above. VENDOR_UPDATE_TOKEN (repo scope) is what makes this
+      # possible: GITHUB_TOKEN cannot write repository secrets at all, however
+      # its `permissions:` block is configured, and a classic PAT needs the
+      # same `repo` scope to do it that vendor-update.yml already carries one
+      # for. See docs/deployment.md for why this reuses that secret rather
+      # than minting a third one.
+      - name: Persist the rotated refresh token
+        env:
+          GH_TOKEN: ${{ secrets.VENDOR_UPDATE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NEW_REFRESH_TOKEN" ]; then
+            echo "::error::No rotated refresh token to persist — the previous step did not produce one."
+            exit 1
+          fi
+          gh secret set BACKUP_API_TOKEN --repo "${{ github.repository }}" --body "$NEW_REFRESH_TOKEN"
+
+      - name: Download the backup
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o backup.zip -w '%{http_code}' \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            "$API_BASE_URL/api/v1/admin/backup")"
+          if [ "$status" != "200" ]; then
+            echo "::error::Backup download failed (HTTP $status)."
+            cat backup.zip 2>/dev/null || true
+            exit 1
+          fi
+          echo "Downloaded $(stat -c%s backup.zip) byte(s)."
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+        id: download
+
+      - name: Upload the backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-index-backup-${{ steps.download.outputs.date }}-${{ github.run_id }}
+          path: backup.zip
+          # GitHub's own maximum — a longer value is rejected, and this repo
+          # sets no shorter organization/repository default. The issue's own
+          # rule: no sensitive information is sent, only a backup of the
+          # layouts, and the previous run's tokens are never in this artifact.
+          retention-days: 90
+
+      - name: Summarise
+        if: always()
+        run: |
+          echo "### Backup" >> "$GITHUB_STEP_SUMMARY"
+          echo "Retention: 90 days." >> "$GITHUB_STEP_SUMMARY"

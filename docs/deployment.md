@@ -203,6 +203,51 @@ candidate pin, so the PR can say exactly which of *your* layouts a bump would br
 Leave it unset and the job still runs, but only over the committed `seed/` layouts: it
 reports that it did so rather than passing silently on a corpus of four.
 
+**A third reader: `backup.yml` (#63).** The daily backup job downloads
+`GET /api/v1/admin/backup` — every public and hidden layout, zipped, mirroring `seed/`'s
+own `<slug>/{layout.json,meta.json}` shape — and uploads it as a 90-day workflow artifact.
+Unlike `vendor-update.yml` there is no `seed/`-only fallback: a backup of four demo
+layouts is not a backup of production, so the job refuses outright with no
+`PRODUCTION_API_BASE_URL` set rather than quietly running against nothing.
+
+**`BACKUP_API_TOKEN` — a repository *secret*, and a different kind of secret than
+`VENDOR_UPDATE_TOKEN`/`ADVANCE_MAIN_TOKEN` below.** Those two are GitHub PATs — credentials
+for pushing *git*. This is a Pixel Index *API* credential: there is no service-account or
+API-key auth in this codebase at all, only Discord OAuth login for a human in a browser
+(`auth/discord.ts`, `sessions.ts`), so a headless workflow reuses that same session
+mechanism rather than a separate one built just for this. Concretely, it is the **refresh
+token** (`auth/sessions.ts`) belonging to an admin-eligible Discord account (one listed in
+`DISCORD_ADMIN_IDS`) — the same opaque, DB-backed token the web app itself persists to
+keep a browser session alive across reloads.
+
+Mint it once: log into the web app with that account, open devtools → Application → Local
+Storage, and copy the value of `pixelindex_refresh_token` (`apps/web/src/auth/storage.ts`).
+Then:
+
+```bash
+gh secret set BACKUP_API_TOKEN   # paste the copied refresh token
+```
+
+**It rotates itself, on every run.** Refresh tokens are single-use by design
+(`auth/sessions.ts`'s reuse detection: presenting an already-rotated one a second time
+revokes the whole session, on the theory that only theft would do that) — so `backup.yml`
+cannot just call `POST /api/v1/auth/refresh` and move on. It captures the NEW refresh token
+that call returns and immediately overwrites the `BACKUP_API_TOKEN` secret with it, using
+`VENDOR_UPDATE_TOKEN` for the write — a repository secret can only be set through the
+GitHub API, `GITHUB_TOKEN` cannot do it under any `permissions:` setting, and
+`VENDOR_UPDATE_TOKEN`'s existing `repo` scope already covers it, so this reuses that PAT
+rather than minting a third one. If a run is ever cancelled between refreshing and
+persisting, the next run's stored token is already spent and fails with 401 — the job's own
+error message says so; the fix is re-minting from the browser, the same as the first time.
+
+Standing access to an admin's own session, sitting in a repository secret, is worth the
+same caution the deployment docs already give `VENDOR_UPDATE_TOKEN`/`ADVANCE_MAIN_TOKEN` —
+**rotate it like production access**, and arguably a more sensitive one: it can read every
+hidden layout and mass-overwrite the index via `POST /api/v1/admin/backup/import`, not just
+push commits. Revoking it early is exactly `POST /api/v1/auth/logout` with this token (or
+just leaving it unset and letting the workflow fail loudly, per above) — there is no
+separate revocation UI to hunt for.
+
 The static renderer gate is not the only candidate-pin check. The workflow also builds
 the web SPA at its real Pages subpath and drives the layout detail page in Chromium with
 the candidate's bundled default layout. It requires a painted canvas, upstream activity
@@ -312,10 +357,13 @@ than one restart per missing value.
 | `WEB_PORT` / `API_PORT_HOST` | No | `8080` / `3000` | Host ports. |
 
 Tuning knobs with working defaults you can usually ignore: `API_HOST`, `API_PORT`,
-`LOG_LEVEL`, `API_BODY_LIMIT_BYTES`, `MAX_LAYOUT_BYTES`,
+`LOG_LEVEL`, `API_BODY_LIMIT_BYTES`, `MAX_LAYOUT_BYTES`, `MAX_IMPORT_BYTES`,
 `MAX_SUBMISSIONS_PER_USER_PER_DAY`, `RATE_LIMIT_*`, `ACCESS_TOKEN_TTL_MS`,
 `REFRESH_TOKEN_TTL_MS`, `LOGIN_CODE_TTL_MS`, `PIXEL_AGENTS_DIR`.
-`services/api/src/config.ts` is the authoritative list.
+`services/api/src/config.ts` is the authoritative list. `MAX_IMPORT_BYTES` (default 50MB)
+is the one exception to `API_BODY_LIMIT_BYTES` above (#63) — `POST
+/api/v1/admin/backup/import`'s own, larger body-size cap, since it accepts a zip of
+potentially hundreds of layouts rather than one.
 
 ### The pinned commit ships as a file
 
@@ -430,6 +478,10 @@ job; `Preview` and `Production` are Vercel's own and hold nothing this build rea
 # "VENDOR_UPDATE_TOKEN" and "ADVANCE_MAIN_TOKEN" above for why.
 gh secret set VENDOR_UPDATE_TOKEN   # scopes: repo
 gh secret set ADVANCE_MAIN_TOKEN    # scopes: repo, workflow
+
+# Not a GitHub PAT — see "BACKUP_API_TOKEN" above for what this actually is
+# (a Pixel Index admin session's refresh token) and how to mint it.
+gh secret set BACKUP_API_TOKEN
 ```
 
 **3. GitHub — the branch ruleset** (Settings → Rules → Rulesets). This is what makes the

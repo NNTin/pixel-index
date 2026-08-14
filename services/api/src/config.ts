@@ -142,6 +142,14 @@ export interface ApiConfig {
    * per-slug requests the general bucket would happily allow.
    */
   exportRateLimit: RateLimitBucket;
+  /**
+   * The one route whose body is deliberately allowed to exceed
+   * `bodyLimitBytes` (#63): `POST /api/v1/admin/backup/import` accepts a zip
+   * of potentially hundreds of layouts, not one. Enforced as that route's own
+   * `bodyLimit` override rather than raising the global limit — every other
+   * route stays bounded by the smaller default.
+   */
+  maxImportBytes: number;
 }
 
 export class ConfigError extends Error {
@@ -545,6 +553,12 @@ export function loadConfig(): ApiConfig {
       max: intFromEnv('RATE_LIMIT_EXPORT_MAX', 6, problems),
       windowMs: intFromEnv('RATE_LIMIT_EXPORT_WINDOW_MS', 60_000, problems),
     },
+    // 50 MB comfortably fits a full backup zip at today's scale (a few
+    // thousand layouts well under `maxLayoutBytes` each, plus small meta.json
+    // entries and DEFLATE compression) while still bounding a malicious
+    // upload's worst case — unlike `bodyLimitBytes`, this is refused before
+    // JSON.parse or zip decoding ever runs.
+    maxImportBytes: intFromEnv('MAX_IMPORT_BYTES', 50_000_000, problems),
   };
 
   if (problems.length > 0) throw new ConfigError(problems);

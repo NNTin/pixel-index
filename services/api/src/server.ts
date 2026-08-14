@@ -19,6 +19,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { registerAuthContext } from './auth/context.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { registerAuthorRoutes } from './authors/routes.js';
+import { registerBackupExportRoutes } from './backup/export.js';
+import { registerBackupImportRoutes } from './backup/import.js';
 import { allowsWebOrigin, type ApiConfig } from './config.js';
 import type { AnyDatabase } from './db/client.js';
 import type { Queryable } from './db/pool.js';
@@ -163,6 +165,8 @@ export async function buildServer({ config, pool, db }: BuildServerDeps): Promis
   registerUserAdminRoutes(app, { config, db });
   registerModerationRoutes(app, { config, db });
   registerAuditRoutes(app, { config, db });
+  registerBackupExportRoutes(app, { config, db });
+  registerBackupImportRoutes(app, { config, db, upstream });
 
   app.get('/health', { schema: { hide: true } }, () => ({ status: 'ok' }));
 

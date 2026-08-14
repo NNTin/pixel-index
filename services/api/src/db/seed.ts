@@ -23,10 +23,10 @@ import {
   sha256,
   upstreamPin,
 } from '@pixel-index/layout-core';
-import { eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 
 import { validateTagNames } from '../layouts/metadata.js';
-import { attachTags } from '../layouts/query.js';
+import { attachTags, resolveAuthorFromMeta } from '../layouts/query.js';
 import { recordModerationAction } from '../moderation/audit.js';
 import { type AnyDatabase, createDatabase } from './client.js';
 import { SYSTEM_USER_ID } from './constants.js';
@@ -86,26 +86,7 @@ export async function seedIfEmpty(db: AnyDatabase, dir: string = SEED_DIR): Prom
     const visibility = meta.visibility ?? 'public';
 
     await db.transaction(async (tx: AnyDatabase) => {
-      let authorUserId = SYSTEM_USER_ID;
-      let authorDisplay: string | null = meta.author;
-      if (meta.authorDiscordId) {
-        const [known] = await tx
-          .select({ id: schema.users.id })
-          .from(schema.users)
-          .where(eq(schema.users.discordId, meta.authorDiscordId));
-        if (known) {
-          authorUserId = known.id;
-        } else {
-          const created = one(
-            await tx
-              .insert(schema.users)
-              .values({ discordId: meta.authorDiscordId, username: meta.author })
-              .returning({ id: schema.users.id }),
-          );
-          authorUserId = created.id;
-        }
-        authorDisplay = null;
-      }
+      const { authorUserId, authorDisplay } = await resolveAuthorFromMeta(tx, meta);
 
       const row = one(
         await tx
