@@ -15,15 +15,88 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as zlib from 'node:zlib';
 
-import { type Layout, sha256, upstreamPin } from '@pixel-index/layout-core';
+import {
+  type Layout,
+  layoutStats,
+  occupiedBounds,
+  sha256,
+  upstreamPin,
+} from '@pixel-index/layout-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { cacheKey, PreviewCache } from './cache.js';
 import { loadConfig } from './config.js';
 import { type DevServer, startDevServer } from './devServer.js';
 import { Renderer, RenderTimeoutError } from './render.js';
+
+/** One tile, in device pixels: TILE_SIZE 16 at ZOOM 2. */
+const TILE_PX = 32;
+
+/** layout-core's inlined `TileType.VOID`. */
+const VOID_TILE = 255;
+
 import { buildServer, type ReadyBody, type RenderErrorBody } from './server.js';
+
+/**
+ * Enough of a PNG decoder to read alpha back out — RGBA, 8-bit, non-interlaced,
+ * which is all Chromium emits here.
+ *
+ * Hand-rolled rather than pulled in: the only question the tests ask of the
+ * pixels is "is this transparent", and a dependency in the renderer's tree is
+ * a dependency in a 400 MB browser image.
+ */
+function decodePng(png: Buffer): { width: number; height: number; pixels: Buffer } {
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  if (png.readUInt8(25) !== 6) throw new Error('decodePng only handles RGBA');
+
+  const chunks: Buffer[] = [];
+  for (let at = 8; at < png.length; ) {
+    const length = png.readUInt32BE(at);
+    if (png.subarray(at + 4, at + 8).toString('latin1') === 'IDAT') {
+      chunks.push(png.subarray(at + 8, at + 8 + length));
+    }
+    at += length + 12;
+  }
+
+  const raw = zlib.inflateSync(Buffer.concat(chunks));
+  const bpp = 4;
+  const stride = width * bpp;
+  const pixels = Buffer.alloc(stride * height);
+
+  // Undo the per-scanline filter. Each row is prefixed with its filter type and
+  // predicts from the pixel to the left (a), above (b) and above-left (c).
+  // `?? 0` throughout: noUncheckedIndexedAccess types every Buffer read as
+  // possibly-undefined, and 0 is the same value the format already specifies
+  // for the off-image neighbours this reaches for on the first row and column.
+  for (let y = 0, at = 0; y < height; y += 1) {
+    const filter = raw[at] ?? 0;
+    at += 1;
+    for (let x = 0; x < stride; x += 1) {
+      const a = x >= bpp ? (pixels[y * stride + x - bpp] ?? 0) : 0;
+      const b = y > 0 ? (pixels[(y - 1) * stride + x] ?? 0) : 0;
+      const c = y > 0 && x >= bpp ? (pixels[(y - 1) * stride + x - bpp] ?? 0) : 0;
+      const value = raw[at + x] ?? 0;
+      let out = value;
+      if (filter === 1) out = value + a;
+      else if (filter === 2) out = value + b;
+      else if (filter === 3) out = value + ((a + b) >> 1);
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        out = value + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      }
+      pixels[y * stride + x] = out & 0xff;
+    }
+    at += stride;
+  }
+
+  return { width, height, pixels };
+}
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const SEED_DIR = path.join(REPO_ROOT, 'seed');
@@ -134,6 +207,166 @@ describe('rendering', () => {
     },
     RENDER_TIMEOUT,
   );
+
+  // #71: the preview was a viewport-sized image with the office adrift in a
+  // field of solid white. Both halves of that are checked against real pixels
+  // here, because both were invisible to every assertion above — "a PNG",
+  // "not the default", "deterministic" and "scales" were all still true of the
+  // broken output.
+  describe('trimming and transparency (#71)', () => {
+    /** IHDR: width, height, and the colour type at byte 25 (6 = RGBA). */
+    const header = (png: Buffer) => ({
+      width: png.readUInt32BE(16),
+      height: png.readUInt32BE(20),
+      colourType: png.readUInt8(25),
+    });
+
+    it.each(slugs)(
+      '%s is cropped to its visible columns and rows',
+      async (slug) => {
+        const layout = readLayout(slug);
+        const stats = layoutStats(layout);
+        const png = await activeRenderer().render(layout);
+        const { width, height } = header(png);
+
+        // The declared canvas is padding-inclusive; the rendered one must not
+        // be. `default` declares 21×22 and occupies 20×11 — a preview sized
+        // off the declared canvas is twice as tall as the office in it.
+        expect(width).toBeLessThan((layout.cols + 2) * TILE_PX);
+        expect(height).toBeLessThan((layout.rows + 2) * TILE_PX);
+
+        // At least the whole layout, always: the crop can only grow past the
+        // occupied tiles, never inside them.
+        expect(width).toBeGreaterThanOrEqual(stats.visibleCols * TILE_PX);
+        expect(height).toBeGreaterThanOrEqual(stats.visibleRows * TILE_PX);
+
+        // And past them only by what upstream genuinely draws hanging off a
+        // tile — a wall's top face is one tile tall (`wallTiles.ts` anchors
+        // wall sprites at the bottom of their tile and lets them extend up).
+        expect(width - stats.visibleCols * TILE_PX).toBeLessThanOrEqual(2 * TILE_PX);
+        expect(height - stats.visibleRows * TILE_PX).toBeLessThanOrEqual(2 * TILE_PX);
+      },
+      RENDER_TIMEOUT,
+    );
+
+    it.each(slugs)(
+      '%s has no blank border left on any edge',
+      async (slug) => {
+        // The trim, stated without reference to how big the office "should"
+        // be: if any outermost row or column is entirely transparent, that is
+        // padding the crop failed to remove. The reported PNG had 15 such
+        // rows on one edge alone.
+        const png = await activeRenderer().render(readLayout(slug));
+        if (header(png).colourType !== 6) return; // Fully opaque: no padding by definition.
+
+        const { width, height, pixels } = decodePng(png);
+        const opaque = (x: number, y: number) => pixels[(y * width + x) * 4 + 3] !== 0;
+        const columns = Array.from({ length: width }, (_, x) => x);
+        const rows = Array.from({ length: height }, (_, y) => y);
+
+        expect({
+          top: columns.some((x) => opaque(x, 0)),
+          bottom: columns.some((x) => opaque(x, height - 1)),
+          left: rows.some((y) => opaque(0, y)),
+          right: rows.some((y) => opaque(width - 1, y)),
+        }).toEqual({ top: true, bottom: true, left: true, right: true });
+      },
+      RENDER_TIMEOUT,
+    );
+
+    it(
+      'keeps VOID tiles transparent instead of compositing them to white',
+      async () => {
+        // The reported PNG was colour type 2 (RGB, no alpha at all): Chromium
+        // had composited the transparent padding onto its default opaque page
+        // backdrop before the encoder ever saw it.
+        //
+        // The seeds themselves can't show this any more — cropping to the
+        // occupied bounds leaves them with no transparent pixel, and Chromium
+        // drops an all-opaque alpha channel, so they legitimately encode as
+        // RGB. A hole punched *inside* the occupied region is transparency the
+        // crop cannot remove, so it survives to the encoder or it was painted
+        // over.
+        const base = readLayout('default');
+        const holed = { ...base, furniture: [], tiles: [...base.tiles] } as Layout;
+        // The centre of the *occupied* region, not of the declared canvas:
+        // `default` occupies rows 10-20 of 22, so the canvas midpoint lands on
+        // its topmost wall row and the hole would open onto the crop's edge.
+        const bounds = occupiedBounds(base);
+        const midRow = Math.floor((bounds.minRow + bounds.maxRow) / 2);
+        const midCol = Math.floor((bounds.minCol + bounds.maxCol) / 2);
+        for (let r = midRow - 1; r <= midRow + 1; r += 1) {
+          for (let c = midCol - 1; c <= midCol + 1; c += 1) {
+            holed.tiles[r * base.cols + c] = VOID_TILE;
+          }
+        }
+
+        const png = await activeRenderer().render(holed);
+        expect(header(png).colourType).toBe(6);
+
+        // The transparency is *interior*: a clear region that touches no edge
+        // of the image. That is the whole distinction #71 turns on — a VOID
+        // tile inside the office stays see-through, while the VOID padding
+        // that used to ring it is not transparent-but-present, it is cropped
+        // away. (Its exact size is upstream's business: punching a hole
+        // changes the neighbour masks that pick each wall's autotiled sprite,
+        // so the clear area is not simply the 3×3 tiles removed.)
+        const { width, height, pixels } = decodePng(png);
+        const alphaAt = (x: number, y: number) => pixels[(y * width + x) * 4 + 3];
+        let minX = width;
+        let minY = height;
+        let maxX = -1;
+        let maxY = -1;
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            if (alphaAt(x, y) !== 0) continue;
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+          }
+        }
+        expect(maxX).toBeGreaterThanOrEqual(0); // Something is transparent at all.
+        expect({
+          touchesLeft: minX === 0,
+          touchesTop: minY === 0,
+          touchesRight: maxX === width - 1,
+          touchesBottom: maxY === height - 1,
+        }).toEqual({
+          touchesLeft: false,
+          touchesTop: false,
+          touchesRight: false,
+          touchesBottom: false,
+        });
+        // And it is a hole, not most of the picture.
+        expect((maxX - minX + 1) * (maxY - minY + 1)).toBeLessThan(width * height * 0.5);
+      },
+      RENDER_TIMEOUT,
+    );
+
+    it(
+      'renders a layout with no furniture at all',
+      async () => {
+        // The layout in the bug report had furniture: 0, so the furniture-count
+        // gate passed instantly — before the first paint — and the screenshot
+        // caught a blank canvas. A blank render is a nearly-empty PNG; a real
+        // office is not.
+        const layout = readLayout('default');
+        const bare = { ...layout, furniture: [] } as Layout;
+        const png = await activeRenderer().render(bare);
+        const { width, height } = header(png);
+        const stats = layoutStats(bare);
+        expect(width).toBeGreaterThanOrEqual(stats.visibleCols * TILE_PX);
+        expect(height).toBeGreaterThanOrEqual(stats.visibleRows * TILE_PX);
+        // Not the untrimmed viewport, which is what a blank-canvas render fell
+        // back to and what #71 was looking at.
+        expect(width).toBeLessThan((layout.cols + 2) * TILE_PX);
+        expect(height).toBeLessThan((layout.rows + 2) * TILE_PX);
+        expect(png.length).toBeGreaterThan(1000);
+      },
+      RENDER_TIMEOUT,
+    );
+  });
 
   it(
     'enforces the timeout',

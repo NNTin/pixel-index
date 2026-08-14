@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { cacheKey, PreviewCache } from './cache.js';
+import { cacheKey, PreviewCache, RENDER_FORMAT } from './cache.js';
 
 const BASE = {
   layoutBytes: '{"version":1}',
@@ -12,6 +12,9 @@ const BASE = {
   upstreamVersion: '1.4.0',
   scale: 1,
 };
+
+/** The sha256 `cacheKey(BASE)` produces at RENDER_FORMAT 2. Asserted below. */
+const GOLDEN_CACHE_HASH = '46aa0a40de57fd7f148727249ae8f984ecbe215a6a5745332f5c6b33d6f67608';
 
 describe('cacheKey', () => {
   it('is stable for identical inputs', () => {
@@ -31,6 +34,20 @@ describe('cacheKey', () => {
 
   it('changes with the scale', () => {
     expect(cacheKey({ ...BASE, scale: 0.5 })).not.toBe(cacheKey(BASE));
+  });
+
+  it('is a fixed value for fixed inputs', () => {
+    // A golden hash. The pin can sit still while this service changes what it
+    // draws — #71 cropped and un-whited every preview at an unchanged pin — and
+    // without RENDER_FORMAT in the key every already-rendered layout would keep
+    // serving its stale image, so the fix would ship invisibly.
+    //
+    // The cost of changing this is invisible locally and paid in production:
+    // every cached preview is orphaned and re-rendered at once. A failure here
+    // is either an accident to undo, or a deliberate RENDER_FORMAT bump whose
+    // new hash belongs here.
+    expect(RENDER_FORMAT).toBe(2);
+    expect(cacheKey(BASE)).toBe(GOLDEN_CACHE_HASH);
   });
 
   it('tolerates an unpinned upstream without colliding', () => {
