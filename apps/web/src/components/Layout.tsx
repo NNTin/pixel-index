@@ -43,8 +43,8 @@ function Nav() {
           <DiscordLogo />
         </a>
       )}
-      <Link to="/submit" className="text-ink hover:text-accent">
-        Submit
+      <Link to="/editor" className="text-ink hover:text-accent">
+        Create
       </Link>
       <Link to="/developer" className="text-ink hover:text-accent">
         Developer

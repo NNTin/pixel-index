@@ -75,20 +75,25 @@ function detail(overrides: Record<string, unknown> = {}) {
 function stubFetch(
   handleOther: (url: string, init?: RequestInit) => Response = () => new Response('{}'),
   authResponse: unknown = AUTH_RESPONSE,
+  metaResponse: unknown = META_RESPONSE,
 ) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input);
       if (url.includes('/auth/token')) return Response.json(authResponse);
-      if (url.includes('/meta')) return Response.json(META_RESPONSE);
+      if (url.includes('/meta')) return Response.json(metaResponse);
       return handleOther(url, init);
     }),
   );
 }
 
-function renderEditor(entry: string, handleOther?: (url: string, init?: RequestInit) => Response) {
-  stubFetch(handleOther);
+function renderEditor(
+  entry: string,
+  handleOther?: (url: string, init?: RequestInit) => Response,
+  metaResponse?: unknown,
+) {
+  stubFetch(handleOther, undefined, metaResponse);
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <AuthProvider>
@@ -256,9 +261,61 @@ describe('LayoutEditorPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('offers the Discord invite instead of the editor to a logged-out visitor', async () => {
+  it('lets an anonymous visitor draw on the create path, but keeps preview and publish gated (#85)', async () => {
+    location.hash = '';
+    renderEditor('/editor', undefined, {
+      ...META_RESPONSE,
+      discordInviteUrl: 'https://discord.gg/pixel-index',
+    });
+
+    // The canvas itself is not gated — it renders straight away.
+    const frameWindow = await editorWindow();
+    vi.spyOn(frameWindow, 'postMessage').mockReturnValue(undefined);
+
+    expect(
+      await screen.findByText(
+        'Publishing a layout is available to members of the official Discord community. Log in with Discord to check your membership.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Log in with Discord' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Join the Discord server' })).toHaveAttribute(
+      'href',
+      'https://discord.gg/pixel-index',
+    );
+
+    const drawn = JSON.stringify({ ...SOURCE_LAYOUT, tiles: [1, 1, 1, 1] });
+    fromFrame(frameWindow, { channel: LIVE_OFFICE_CHANNEL, type: 'layout', layout: drawn });
+
+    // Drawing produces bytes, but neither action that would call the API is
+    // usable — preview-check requires the same capability publish does.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Check preview' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Continue to publish' })).toBeDisabled();
+  });
+
+  it('still lets an anonymous visitor import a layout.json on the create path (#85)', async () => {
     location.hash = '';
     renderEditor('/editor');
+    const frameWindow = await editorWindow();
+    const postMessage = vi.spyOn(frameWindow, 'postMessage').mockReturnValue(undefined);
+    fromFrame(frameWindow, { channel: LIVE_OFFICE_CHANNEL, type: 'ready' });
+    await waitFor(() => expect(postMessage).toHaveBeenCalled());
+
+    const imported = { ...SOURCE_LAYOUT, cols: 3, rows: 1, tiles: [1, 1, 1] };
+    fireEvent.change(screen.getByLabelText(/import a layout.json/), {
+      target: { files: [new File([JSON.stringify(imported)], 'layout.json', { type: 'application/json' })] },
+    });
+
+    await waitFor(() =>
+      expect(postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type: 'edit', layout: imported }),
+        window.location.origin,
+      ),
+    );
+  });
+
+  it('keeps the edit-existing path fully gated for an anonymous visitor (#85 is create-path only)', async () => {
+    location.hash = '';
+    renderEditor('/layouts/blue-office/edit', () => Response.json(detail()));
 
     expect(
       await screen.findByText(

@@ -16,8 +16,23 @@ import { useAuth } from '../auth/authState';
  *
  * Shared by `/submit` and the layout editor (#65), which gate on exactly the
  * same capability and differ only in what they call the thing being gated.
+ *
+ * `inline` is the one exception to "hide instead of show" above: the layout
+ * editor's create path (#85) needs the canvas itself usable while logged
+ * out — only the publish hand-off is gated — so it renders `children`
+ * unconditionally and appends the note/buttons beside them instead of
+ * replacing them. Every other caller leaves it unset and keeps the original
+ * hide-or-show behavior.
  */
-export function SubmissionGate({ what, children }: { what: string; children: ReactNode }) {
+export function SubmissionGate({
+  what,
+  inline = false,
+  children,
+}: {
+  what: string;
+  inline?: boolean;
+  children: ReactNode;
+}) {
   const { status, user, login } = useAuth();
   // Public, not gated behind login — someone deciding whether to join the
   // community must not need to sign in first just to see the invite.
@@ -25,7 +40,10 @@ export function SubmissionGate({ what, children }: { what: string; children: Rea
   const inviteUrl = metaState.status === 'ready' ? metaState.data.discordInviteUrl : null;
 
   if (status === 'loading') {
-    return <p className="text-muted">Loading…</p>;
+    // Inline callers show their own disabled state while this resolves
+    // (`user` is null until then, same as logged-out) rather than a second,
+    // competing "Loading…" replacing content that is already on screen.
+    return inline ? <>{children}</> : <p className="text-muted">Loading…</p>;
   }
 
   if (user?.submission.allowed) {
@@ -35,7 +53,7 @@ export function SubmissionGate({ what, children }: { what: string; children: Rea
   const loggedOut = !user;
   const reconnect = !loggedOut && user.submission.reason === 'discord_reauthorization_required';
 
-  return (
+  const note = (
     <>
       <p className="mt-3 text-muted">
         {reconnect
@@ -75,4 +93,15 @@ export function SubmissionGate({ what, children }: { what: string; children: Rea
       </div>
     </>
   );
+
+  if (inline) {
+    return (
+      <>
+        {children}
+        {note}
+      </>
+    );
+  }
+
+  return note;
 }
