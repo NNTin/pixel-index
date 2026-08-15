@@ -80,6 +80,13 @@ function renderLayout() {
 }
 
 describe('Layout header nav', () => {
+  it('links "Create" to the editor, not the raw submit form (#85)', async () => {
+    stubFetch(null);
+    renderLayout();
+    const create = await screen.findByRole('link', { name: 'Create' });
+    expect(create).toHaveAttribute('href', '/editor');
+  });
+
   it('shows the Discord invite to a logged-out visitor — joining is not gated behind authentication', async () => {
     stubFetch('https://discord.gg/pixel-index');
     renderLayout();

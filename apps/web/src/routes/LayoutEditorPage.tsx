@@ -156,11 +156,14 @@ export function LayoutEditorPage() {
   }
 
   async function checkPreview() {
-    if (!accessToken || !raw) return;
+    if (!raw) return;
     setChecking(true);
     setError(null);
     try {
-      const blob = await previewCheck(raw, accessToken);
+      // `accessToken ?? undefined`: previewCheck's own auth is optional
+      // (#85) — an anonymous visitor on the create path still gets a real
+      // preview, just passing no token at all rather than a null one.
+      const blob = await previewCheck(raw, accessToken ?? undefined);
       if (previewObjectUrl.current) URL.revokeObjectURL(previewObjectUrl.current);
       const url = URL.createObjectURL(blob);
       previewObjectUrl.current = url;
@@ -204,138 +207,166 @@ export function LayoutEditorPage() {
     sourceState.status !== 'ready' ||
     sourceState.data === null ||
     (Boolean(user?.discordId) && user?.discordId === sourceState.data.author.discordId);
+  // Whether the create path's "Continue to publish" hand-off will succeed —
+  // the one action still gated behind Discord community membership. `false`
+  // while auth is still resolving (`user` is null then), same as logged-out.
+  // Check preview is deliberately NOT gated on this: `POST
+  // /layouts/preview-check` doesn't persist anything or need membership
+  // either, so it works the same whether this is true or not (#85).
+  const canSubmit = Boolean(user?.submission.allowed);
+
+  const actionRow = (
+    <div className="mt-4 flex flex-wrap items-center gap-3">
+      <button
+        type="button"
+        onClick={() => void checkPreview()}
+        disabled={!raw || checking}
+        className="border-2 border-border px-4 py-2 text-sm text-ink hover:border-accent disabled:opacity-50"
+      >
+        {checking ? 'Rendering…' : 'Check preview'}
+      </button>
+      {replacing ? (
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={!raw || !changed || saving}
+          className="border-2 border-accent px-4 py-2 text-sm text-accent hover:bg-accent hover:text-accent-solid-ink disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={goToSubmit}
+          disabled={!raw || !canSubmit}
+          className="border-2 border-accent px-4 py-2 text-sm text-accent hover:bg-accent hover:text-accent-solid-ink disabled:opacity-50"
+        >
+          Continue to publish
+        </button>
+      )}
+      <label className="text-sm text-muted">
+        <span className="mr-2">or import a layout.json</span>
+        <input
+          type="file"
+          accept="application/json"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) onFileChosen(file);
+          }}
+          className="text-xs text-muted"
+        />
+      </label>
+    </div>
+  );
+
+  // Drawing, importing, and checking a preview are all usable while logged
+  // out on the create path (#85) — none of them persists anything or needs
+  // Discord community membership. Only "Continue to publish" is gated.
+  // Saving over an existing layout is different: it needs a real owner
+  // identity to mean anything (see `owned` above), so that path keeps the
+  // original full-page gate, unchanged.
+  const body = (
+    <>
+      <p className="mt-1 text-sm text-muted">
+        {replacing
+          ? 'Changes replace this layout’s content when you save. Its title, description and tags are edited from My layouts.'
+          : 'Draw an office, then continue to publishing. Nothing is saved until you do.'}
+      </p>
+
+      {replacing && !owned && (
+        <p className="mt-3 text-warning">
+          This layout belongs to someone else — only its owner can save changes to it.
+        </p>
+      )}
+
+      <div
+        className="relative mt-4 overflow-hidden border-2 border-border bg-[#181828]"
+        style={{ height: 'min(70vh, 720px)' }}
+      >
+        <iframe
+          ref={frame}
+          src={`${import.meta.env.BASE_URL}live-office.html`}
+          title="Pixel Agents office editor"
+          className="h-full w-full border-0"
+        />
+        {frameStatus === 'loading' && (
+          <p className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#181828] text-sm text-white/70">
+            Loading the editor…
+          </p>
+        )}
+        {frameStatus === 'error' && (
+          <p
+            role="alert"
+            className="absolute inset-0 flex items-center justify-center bg-[#181828] p-6 text-center text-sm text-white/80"
+          >
+            {frameError || 'The editor could not be loaded.'}
+          </p>
+        )}
+      </div>
+
+      <p className="mt-2 text-xs text-subtle">
+        Scroll to pan, Ctrl+scroll to zoom. Ctrl+Z undoes, R rotates the selected item,
+        Delete removes it.
+      </p>
+
+      {replacing ? (
+        actionRow
+      ) : (
+        <SubmissionGate what="Publishing a layout" inline>
+          {actionRow}
+        </SubmissionGate>
+      )}
+
+      {!replacing && (
+        <p className="mt-2 text-xs text-subtle">
+          Already have a layout.json?{' '}
+          <Link to="/submit" className="text-accent underline">
+            Publish it directly
+          </Link>{' '}
+          without opening the editor.
+        </p>
+      )}
+
+      {error && (
+        <div className="mt-4 rounded-lg border-2 border-danger bg-danger-soft px-4 py-3 text-danger">
+          <p className="font-medium">{error.message}</p>
+          {error.issues && (
+            <ul className="mt-2 list-disc pl-5 text-sm text-danger">
+              {error.issues.map((issue, i) => (
+                <li key={i}>
+                  <code className="text-xs">{issue.path}</code>: {issue.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {previewUrl && (
+        <div className="mt-4 inline-block bg-canvas p-3">
+          <img
+            src={previewUrl}
+            alt="Preview of your layout"
+            className="max-w-full [image-rendering:pixelated]"
+          />
+        </div>
+      )}
+    </>
+  );
+
+  const content =
+    sourceState.status === 'error' ? (
+      <ErrorNotice error={sourceState.error} />
+    ) : metaState.status === 'error' ? (
+      <ErrorNotice error={metaState.error} />
+    ) : (
+      body
+    );
 
   return (
     <div>
       <h1 className="font-display text-2xl text-ink">{heading}</h1>
-      <SubmissionGate what="The layout editor">
-        {sourceState.status === 'error' ? (
-          <ErrorNotice error={sourceState.error} />
-        ) : metaState.status === 'error' ? (
-          <ErrorNotice error={metaState.error} />
-        ) : (
-          <>
-            <p className="mt-1 text-sm text-muted">
-              {replacing
-                ? 'Changes replace this layout’s content when you save. Its title, description and tags are edited from My layouts.'
-                : 'Draw an office, then continue to publishing. Nothing is saved until you do.'}
-            </p>
-
-            {replacing && !owned && (
-              <p className="mt-3 text-warning">
-                This layout belongs to someone else — only its owner can save changes to it.
-              </p>
-            )}
-
-            <div
-              className="relative mt-4 overflow-hidden border-2 border-border bg-[#181828]"
-              style={{ height: 'min(70vh, 720px)' }}
-            >
-              <iframe
-                ref={frame}
-                src={`${import.meta.env.BASE_URL}live-office.html`}
-                title="Pixel Agents office editor"
-                className="h-full w-full border-0"
-              />
-              {frameStatus === 'loading' && (
-                <p className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#181828] text-sm text-white/70">
-                  Loading the editor…
-                </p>
-              )}
-              {frameStatus === 'error' && (
-                <p
-                  role="alert"
-                  className="absolute inset-0 flex items-center justify-center bg-[#181828] p-6 text-center text-sm text-white/80"
-                >
-                  {frameError || 'The editor could not be loaded.'}
-                </p>
-              )}
-            </div>
-
-            <p className="mt-2 text-xs text-subtle">
-              Scroll to pan, Ctrl+scroll to zoom. Ctrl+Z undoes, R rotates the selected item,
-              Delete removes it.
-            </p>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void checkPreview()}
-                disabled={!raw || checking}
-                className="border-2 border-border px-4 py-2 text-sm text-ink hover:border-accent disabled:opacity-50"
-              >
-                {checking ? 'Rendering…' : 'Check preview'}
-              </button>
-              {replacing ? (
-                <button
-                  type="button"
-                  onClick={() => void save()}
-                  disabled={!raw || !changed || saving}
-                  className="border-2 border-accent px-4 py-2 text-sm text-accent hover:bg-accent hover:text-accent-solid-ink disabled:opacity-50"
-                >
-                  {saving ? 'Saving…' : 'Save changes'}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={goToSubmit}
-                  disabled={!raw}
-                  className="border-2 border-accent px-4 py-2 text-sm text-accent hover:bg-accent hover:text-accent-solid-ink disabled:opacity-50"
-                >
-                  Continue to publish
-                </button>
-              )}
-              <label className="text-sm text-muted">
-                <span className="mr-2">or import a layout.json</span>
-                <input
-                  type="file"
-                  accept="application/json"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) onFileChosen(file);
-                  }}
-                  className="text-xs text-muted"
-                />
-              </label>
-            </div>
-
-            {!replacing && (
-              <p className="mt-2 text-xs text-subtle">
-                Already have a layout.json?{' '}
-                <Link to="/submit" className="text-accent underline">
-                  Publish it directly
-                </Link>{' '}
-                without opening the editor.
-              </p>
-            )}
-
-            {error && (
-              <div className="mt-4 rounded-lg border-2 border-danger bg-danger-soft px-4 py-3 text-danger">
-                <p className="font-medium">{error.message}</p>
-                {error.issues && (
-                  <ul className="mt-2 list-disc pl-5 text-sm text-danger">
-                    {error.issues.map((issue, i) => (
-                      <li key={i}>
-                        <code className="text-xs">{issue.path}</code>: {issue.message}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {previewUrl && (
-              <div className="mt-4 inline-block bg-canvas p-3">
-                <img
-                  src={previewUrl}
-                  alt="Preview of your layout"
-                  className="max-w-full [image-rendering:pixelated]"
-                />
-              </div>
-            )}
-          </>
-        )}
-      </SubmissionGate>
+      {replacing ? <SubmissionGate what="The layout editor">{content}</SubmissionGate> : content}
     </div>
   );
 }

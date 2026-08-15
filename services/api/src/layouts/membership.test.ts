@@ -1,6 +1,6 @@
 import { bundledLayoutRevision, sha256 } from '@pixel-index/layout-core';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { signAccessToken } from '../auth/tokens.js';
 import { createTestDatabase, type Harness } from '../db/test-support/harness.js';
@@ -59,6 +59,7 @@ afterAll(async () => {
   await app.close();
   await harness.close();
 });
+afterEach(() => vi.unstubAllGlobals());
 
 const authorization = () => ({ authorization: `Bearer ${accessToken}` });
 
@@ -81,12 +82,6 @@ describe('confirmed guild departure', () => {
       payload: raw,
       headers: { ...authorization(), 'content-type': 'application/json' },
     });
-    const preview = await app.inject({
-      method: 'POST',
-      url: '/api/v1/layouts/preview-check',
-      payload: raw,
-      headers: { ...authorization(), 'content-type': 'application/json' },
-    });
     const edit = await app.inject({
       method: 'PATCH',
       url: `/api/v1/layouts/${slug}`,
@@ -99,11 +94,31 @@ describe('confirmed guild departure', () => {
       payload: raw,
       headers: { ...authorization(), 'content-type': 'application/json' },
     });
-    for (const response of [submission, preview, edit, replacement]) {
+    for (const response of [submission, edit, replacement]) {
       expect(response.statusCode).toBe(403);
       expect(response.json<EnvelopeBody>().error).toBe('discord_membership_required');
     }
     expect((await app.inject({ method: 'GET', url: `/api/v1/layouts/${slug}` })).statusCode).toBe(200);
+
+    // preview-check is deliberately not gated on Discord membership at all
+    // (#85) — nothing it does is persisted, so a departed member can still
+    // preview a layout the same as anyone else.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(Buffer.from([137, 80, 78, 71]), {
+          status: 200,
+          headers: { 'content-type': 'image/png', etag: '"fake"' },
+        }),
+      ),
+    );
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/layouts/preview-check',
+      payload: raw,
+      headers: { ...authorization(), 'content-type': 'application/json' },
+    });
+    expect(preview.statusCode).toBe(200);
   });
 
   it('still permits owner listing and deletion', async () => {

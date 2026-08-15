@@ -494,6 +494,16 @@ the only path a dry-run preview can take. A renderer failure here is a `502`, no
 publish-anyway fallback `POST /api/v1/layouts` uses — there is nothing to "publish
 anyway" when nothing was going to be saved either way.
 
+Unlike every other route in this file, this one is deliberately public — no
+`requireSubmissionCapability`, no login at all. Nothing here is persisted, and Discord
+community membership has no bearing on rendering a preview of bytes that were never
+going to be saved, so the layout editor's create path (#85) can let an anonymous
+visitor draw and preview before deciding whether to log in and publish. The write
+rate-limit bucket (IP-keyed, not user-keyed) is the abuse guard in place of auth; if
+that ever proves insufficient as the community grows, reinstating
+`requireSubmissionCapability` here is a one-line change (see the comment at the route
+in `submit.ts`).
+
 ### Verified against a real renderer, not just a stub
 
 Beyond the unit and route-level suite (stubbed renderer), submission is also verified
