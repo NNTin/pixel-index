@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pixel-agents-hq/index/services/api/schema/share-event-v1.schema.json",
+  "title": "Pixel Index layout.shared event, version 1",
+  "description": "The JSON body delivered to one subscription when an authenticated Pixel Index user shares a layout. The envelope is stable across event types; data contains the layout.shared-specific snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "eventType",
+    "schemaVersion",
+    "occurredAt",
+    "subscriptionId",
+    "data"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Globally unique id for the logical share event. It is unchanged across subscriptions and delivery retries; a receiver with multiple subscriptions deduplicates on subscriptionId plus eventId."
+    },
+    "eventType": {
+      "const": "layout.shared",
+      "description": "Stable event routing key. Consumers must ignore event types they do not support."
+    },
+    "schemaVersion": {
+      "const": 1,
+      "description": "Version of this event payload contract. A breaking contract change uses a new version rather than changing version 1 in place."
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 timestamp at which Pixel Index accepted the share action. It describes the event, not an individual delivery attempt, and is unchanged on retry."
+    },
+    "subscriptionId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Non-secret id of the subscription receiving this payload. The subscription secret is used only to authenticate the HTTP delivery and is never included in the body."
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sharerDiscordId", "owner", "layout", "publication"],
+      "description": "Snapshot of the share-specific data at occurredAt.",
+      "properties": {
+        "sharerDiscordId": {
+          "type": "string",
+          "pattern": "^[0-9]{17,20}$",
+          "description": "Discord user id of the authenticated user who invoked Share. This is the actor and can differ from the layout owner."
+        },
+        "owner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["username", "displayName"],
+          "description": "Server-resolved owner identity at the time of the event. It is a display snapshot, not client-supplied authorship data.",
+          "properties": {
+            "discordId": {
+              "type": "string",
+              "pattern": "^[0-9]{17,20}$",
+              "description": "Stable Discord user id of the owner. Absent only for legacy credited layouts whose owner is not linked to a Discord account."
+            },
+            "username": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Discord username, or the legacy author credit for an unlinked layout, captured when the event was created."
+            },
+            "displayName": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Guild nickname, then Discord global display name, then username; for an unlinked layout, the legacy author credit."
+            }
+          }
+        },
+        "layout": {
+          "$ref": "https://github.com/pixel-agents-hq/index/packages/layout-core/schema/layout.schema.json",
+          "description": "Complete layout.json value shared inline. It is an immutable event-time snapshot and remains usable even when the layout has not been published."
+        },
+        "publication": {
+          "description": "Whether this layout was publicly retrievable when the event was created. The published URL is present exactly when published is true.",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["published", "url"],
+              "properties": {
+                "published": {
+                  "const": true,
+                  "description": "The layout was publicly retrievable when this event was created."
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "Absolute URL of the public Pixel Index layout-detail API resource. It may stop resolving if the layout is later hidden or deleted."
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["published"],
+              "properties": {
+                "published": {
+                  "const": false,
+                  "description": "The layout had no publicly retrievable Pixel Index resource when this event was created."
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -41,9 +41,16 @@ src/layouts/manage.ts    PATCH/PUT/DELETE /layouts/:slug, GET /me/layouts — ow
 src/moderation/audit.ts  recordModerationAction() — the one insert path into the append-only audit log
 src/moderation/routes.ts GET /moderation/layouts — the moderation console's browse endpoint
 
+schema/share-event-v1.schema.json  external layout.shared event contract
+src/webhooks/schema.ts             schema loader and checked TypeScript event shape for #91
+
 src/users/routes.ts      GET /admin/users — read-only interacted-user directory
 src/authors/routes.ts    GET /authors/:id — public author identity/count
 ```
+
+The webhook/event interface for third-party receivers is documented in
+[`docs/webhooks.md`](../../docs/webhooks.md). The versioned JSON Schema, not the prose
+example, is the source of truth for its payload.
 
 ```bash
 npm run dev --workspace @pixel-index/api    # tsx watch

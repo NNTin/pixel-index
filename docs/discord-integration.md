@@ -1,7 +1,9 @@
 # Discord membership, capabilities, and public authors
 
-Pixel Index talks directly to Discord's OAuth2 API. It never asks Pico and does not need
-a bot token, so the index keeps working when the Discord bot is offline.
+Pixel Index talks directly to Discord's OAuth2 API. It never asks Pico to authenticate a
+user and does not need a bot token, so login and the index keep working when the Discord
+bot is offline. Pico may separately be an optional subscriber to
+[webhook events](webhooks.md).
 
 ## System overview
 
@@ -41,6 +43,7 @@ flowchart TB
     web -. "compiles select modules<br/>+ decoded sprites<br/>(build time only)" .-> agents
 
     pico -. "GET /api/v1/layouts<br/>GET /api/v1/layouts/{slug}/preview.png" .-> api
+    api -. "layout.shared webhook<br/>(optional subscription)" .-> pico
 ```
 
 **Pixel Agents is a dependency of three of the four services, not just `renderer` and
@@ -56,13 +59,13 @@ runtime dependency once built (the dotted edge). `api` reads it too, at runtime,
 who they are (see below for exactly which scopes and why); it has no idea Pixel Index's
 `web`, `renderer` or Postgres exist, and never talks to any of them directly.
 
-**Pico depends on Pixel Index; Pixel Index does not depend on Pico.** Pico is an
-ordinary caller of the public, unauthenticated read routes anyone can hit —
+**Pico is an optional integration, not an authentication or availability dependency.**
+It is an ordinary caller of the public, unauthenticated read routes anyone can hit —
 `GET /api/v1/layouts`, `GET /api/v1/layouts/:slug/preview.png`, and the rest of the
-public API (see `services/api/README.md`). Nothing in Pixel Index calls Pico, waits on
-it, or knows it exists at runtime; every route answers identically whether Pico is
-online, crashed, or was never written — which is why the arrow above runs from Pico to
-`api`, dotted, and never the other way.
+public API (see `services/api/README.md`). A moderator may also configure Pico as a
+receiver for `layout.shared` events. That adds the second dotted arrow above, but Pico
+still owns its receiving and Discord-posting code, and a Pico outage must not take down
+login, browsing or publishing. See [the event contract and delivery design](webhooks.md).
 
 ## Discord roles → dashboard capabilities
 
