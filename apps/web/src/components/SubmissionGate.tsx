@@ -46,11 +46,19 @@ export function SubmissionGate({ what, children }: { what: string; children: Rea
       </p>
       <div className="mt-4 flex flex-wrap gap-3">
         {reconnect ? (
-          <button type="button" onClick={login} className="border-2 border-accent px-4 py-2 text-accent">
+          <button
+            type="button"
+            onClick={login}
+            className="cursor-pointer border-2 border-accent px-4 py-2 text-accent hover:bg-accent hover:text-accent-solid-ink"
+          >
             Reconnect Discord
           </button>
         ) : loggedOut ? (
-          <button type="button" onClick={login} className="border-2 border-accent px-4 py-2 text-accent">
+          <button
+            type="button"
+            onClick={login}
+            className="cursor-pointer border-2 border-accent px-4 py-2 text-accent hover:bg-accent hover:text-accent-solid-ink"
+          >
             Log in with Discord
           </button>
         ) : null}
@@ -59,7 +67,7 @@ export function SubmissionGate({ what, children }: { what: string; children: Rea
             href={inviteUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-block border-2 border-accent px-4 py-2 text-accent"
+            className="inline-block border-2 border-accent px-4 py-2 text-accent hover:bg-accent hover:text-accent-solid-ink"
           >
             Join the Discord server
           </a>
