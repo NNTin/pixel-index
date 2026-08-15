@@ -261,7 +261,7 @@ describe('LayoutEditorPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('lets an anonymous visitor draw on the create path, but keeps preview and publish gated (#85)', async () => {
+  it('lets an anonymous visitor draw and check a preview on the create path, but keeps publish gated (#85)', async () => {
     location.hash = '';
     renderEditor('/editor', undefined, {
       ...META_RESPONSE,
@@ -286,10 +286,34 @@ describe('LayoutEditorPage', () => {
     const drawn = JSON.stringify({ ...SOURCE_LAYOUT, tiles: [1, 1, 1, 1] });
     fromFrame(frameWindow, { channel: LIVE_OFFICE_CHANNEL, type: 'layout', layout: drawn });
 
-    // Drawing produces bytes, but neither action that would call the API is
-    // usable — preview-check requires the same capability publish does.
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Check preview' })).toBeDisabled());
+    // Drawing produces bytes, and Check preview works on them without
+    // logging in — preview-check doesn't persist anything or need Discord
+    // membership. Only the publish hand-off is gated.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Check preview' })).toBeEnabled());
     expect(screen.getByRole('button', { name: 'Continue to publish' })).toBeDisabled();
+  });
+
+  it('renders a real preview for an anonymous visitor on the create path (#85)', async () => {
+    location.hash = '';
+    renderEditor('/editor', (url) =>
+      url.includes('/preview-check')
+        ? new Response(new Uint8Array([137, 80, 78, 71]), {
+            status: 200,
+            headers: { 'content-type': 'image/png' },
+          })
+        : new Response('{}'),
+    );
+    const frameWindow = await editorWindow();
+    vi.spyOn(frameWindow, 'postMessage').mockReturnValue(undefined);
+
+    const drawn = JSON.stringify({ ...SOURCE_LAYOUT, tiles: [1, 1, 1, 1] });
+    fromFrame(frameWindow, { channel: LIVE_OFFICE_CHANNEL, type: 'layout', layout: drawn });
+
+    const button = await screen.findByRole('button', { name: 'Check preview' });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+
+    expect(await screen.findByAltText('Preview of your layout')).toBeInTheDocument();
   });
 
   it('still lets an anonymous visitor import a layout.json on the create path (#85)', async () => {

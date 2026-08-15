@@ -247,7 +247,15 @@ export function registerSubmitRoutes(app: FastifyInstance, { config, db, upstrea
         }
         const { validator } = upstream;
 
-        await requireSubmissionCapability(db, config, request);
+        // Deliberately public, unlike every other route in this file: nothing
+        // here is persisted, and Discord membership has no bearing on
+        // rendering a preview of bytes that were never going to be saved
+        // (#85 — the layout editor's canvas and preview are usable while
+        // logged out, only publishing itself is gated). The renderer call is
+        // the expensive part, so the write rate-limit bucket above (IP-keyed,
+        // not user-keyed) is the abuse guard here instead of auth. If that
+        // ever proves insufficient as the community grows, reinstate
+        // `await requireSubmissionCapability(db, config, request);`.
 
         const raw = request.body;
         const byteLength = Buffer.byteLength(raw, 'utf-8');

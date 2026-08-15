@@ -1,8 +1,11 @@
 /**
  * Everything an owner does to their own layout (#9/#15): submit, check a
  * preview before publishing, edit, replace the content, delete, and list
- * what they own. All require an access token — there is no anonymous path
- * through any of these, unlike every function in client.ts.
+ * what they own. All require an access token — except `previewCheck`, which
+ * doesn't persist anything and doesn't need Discord membership either, so
+ * the layout editor's create path (#85) can offer it to anonymous visitors
+ * too. Everything else here still has no anonymous path, unlike every
+ * function in client.ts.
  */
 import { apiRequest, toQueryString } from './client';
 import type {
@@ -33,12 +36,21 @@ export function submitLayout(
   return apiRequest(`/api/v1/layouts${toQueryString(params)}`, { method: 'POST', body: raw, accessToken });
 }
 
-/** Nothing is persisted — see services/api's own note on this route. Returns a PNG blob to feed an <img> via createObjectURL. */
-export function previewCheck(raw: string, accessToken: string): Promise<Blob> {
+/**
+ * Nothing is persisted — see services/api's own note on this route. Returns
+ * a PNG blob to feed an <img> via createObjectURL.
+ *
+ * `accessToken` is optional, unlike every other function here: the API
+ * route itself doesn't require one (#85). Callers that already gate the
+ * rest of their page behind login (SubmitPage, the edit-existing path) will
+ * still have one to pass; the editor's create path does not, once logged
+ * out.
+ */
+export function previewCheck(raw: string, accessToken?: string): Promise<Blob> {
   return apiRequest('/api/v1/layouts/preview-check', {
     method: 'POST',
     body: raw,
-    accessToken,
+    ...(accessToken !== undefined ? { accessToken } : {}),
     parseAs: 'blob',
   });
 }

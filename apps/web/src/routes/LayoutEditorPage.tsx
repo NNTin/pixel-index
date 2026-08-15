@@ -156,11 +156,14 @@ export function LayoutEditorPage() {
   }
 
   async function checkPreview() {
-    if (!accessToken || !raw) return;
+    if (!raw) return;
     setChecking(true);
     setError(null);
     try {
-      const blob = await previewCheck(raw, accessToken);
+      // `accessToken ?? undefined`: previewCheck's own auth is optional
+      // (#85) — an anonymous visitor on the create path still gets a real
+      // preview, just passing no token at all rather than a null one.
+      const blob = await previewCheck(raw, accessToken ?? undefined);
       if (previewObjectUrl.current) URL.revokeObjectURL(previewObjectUrl.current);
       const url = URL.createObjectURL(blob);
       previewObjectUrl.current = url;
@@ -204,10 +207,12 @@ export function LayoutEditorPage() {
     sourceState.status !== 'ready' ||
     sourceState.data === null ||
     (Boolean(user?.discordId) && user?.discordId === sourceState.data.author.discordId);
-  // Whether the create path's own preview/publish calls will succeed —
-  // `POST /layouts/preview-check` and the publish hand-off both require the
-  // same capability `SubmissionGate` gates on. `false` while auth is still
-  // resolving (`user` is null then), same as logged-out.
+  // Whether the create path's "Continue to publish" hand-off will succeed —
+  // the one action still gated behind Discord community membership. `false`
+  // while auth is still resolving (`user` is null then), same as logged-out.
+  // Check preview is deliberately NOT gated on this: `POST
+  // /layouts/preview-check` doesn't persist anything or need membership
+  // either, so it works the same whether this is true or not (#85).
   const canSubmit = Boolean(user?.submission.allowed);
 
   const actionRow = (
@@ -215,7 +220,7 @@ export function LayoutEditorPage() {
       <button
         type="button"
         onClick={() => void checkPreview()}
-        disabled={!raw || checking || (!replacing && !canSubmit)}
+        disabled={!raw || checking}
         className="border-2 border-border px-4 py-2 text-sm text-ink hover:border-accent disabled:opacity-50"
       >
         {checking ? 'Rendering…' : 'Check preview'}
@@ -254,12 +259,12 @@ export function LayoutEditorPage() {
     </div>
   );
 
-  // Drawing and importing a layout are pure client-side operations — the
-  // canvas is usable while logged out (#85). Only the create path's own
-  // preview/publish calls hit the API, so only they need the gate; saving
-  // over an existing layout needs a real owner identity to mean anything
-  // (see `owned` above), so that path keeps the original full-page gate,
-  // unchanged.
+  // Drawing, importing, and checking a preview are all usable while logged
+  // out on the create path (#85) — none of them persists anything or needs
+  // Discord community membership. Only "Continue to publish" is gated.
+  // Saving over an existing layout is different: it needs a real owner
+  // identity to mean anything (see `owned` above), so that path keeps the
+  // original full-page gate, unchanged.
   const body = (
     <>
       <p className="mt-1 text-sm text-muted">

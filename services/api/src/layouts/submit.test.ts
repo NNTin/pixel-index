@@ -541,9 +541,12 @@ describe('POST /api/v1/layouts/preview-check', () => {
     });
   }
 
-  it('is impossible anonymously', async () => {
+  it('works anonymously — nothing here is persisted or needs Discord membership (#85)', async () => {
+    const before = await countPublicLayouts(harness.db);
     const response = await previewCheck(validLayoutJson());
-    expect(response.statusCode).toBe(401);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('image/png');
+    expect(await countPublicLayouts(harness.db)).toBe(before);
   });
 
   it('returns the same actionable validation errors as the real submission path', async () => {
