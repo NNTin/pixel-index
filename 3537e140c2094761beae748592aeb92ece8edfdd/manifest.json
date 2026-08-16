@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-08-16T06:48:58.020Z",
+  "candidate": {
+    "commit": "3537e140c2094761beae748592aeb92ece8edfdd",
+    "version": "1.4.1"
+  },
+  "baseline": {
+    "commit": "0f823e2842b66e472aab747829fd05b7a5c655c4",
+    "version": "1.4.0"
+  },
+  "upstreamUrl": "https://github.com/pixel-agents-hq/pixel-agents",
+  "changed": 0,
+  "failed": 0,
+  "shown": 0,
+  "cap": 50,
+  "layouts": {}
+}
