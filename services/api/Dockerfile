@@ -42,6 +42,7 @@ COPY --from=builder --chown=pixelindex:pixelindex /app/package.json ./package.js
 COPY --from=builder --chown=pixelindex:pixelindex /app/packages/layout-core ./packages/layout-core
 COPY --from=builder --chown=pixelindex:pixelindex /app/services/api/dist ./services/api/dist
 COPY --from=builder --chown=pixelindex:pixelindex /app/services/api/package.json ./services/api/package.json
+COPY --from=builder --chown=pixelindex:pixelindex /app/services/api/schema ./services/api/schema
 COPY --from=builder --chown=pixelindex:pixelindex /app/services/api/migrations ./services/api/migrations
 COPY --chown=pixelindex:pixelindex services/api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
