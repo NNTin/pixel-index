@@ -140,10 +140,15 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ steps.tips.outputs.develop }}
           SKIP: ${{ inputs.skip_ci_check }}
+          # This job's own name, as set on line ~55. develop's tip is often the
+          # commit this very run was dispatched against, so its own check run
+          # — still "in_progress" while this step is running — would otherwise
+          # count itself as a reason develop is not green.
+          SELF_JOB: "Fast-forward main onto develop"
         run: |
           set -euo pipefail
           runs="$(gh api "repos/$REPO/commits/$SHA/check-runs" --paginate \
-            --jq '.check_runs[] | [.name, (.status), (.conclusion // "")] | @tsv')"
+            --jq '.check_runs[] | select(.name != env.SELF_JOB) | [.name, (.status), (.conclusion // "")] | @tsv')"
 
           # neutral and skipped are passes: a job that correctly decided it had
           # nothing to do is not a reason to hold production back.
